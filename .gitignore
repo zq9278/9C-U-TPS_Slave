@@ -1,0 +1,13 @@
+# Build artifacts
+build/
+
+# MX project scratch/temp
+# *.mxproject
+
+# # VS Code workspace and settings
+# .vscode/
+# *.code-workspace
+# /.history
+
+# # Keep .settings directory ignored (IDE settings)
+# .settings/
