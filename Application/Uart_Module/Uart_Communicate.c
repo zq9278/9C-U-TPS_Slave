@@ -122,7 +122,7 @@ void UartFrame_Dispatch(FrameId_t frame_id, const uint8_t *data_ptr, uint16_t da
             push_cmd_f32(APP_CMD_SET_TEMP_RIGHT, handle_float_data(data_ptr, data_len));
             break;
         case U8_LEFT_TEMP_ENABLE:
-            // 使用 APP_CMD_SET_MODE*_PARAM + key=100/101 作为运行期开关（不入设置）
+            // 使用 APP_CMD_SET_MODE*_PARAM + key=100/101 作为运行期开关（盾未在线不入设置）
             push_cmd_key_u8(APP_CMD_SET_MODE1_PARAM, 100, handle_uint8_t_data(data_ptr, data_len));
             break;
         case U8_RIGHT_TEMP_ENABLE:

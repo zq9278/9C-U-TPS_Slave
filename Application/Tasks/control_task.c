@@ -18,6 +18,21 @@ static control_config_t gCfg;
 static uint32_t t_start_tick = 0;
 static uint8_t emergency_stop = 0;
 
+static void SendHeaterStatusFrames(void)
+{
+    tx_frame_t tx = {0};
+    uint8_t right_present = (HAL_GPIO_ReadPin(MCU_Heat1_Sense_GPIO_Port, MCU_Heat1_Sense_Pin) == GPIO_PIN_RESET) ? 1 : 0;
+    uint8_t left_present  = (HAL_GPIO_ReadPin(MCU_Heat2_Sense_GPIO_Port, MCU_Heat2_Sense_Pin) == GPIO_PIN_RESET) ? 1 : 0;
+    uint8_t right_fuse    = (HAL_GPIO_ReadPin(Heat1_Fuse_Detection_GPIO_Port, Heat1_Fuse_Detection_Pin) == GPIO_PIN_SET) ? 1 : 0;
+    uint8_t left_fuse     = (HAL_GPIO_ReadPin(Heat2_Fuse_Detection_GPIO_Port, Heat2_Fuse_Detection_Pin) == GPIO_PIN_SET) ? 1 : 0;
+
+    tx.type = TX_DATA_UINT8;
+    tx.frame_id = U8_LEFT_HEATER_PRESENT;  tx.v.u8 = left_present;  (void)xQueueSend(gTxQueue, &tx, 0);
+    tx.frame_id = U8_RIGHT_HEATER_PRESENT; tx.v.u8 = right_present; (void)xQueueSend(gTxQueue, &tx, 0);
+    tx.frame_id = U8_LEFT_HEATER_FUSE;     tx.v.u8 = left_fuse;     (void)xQueueSend(gTxQueue, &tx, 0);
+    tx.frame_id = U8_RIGHT_HEATER_FUSE;    tx.v.u8 = right_fuse;    (void)xQueueSend(gTxQueue, &tx, 0);
+}
+
 static inline uint32_t ms_since_start(void)
 {
     TickType_t now = xTaskGetTickCount();
@@ -37,6 +52,7 @@ void ControlTask(void *argument)
     PID_Init(&pid_press, 500, 5, 50,  100000, 0, 255, 0, 0);
 
     uint8_t last_tx_100ms = 0;
+    uint8_t idle_heater_tx = 0;
 
     for(;;)
     {
@@ -69,7 +85,13 @@ void ControlTask(void *argument)
             AirValve1(1); AirValve2(1);
             // Pump off
             TIM15->CCR1 = 0;
+            if (++idle_heater_tx >= 10) {
+                idle_heater_tx = 0;
+                SendHeaterStatusFrames();
+            }
             continue;
+        } else {
+            idle_heater_tx = 0;
         }
 
         // Compute phase
@@ -172,17 +194,7 @@ TEMP_CTRL:
             tx.frame_id = F32_LEFT_TEMP_VALUE;      tx.v.f32 = gSensorData.tempL;  xQueueSend(gTxQueue, &tx, 0);
             tx.frame_id = F32_RIGHT_TEMP_VALUE;     tx.v.f32 = gSensorData.tempR;  xQueueSend(gTxQueue, &tx, 0);
 
-            // Heater presence and fuse status
-            uint8_t right_present = (HAL_GPIO_ReadPin(MCU_Heat1_Sense_GPIO_Port, MCU_Heat1_Sense_Pin) == GPIO_PIN_RESET) ? 1 : 0; // Heat1 low=present
-            uint8_t left_present  = (HAL_GPIO_ReadPin(MCU_Heat2_Sense_GPIO_Port, MCU_Heat2_Sense_Pin) == GPIO_PIN_RESET) ? 1 : 0; // Heat2 low=present
-            uint8_t right_fuse    = (HAL_GPIO_ReadPin(Heat1_Fuse_Detection_GPIO_Port, Heat1_Fuse_Detection_Pin) == GPIO_PIN_SET) ? 1 : 0; // high=blown
-            uint8_t left_fuse     = (HAL_GPIO_ReadPin(Heat2_Fuse_Detection_GPIO_Port, Heat2_Fuse_Detection_Pin) == GPIO_PIN_SET) ? 1 : 0; // high=blown
-
-            tx.type = TX_DATA_UINT8;
-            tx.frame_id = U8_LEFT_HEATER_PRESENT;   tx.v.u8 = left_present;  xQueueSend(gTxQueue, &tx, 0);
-            tx.frame_id = U8_RIGHT_HEATER_PRESENT;  tx.v.u8 = right_present; xQueueSend(gTxQueue, &tx, 0);
-            tx.frame_id = U8_LEFT_HEATER_FUSE;      tx.v.u8 = left_fuse;     xQueueSend(gTxQueue, &tx, 0);
-            tx.frame_id = U8_RIGHT_HEATER_FUSE;     tx.v.u8 = right_fuse;    xQueueSend(gTxQueue, &tx, 0);
+            SendHeaterStatusFrames();
         }
     }
 }
