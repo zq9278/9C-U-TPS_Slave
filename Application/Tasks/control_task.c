@@ -15,7 +15,14 @@ static PID_TypeDef pid_press;
 static PID_TypeDef pid_heat_L, pid_heat_R;
 
 static control_config_t gCfg;
+static uint32_t t_start_tick = 0;
 static uint8_t emergency_stop = 0;
+
+static inline uint32_t ms_since_start(void)
+{
+    TickType_t now = xTaskGetTickCount();
+    return (uint32_t)((now - t_start_tick) * portTICK_PERIOD_MS);
+}
 
 static void SendHeaterStatusFrames(void)
 {
@@ -53,9 +60,18 @@ void ControlTask(void *argument)
             if (c.id == CTRL_CMD_STOP) {
                 gCfg.running = 0;
                 emergency_stop = 0;
-            } else if (c.id == CTRL_CMD_START || c.id == CTRL_CMD_UPDATE_CFG) {
+            } else if (c.id == CTRL_CMD_START) {
                 gCfg = c.cfg;
-                gCfg.running = (c.id == CTRL_CMD_START) ? 1 : gCfg.running;
+                gCfg.running = 1;
+                emergency_stop = 0;
+                t_start_tick = xTaskGetTickCount();
+                pid_heat_L.setpoint = (int32_t)(gCfg.temp_target * 100.0f);
+                pid_heat_R.setpoint = (int32_t)(gCfg.temp_target * 100.0f);
+            } else if (c.id == CTRL_CMD_UPDATE_CFG) {
+                gCfg = c.cfg;
+                if (gCfg.running) {
+                    t_start_tick = xTaskGetTickCount();
+                }
                 pid_heat_L.setpoint = (int32_t)(gCfg.temp_target * 100.0f);
                 pid_heat_R.setpoint = (int32_t)(gCfg.temp_target * 100.0f);
             }
@@ -67,8 +83,38 @@ void ControlTask(void *argument)
             AirValve1(1); AirValve2(1);
             TIM15->CCR1 = 0;
         } else {
-            float Pset_L = gCfg.press_enable_L ? gCfg.press_target_max : 0.0f;
-            float Pset_R = gCfg.press_enable_R ? gCfg.press_target_max : 0.0f;
+            uint32_t t1_ms = (uint32_t)(gCfg.t1_rise_s * 1000.0f);
+            uint32_t t2_ms = (uint32_t)(gCfg.t2_hold_s * 1000.0f);
+            uint32_t t3_ms = (uint32_t)(gCfg.t3_pulse_s * 1000.0f);
+            uint32_t total_ms = t1_ms + t2_ms + t3_ms;
+            if (total_ms == 0) total_ms = 1;
+
+            uint32_t ms = ms_since_start();
+            if (ms >= total_ms) {
+                t_start_tick = xTaskGetTickCount();
+                ms = 0;
+            }
+
+            float Pmax = gCfg.press_target_max;
+            float Pset_L = 0.0f, Pset_R = 0.0f;
+
+            if (ms < t1_ms) {
+                float ratio = (t1_ms > 0) ? (float)ms / (float)t1_ms : 1.0f;
+                Pset_L = Pset_R = Pmax * ratio;
+            } else if (ms < t1_ms + t2_ms) {
+                Pset_L = Pset_R = Pmax;
+            } else {
+                uint32_t pulse_elapsed = ms - (t1_ms + t2_ms);
+                uint32_t period = (uint32_t)(gCfg.pulse_on_ms + gCfg.pulse_off_ms);
+                bool on_phase = (period > 0 && gCfg.pulse_on_ms > 0) ?
+                                ((pulse_elapsed % period) < (uint32_t)gCfg.pulse_on_ms) : false;
+                float v = on_phase ? Pmax : 0.0f;
+                Pset_L = v;
+                Pset_R = v;
+            }
+
+            if (!gCfg.press_enable_L) Pset_L = 0.0f;
+            if (!gCfg.press_enable_R) Pset_R = 0.0f;
 
             bool needL = (Pset_L > gSensorData.pressL + 0.2f);
             bool needR = (Pset_R > gSensorData.pressR + 0.2f);
@@ -107,7 +153,6 @@ void ControlTask(void *argument)
 
             if (gCfg.press_enable_L) {
                 HeatPower(Left, 1);
-                pid_heat_L.setpoint = (int32_t)(gCfg.temp_target * 100.0f);
                 PID_Heat(Left, &pid_heat_L, (int32_t)(gSensorData.tempL * 100.0f));
             } else {
                 HeatPWMSet(Left, 0);
@@ -116,7 +161,6 @@ void ControlTask(void *argument)
 
             if (gCfg.press_enable_R) {
                 HeatPower(Right, 1);
-                pid_heat_R.setpoint = (int32_t)(gCfg.temp_target * 100.0f);
                 PID_Heat(Right, &pid_heat_R, (int32_t)(gSensorData.tempR * 100.0f));
             } else {
                 HeatPWMSet(Right, 0);
