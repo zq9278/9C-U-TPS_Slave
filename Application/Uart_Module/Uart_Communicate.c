@@ -75,6 +75,14 @@ void UartFrame_Dispatch(FrameId_t frame_id, const uint8_t *data_ptr, uint16_t da
             push_cmd_f32(APP_CMD_SET_TEMP, handle_float_data(data_ptr, data_len));
             break;
 
+        case U8_LEFT_EYE_ENABLE:
+            push_cmd_u8(APP_CMD_LEFT_ENABLE, handle_uint8_t_data(data_ptr, data_len));
+            break;
+
+        case U8_RIGHT_EYE_ENABLE:
+            push_cmd_u8(APP_CMD_RIGHT_ENABLE, handle_uint8_t_data(data_ptr, data_len));
+            break;
+
         case U8_MODE_SELECT:
             push_cmd_u8(APP_CMD_MODE_SELECT, handle_uint8_t_data(data_ptr, data_len));
             break;
@@ -99,4 +107,3 @@ void UartFrame_Dispatch(FrameId_t frame_id, const uint8_t *data_ptr, uint16_t da
             break;
     }
 }
-

@@ -30,14 +30,16 @@ extern volatile app_state_t gAppState;
 
 // ---------------- Commands from Comm -> App ----------------
 typedef enum {
-    APP_CMD_NONE = 0,         
-    APP_CMD_START,            
-    APP_CMD_STOP,             
-    APP_CMD_MODE_SELECT,      
-    APP_CMD_SET_TEMP,         
-    APP_CMD_SET_PRESSURE_KPA, 
-    APP_CMD_READ_PARAM,       
-    APP_CMD_SAVE_PARAM,       
+    APP_CMD_NONE = 0,          // 无命令
+    APP_CMD_START,             // 启动治疗
+    APP_CMD_STOP,              // 停止治疗
+    APP_CMD_MODE_SELECT,       // 选择曲线模式(1..4)
+    APP_CMD_SET_TEMP,          // 温度设定
+    APP_CMD_SET_PRESSURE_KPA,  // 压力设定
+    APP_CMD_LEFT_ENABLE,       // 左眼开关
+    APP_CMD_RIGHT_ENABLE,      // 右眼开关
+    APP_CMD_READ_PARAM,        // 读取当前参数
+    APP_CMD_SAVE_PARAM,        // 保存参数
 } app_cmd_id_t;
 typedef struct {
     app_cmd_id_t id;   // 命令ID

@@ -20,84 +20,46 @@
 
 ### Host → Device (control)
 
-- Heartbeat and utility
-  - `0x1000` U8_HEARTBEAT_REQ — host sends any uint8; device replies `0x1100 = 1`
-  - `0x10F0` FRAME_ID_TEXT — optional debug text, device logs only
-- Treatment flow (single mode)
-  - `0x10C0` U8_MODE_SELECT — ignored (single fixed mode); keep value=1
-  - `0x10C1` U8_START_TREATMENT — uint8 1=start (0 is equivalent to stop)
-  - `0x10C2` U8_STOP_TREATMENT — stop current treatment
-  - `0x10C3` U8_SAVE_SETTINGS — persist current settings (temperatures, mode select)
-- Temperatures
-  - `0x1002` F32_LEFT_TEMP_SET_C — float left target °C (persisted)
-  - `0x1003` F32_RIGHT_TEMP_SET_C — float right target °C (persisted)
-  - `0x10C4` U8_USE_COMMON_TEMP — uint8 0/1, 1=use left temp for both
-  - `0x1006` U8_LEFT_TEMP_ENABLE — uint8 0/1, runtime only (heater off when 0)
-  - `0x1007` U8_RIGHT_TEMP_ENABLE — uint8 0/1, runtime only
-- Pressure side enables and squeeze mode
-  - `0x1004` U8_LEFT_PRESSURE_ENABLE — uint8 0/1, runtime only
-  - `0x1005` U8_RIGHT_PRESSURE_ENABLE — uint8 0/1, runtime only
-  - `0x100B` U8_SQUEEZE_MODE — uint8 0=normal/sync, 1=alternate, 2=sync (treated as 0)
-- Reserved/ignored (kept for compatibility)
-  - `0x1001` F32_PRESSURE_SET_KPA — ignored (device uses built‑in curves)
-  - `0x1008` U8_PUMP_POWER_VALUE — ignored (closed‑loop control)
-  - `0x1009` U32_HOLD_TIME_MS — ignored in read‑only curve build
-  - `0x100A` U32_RELEASE_TIME_MS — ignored
+- `0x1000` U8_HEARTBEAT_REQ — 心跳请求 (host keeps sending 1)
+- `0x1001` F32_PRESSURE_SET_KPA — 眼盾压力设定 (float kPa)
+- `0x1002` F32_LEFT_TEMP_SET_C — 眼盾温度设定 (float °C，左右共用)
+- `0x10C0` U8_MODE_SELECT — 曲线模式选择 (1/2/3/4)
+- `0x10C1` U8_START_TREATMENT — 启动治疗 (1=start)
+- `0x10C2` U8_STOP_TREATMENT — 停止治疗
+- `0x10C3` U8_SAVE_SETTINGS — 保存当前参数
+- `0x1004` U8_LEFT_EYE_ENABLE — 左眼功能开关 (0关/1开)
+- `0x1005` U8_RIGHT_EYE_ENABLE — 右眼功能开关 (0关/1开)
 
 ### Device → Host (telemetry)
 
-- `0x1100` U8_HEARTBEAT_ACK — value=1
-- `0x1101` F32_LEFT_PRESSURE_VALUE — left pressure, kPa
-- `0x1102` F32_RIGHT_PRESSURE_VALUE — right pressure, kPa
-- `0x1103` F32_LEFT_TEMP_VALUE — left temperature, °C
-- `0x1104` F32_RIGHT_TEMP_VALUE — right temperature, °C
-- `0x1105` U8_SYSTEM_STATE — reserved
-- `0x1106` U8_ALARM_STATE — reserved
-- `0x1107..0x110A` heater presence/fuse — reserved
+- `0x1100` U8_HEARTBEAT_ACK — 心跳应答 (固定 1，每 100 ms)
+- `0x1101` F32_LEFT_PRESSURE_VALUE — 左眼压力反馈 (kPa)
+- `0x1102` F32_RIGHT_PRESSURE_VALUE — 右眼压力反馈 (kPa)
+- `0x1103` F32_LEFT_TEMP_VALUE — 左眼温度反馈 (°C)
+- `0x1104` F32_RIGHT_TEMP_VALUE — 右眼温度反馈 (°C)
+- `0x1107` U8_LEFT_HEATER_PRESENT — 左眼盾存在 (0/1)
+- `0x1108` U8_RIGHT_HEATER_PRESENT — 右眼盾存在 (0/1)
+- `0x1109` U8_LEFT_HEATER_FUSE — 左眼盾熔断状态 (0/1)
+- `0x110A` U8_RIGHT_HEATER_FUSE — 右眼盾熔断状态 (0/1)
 
-## Execution Curve (single mode)
+## Control Behaviour
 
-The device runs a single built‑in curve (defaults in `Application/AppMain/mode_curves.c`) with six parameters. Host can update the runtime values via the setters below; no EEPROM persistence.
-
-- target_kpa — pressure target (kPa)
-- t1_rise_s — slow rise duration (seconds)
-- t2_hold_s — constant hold duration (seconds)
-- t3_pulse_s — total pulse window (seconds)
-- pulse_on_ms — pulse on (milliseconds)
-- pulse_off_ms — pulse off (milliseconds)
-
-Phases:
-- Slow rise (t1): linear ramp to target_kpa
-- Constant hold (t2): maintain target_kpa
-- Pulse (t3): alternate on/off windows; squeeze_mode=1 alternates eyes, else sync
-
-Runtime setters (optional):
-- `0x10D0` F32_MODE1_TARGET_KPA (key=0)
-- `0x10D1` U32_MODE1_T_RISE_MS  (key=1)
-- `0x10D2` U32_MODE1_T_HOLD_MS  (key=2)
-- `0x10D3` U32_MODE1_T_PULSE_TOTAL_MS (key=3)
-- `0x10D4` U16_MODE1_T_PULSE_ON_MS (key=4)
-- `0x10D5` U16_MODE1_T_PULSE_OFF_MS (key=5)
-Notes: updates take effect immediately if running (device issues CTRL_CMD_UPDATE_CFG internally).
-
-Valve/Pump:
-- Single pump (TIM15 CH1 PWM 0..255)
-- Two solenoid valves: right (AirValve1), left (AirValve2)
-- When only one side demands pressure, open only that side’s valve; when both demand, open both; otherwise close both and pump off.
-
-Side enables:
-- Pressure enables (U8_LEFT/RIGHT_PRESSURE_ENABLE): when 0, that side’s setpoint is forced to 0 (release)
-- Temperature enables (U8_LEFT/RIGHT_TEMP_ENABLE): when 0, heater PWM=0 for that side
+- 目标温度: `F32_LEFT_TEMP_SET_C` (°C)
+- 目标压力: `F32_PRESSURE_SET_KPA` (kPa)
+- 左/右眼功能: `U8_LEFT_EYE_ENABLE` / `U8_RIGHT_EYE_ENABLE` (0=关闭, 1=开启)
+- 治疗开始: `U8_START_TREATMENT = 1`，停止: `U8_STOP_TREATMENT` 或左右眼均关闭
+- 下位机维持设定压力（单泵 + 双阀），并根据开关状态控制加热/气压
+- 心跳: 设备每 100 ms 主动发送 `U8_HEARTBEAT_ACK = 1`
 
 ## Typical Flow
 
 1) Host → `0x1000` heartbeat; Device → `0x1100 = 1`
 2) (Optional) set temperatures: `0x1002`/`0x1003`, and `0x10C4` for common temp
-3) (Optional) tweak runtime curve with 0x10D0..0x10D5
-4) Start treatment `0x10C1 = 1`
-5) Monitor telemetry every ~100 ms: `0x1101..0x1104`
-6) Adjust runtime switches as needed: `0x1004/0x1005/0x1006/0x1007/0x100B`
-7) Stop `0x10C2` or `0x10C1 = 0`
+3) 设置温度 `0x1002`、压力 `0x1001`
+4) 分别打开左/右眼功能 `0x1004` / `0x1005`
+5) `0x10C1 = 1` 启动
+6) 倒计时结束时发送 `0x1004/0x1005 = 0` 关闭对应眼盾，或发送 `0x10C2` 全部停止
+7) 如需保存本次设定，发送 `0x10C3`
 
 ## Examples (hex)
 
