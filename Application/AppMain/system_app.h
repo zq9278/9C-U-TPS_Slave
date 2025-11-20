@@ -30,19 +30,19 @@ extern volatile app_state_t gAppState;
 
 // ---------------- Commands from Comm -> App ----------------
 typedef enum {
-    APP_CMD_NONE = 0,
-    APP_CMD_START,
-    APP_CMD_STOP,
-    APP_CMD_MODE_SELECT,       // u8: 1/2
-    APP_CMD_SET_TEMP_LEFT,     // float °C
-    APP_CMD_SET_TEMP_RIGHT,    // float °C
-    APP_CMD_SET_PRESSURE_KPA,  // float kPa (generic)
-    APP_CMD_SET_MODE1_PARAM,   // structure index-based updates
-    APP_CMD_SET_MODE2_PARAM,
-    APP_CMD_READ_PARAM,
-    APP_CMD_SAVE_PARAM,
-    APP_CMD_SET_LEFT_PRESSURE_ENABLE,   // u8 0/1
-    APP_CMD_SET_RIGHT_PRESSURE_ENABLE,  // u8 0/1
+    APP_CMD_NONE = 0,                // 无命令
+    APP_CMD_START,                   // 启动治疗
+    APP_CMD_STOP,                    // 停止治疗
+    APP_CMD_MODE_SELECT,             // 选择模式(1..4)
+    APP_CMD_SET_TEMP_LEFT,           // 设置左眼温度(°C)
+    APP_CMD_SET_TEMP_RIGHT,          // 设置右眼温度(°C)
+    APP_CMD_SET_PRESSURE_KPA,        // 设置压力目标(kPa)
+    APP_CMD_SET_MODE1_PARAM,         // 设置模式参数(曲线阶段/pulse)
+    APP_CMD_SET_MODE2_PARAM,         // 保留/兼容
+    APP_CMD_READ_PARAM,              // 读取当前参数
+    APP_CMD_SAVE_PARAM,              // 保存参数到EEPROM
+    APP_CMD_SET_LEFT_PRESSURE_ENABLE,  // 左侧压力开关(0/1)
+    APP_CMD_SET_RIGHT_PRESSURE_ENABLE, // 右侧压力开关(0/1)
 } app_cmd_id_t;
 
 typedef struct {
