@@ -42,6 +42,8 @@ typedef enum {
     APP_CMD_SET_MODE2_PARAM,
     APP_CMD_READ_PARAM,
     APP_CMD_SAVE_PARAM,
+    APP_CMD_SET_LEFT_PRESSURE_ENABLE,   // u8 0/1
+    APP_CMD_SET_RIGHT_PRESSURE_ENABLE,  // u8 0/1
 } app_cmd_id_t;
 
 typedef struct {
@@ -67,7 +69,9 @@ typedef struct {
     uint8_t mode;           // 1 or 2
     uint8_t running;        // 0/1
     uint8_t squeeze_mode;   // 0 normal, 1 alternate, 2 sync
-} control_config_t;
+    uint8_t press_enable_L; // 0/1 独立左侧压力开�?    
+    uint8_t press_enable_R; // 0/1 独立右侧压力开�?
+    } control_config_t;
 
 typedef enum {
     CTRL_CMD_NONE = 0,
@@ -125,4 +129,3 @@ void IoTask(void *argument);
 void SafetyTask(void *argument);
 
 #endif // SYSTEM_APP_H
-

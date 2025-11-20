@@ -3,7 +3,6 @@
 #include "AppMain.h"
 #include "SYS.h"
 #include "uart_driver.h"
-#include "user_uart_hal.h"
 #include "Uart_Communicate.h"
 #include "Uart_Task.h"
 #include "system_app.h"
@@ -66,7 +65,7 @@ void AppMain_FreeRTOS_Init(void)
     configASSERT(ret == pdPASS);
     ret = xTaskCreate(AppTask,     "AppTask",     512, NULL, 22, NULL);
     configASSERT(ret == pdPASS);
-    ret = xTaskCreate(SensorTask,  "SensorTask",  384, NULL, 24, NULL);
+    ret = xTaskCreate(SensorTask,  "SensorTask",  384, NULL, 2, NULL);
     configASSERT(ret == pdPASS);
     ret = xTaskCreate(ControlTask, "ControlTask", 512, NULL, 25, NULL);
     configASSERT(ret == pdPASS);

@@ -6,10 +6,12 @@
 #include "apply.h"
 #include "tim.h"
 #include "LOG.h"
+#include "main.h"
 
 #include "FreeRTOS.h"
-#include "task.h"// Pressure PID instances
-static PID_TypeDef pid_press_L, pid_press_R;
+#include "task.h"
+// Pressure PID instance (single shared pump)
+static PID_TypeDef pid_press;
 static PID_TypeDef pid_heat_L, pid_heat_R;
 
 static control_config_t gCfg;
@@ -25,16 +27,14 @@ static inline uint32_t ms_since_start(void)
 void ControlTask(void *argument)
 {
     (void)argument;
-    TickType_t last = xTaskGetTickCount();
     memset(&gCfg, 0, sizeof(gCfg));
 
     // PID init (scale: heat PID expects setpoint x100 per existing code)
     PID_Init(&pid_heat_L, 400, 2, 200, 100000, 0, 1999, 0, 0);
     PID_Init(&pid_heat_R, 400, 2, 200, 100000, 0, 1999, 0, 0);
 
-    // Simple pressure PID (arbitrary initial gains, to be tuned)
-    PID_Init(&pid_press_L, 500, 5, 50,  100000, 0, 255, 0, 0);
-    PID_Init(&pid_press_R, 500, 5, 50,  100000, 0, 255, 0, 0);
+    // Single pressure PID (gains to be tuned)
+    PID_Init(&pid_press, 500, 5, 50,  100000, 0, 255, 0, 0);
 
     uint8_t last_tx_100ms = 0;
 
@@ -104,36 +104,63 @@ void ControlTask(void *argument)
             continue;
         }
 
-        // Pressure control (kPa -> setpoints, measure from gSensorData)
-        float eL = Pset_L - gSensorData.pressL;
-        float eR = Pset_R - gSensorData.pressR;
-        pid_press_L.setpoint = (int32_t)(Pset_L * 1000.0f);
-        pid_press_R.setpoint = (int32_t)(Pset_R * 1000.0f);
-        int32_t uL = PID_Compute(&pid_press_L, (int32_t)(gSensorData.pressL * 1000.0f));
-        int32_t uR = PID_Compute(&pid_press_R, (int32_t)(gSensorData.pressR * 1000.0f));
-        uint16_t pwm = (uint16_t)((uL + uR) / 2); // single pump, average effort
-        if (pwm > 255) pwm = 255;
+        // Apply per-side enable flags: disabled side setpoint = 0 (release/hold off)
+        if (!gCfg.press_enable_L) Pset_L = 0.0f;
+        if (!gCfg.press_enable_R) Pset_R = 0.0f;
 
-        // Valve logic + pump
-        if (Pset_L > gSensorData.pressL + 0.2f && Pset_R > gSensorData.pressR + 0.2f) {
-            // inflate both
-            AirValve1(0); AirValve2(0); TIM15->CCR1 = pwm;
-        } else if (Pset_L > gSensorData.pressL + 0.2f) {
-            // inflate left
-            AirValve2(0); AirValve1(1); TIM15->CCR1 = pwm;
-        } else if (Pset_R > gSensorData.pressR + 0.2f) {
-            // inflate right
-            AirValve1(0); AirValve2(1); TIM15->CCR1 = pwm;
+        // Decide which valves need to open this tick
+        bool needL = (Pset_L > gSensorData.pressL + 0.2f);
+        bool needR = (Pset_R > gSensorData.pressR + 0.2f);
+
+        float set_eff = 0.0f;
+        float meas_eff = 0.0f;
+
+        if (needL && needR) {
+            // Inflate both: control to the higher target using the lower measured side
+            AirValve1(0); AirValve2(0);
+            set_eff  = (Pset_L > Pset_R) ? Pset_L : Pset_R;
+            meas_eff = (gSensorData.pressL < gSensorData.pressR) ? gSensorData.pressL : gSensorData.pressR;
+        } else if (needL) {
+            // Inflate left only
+            AirValve2(0); AirValve1(1);
+            set_eff  = Pset_L;
+            meas_eff = gSensorData.pressL;
+        } else if (needR) {
+            // Inflate right only
+            AirValve1(0); AirValve2(1);
+            set_eff  = Pset_R;
+            meas_eff = gSensorData.pressR;
         } else {
-            // hold/deflate
-            AirValve1(1); AirValve2(1); TIM15->CCR1 = 0;
+            // No inflation needed -> release/hold, pump off
+            AirValve1(1); AirValve2(1);
+            TIM15->CCR1 = 0;
+            // Temperature control still runs below
+            goto TEMP_CTRL;
         }
 
-        // Temperature control (using project PID/heat API)
-        pid_heat_L.setpoint = (int32_t)(gCfg.temp_target * 100.0f);
-        pid_heat_R.setpoint = (int32_t)(gCfg.temp_target * 100.0f);
-        PID_Heat(Left,  &pid_heat_L, (int32_t)(gSensorData.tempL * 100.0f));
-        PID_Heat(Right, &pid_heat_R, (int32_t)(gSensorData.tempR * 100.0f));
+        // Single PID compute (kPa -> Pa*1e3 scaling)
+        pid_press.setpoint = (int32_t)(set_eff * 1000.0f);
+        int32_t u = PID_Compute(&pid_press, (int32_t)(meas_eff * 1000.0f));
+        uint16_t pwm = (u < 0) ? 0 : (u > 255 ? 255 : (uint16_t)u);
+        TIM15->CCR1 = pwm;
+
+TEMP_CTRL:
+        // Temperature control (per-side enable at runtime)
+        extern uint8_t g_temp_enable_L, g_temp_enable_R;
+        if (g_temp_enable_L) {
+            pid_heat_L.setpoint = (int32_t)(gCfg.temp_target * 100.0f);
+            PID_Heat(Left,  &pid_heat_L, (int32_t)(gSensorData.tempL * 100.0f));
+        } else {
+            pid_heat_L.setpoint = 0;
+            HeatPWMSet(Left, 0);
+        }
+        if (g_temp_enable_R) {
+            pid_heat_R.setpoint = (int32_t)(gCfg.temp_target * 100.0f);
+            PID_Heat(Right, &pid_heat_R, (int32_t)(gSensorData.tempR * 100.0f));
+        } else {
+            pid_heat_R.setpoint = 0;
+            HeatPWMSet(Right, 0);
+        }
 
         // Telemetry every 100ms
         if (++last_tx_100ms >= 10) {
@@ -144,7 +171,18 @@ void ControlTask(void *argument)
             tx.frame_id = F32_RIGHT_PRESSURE_VALUE; tx.v.f32 = gSensorData.pressR; xQueueSend(gTxQueue, &tx, 0);
             tx.frame_id = F32_LEFT_TEMP_VALUE;      tx.v.f32 = gSensorData.tempL;  xQueueSend(gTxQueue, &tx, 0);
             tx.frame_id = F32_RIGHT_TEMP_VALUE;     tx.v.f32 = gSensorData.tempR;  xQueueSend(gTxQueue, &tx, 0);
+
+            // Heater presence and fuse status
+            uint8_t right_present = (HAL_GPIO_ReadPin(MCU_Heat1_Sense_GPIO_Port, MCU_Heat1_Sense_Pin) == GPIO_PIN_RESET) ? 1 : 0; // Heat1 low=present
+            uint8_t left_present  = (HAL_GPIO_ReadPin(MCU_Heat2_Sense_GPIO_Port, MCU_Heat2_Sense_Pin) == GPIO_PIN_RESET) ? 1 : 0; // Heat2 low=present
+            uint8_t right_fuse    = (HAL_GPIO_ReadPin(Heat1_Fuse_Detection_GPIO_Port, Heat1_Fuse_Detection_Pin) == GPIO_PIN_SET) ? 1 : 0; // high=blown
+            uint8_t left_fuse     = (HAL_GPIO_ReadPin(Heat2_Fuse_Detection_GPIO_Port, Heat2_Fuse_Detection_Pin) == GPIO_PIN_SET) ? 1 : 0; // high=blown
+
+            tx.type = TX_DATA_UINT8;
+            tx.frame_id = U8_LEFT_HEATER_PRESENT;   tx.v.u8 = left_present;  xQueueSend(gTxQueue, &tx, 0);
+            tx.frame_id = U8_RIGHT_HEATER_PRESENT;  tx.v.u8 = right_present; xQueueSend(gTxQueue, &tx, 0);
+            tx.frame_id = U8_LEFT_HEATER_FUSE;      tx.v.u8 = left_fuse;     xQueueSend(gTxQueue, &tx, 0);
+            tx.frame_id = U8_RIGHT_HEATER_FUSE;     tx.v.u8 = right_fuse;    xQueueSend(gTxQueue, &tx, 0);
         }
     }
 }
-

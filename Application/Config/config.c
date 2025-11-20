@@ -110,27 +110,7 @@ void Settings_Broadcast(void)
     rk3576_uart_port.sender(DATA_FLOAT, F32_LEFT_TEMP_SET_C,  &lt);
     rk3576_uart_port.sender(DATA_FLOAT, F32_RIGHT_TEMP_SET_C, &rt);
 
-    // Mode 1
-    float m1_p = g_settings.mode[0].target_kpa;
-    rk3576_uart_port.sender(DATA_FLOAT,  F32_MODE1_TARGET_KPA, &m1_p);
-    rk3576_uart_port.sender(DATA_UINT8_T, U8_MODE1_SQUEEZE_MODE, &g_settings.mode[0].squeeze_mode);
-    uint32_t u32;
-    uint16_t u16;
-    u32 = g_settings.mode[0].t_rise_ms;        rk3576_uart_port.sender(DATA_UINT32_T, U32_MODE1_T_RISE_MS, (void*)&u32);
-    u32 = g_settings.mode[0].t_hold_ms;        rk3576_uart_port.sender(DATA_UINT32_T, U32_MODE1_T_HOLD_MS, (void*)&u32);
-    u32 = g_settings.mode[0].t_pulse_total_ms; rk3576_uart_port.sender(DATA_UINT32_T, U32_MODE1_T_PULSE_TOTAL_MS, (void*)&u32);
-    u16 = g_settings.mode[0].t_pulse_on_ms;    rk3576_uart_port.sender(DATA_UINT16_T, U16_MODE1_T_PULSE_ON_MS, (void*)&u16);
-    u16 = g_settings.mode[0].t_pulse_off_ms;   rk3576_uart_port.sender(DATA_UINT16_T, U16_MODE1_T_PULSE_OFF_MS, (void*)&u16);
 
-    // Mode 2
-    float m2_p = g_settings.mode[1].target_kpa;
-    rk3576_uart_port.sender(DATA_FLOAT,  F32_MODE2_TARGET_KPA, &m2_p);
-    rk3576_uart_port.sender(DATA_UINT8_T, U8_MODE2_SQUEEZE_MODE, &g_settings.mode[1].squeeze_mode);
-    u32 = g_settings.mode[1].t_rise_ms;        rk3576_uart_port.sender(DATA_UINT32_T, U32_MODE2_T_RISE_MS, (void*)&u32);
-    u32 = g_settings.mode[1].t_hold_ms;        rk3576_uart_port.sender(DATA_UINT32_T, U32_MODE2_T_HOLD_MS, (void*)&u32);
-    u32 = g_settings.mode[1].t_pulse_total_ms; rk3576_uart_port.sender(DATA_UINT32_T, U32_MODE2_T_PULSE_TOTAL_MS, (void*)&u32);
-    u16 = g_settings.mode[1].t_pulse_on_ms;    rk3576_uart_port.sender(DATA_UINT16_T, U16_MODE2_T_PULSE_ON_MS, (void*)&u16);
-    u16 = g_settings.mode[1].t_pulse_off_ms;   rk3576_uart_port.sender(DATA_UINT16_T, U16_MODE2_T_PULSE_OFF_MS, (void*)&u16);
 }
 
 // Global settings instance

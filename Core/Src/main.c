@@ -118,7 +118,6 @@ int main(void)
 	delay_init(64);
 	HAL_Delay(100);
 	Fan1(1);
-	ADS1248_Init();
 	
 	
 	// HAL_UART_Receive_IT(&huart3, (uint8_t *)&uart_rx_byte, 1);  // ��ʼ���յ�1�ֽ�

@@ -49,6 +49,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Application/ads1248/ads1248.c
     # Application/apply/apply.c  # excluded: legacy state machine replaced by ControlTask
     Application/AppMain/AppMain.c
+    Application/AppMain/mode_curves.c
     Application/Config/config.c
     Application/Tasks/comm_task.c
     Application/Tasks/app_task.c
@@ -69,8 +70,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Application/Uart_Module/Uart_Communicate.c
     Application/Uart_Module/LOG.c
     Application/Uart_Module/uart_driver.c
-    Application/Uart_Module/Uart_Task.c
-    Application/Uart_Module/user_uart_hal.c
+    #Application/Uart_Module/Uart_Task.c
     Application/USER_TIM/USER_TIM.c
     Application/water/water.c
 )
@@ -115,5 +115,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
     $<$<COMPILE_LANGUAGE:C>:-include ${CMAKE_SOURCE_DIR}/Application/SYS/types_compat.h>
 )
-# 鍚敤 printf 鐨勬诞鐐规敮鎸?target_link_options(${CMAKE_PROJECT_NAME} PRIVATE`n    -u _printf_float`n)
-
+# 启用 printf 的浮点格式支持（newlib-nano 默认禁用）
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
+    -u _printf_float
+)

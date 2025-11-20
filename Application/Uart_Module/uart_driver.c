@@ -9,12 +9,12 @@
 
 // External UART handles
 extern UART_HandleTypeDef huart1; // debug
-extern UART_HandleTypeDef huart2; // business
+extern UART_HandleTypeDef huart3; // business
 
 // Ports
 UartPort_t rk3576_uart_port = {
-    .huart = &huart2,
-    .name  = "UART2",
+    .huart = &huart3,
+    .name  = "UART3",
 };
 UartPort_t debug_uart_port = {
     .huart = &huart1,
@@ -24,11 +24,15 @@ UartPort_t debug_uart_port = {
 // DMA RX buffers
 uint8_t uart1_dma_rx_buf[UART_RX_DMA_BUFFER_SIZE];
 uint8_t uart2_dma_rx_buf[UART_RX_DMA_BUFFER_SIZE];
+// DMA TX buffer (single in-flight frame, protected by uartTxDoneSem)
+static uint8_t uart2_dma_tx_buf[UART_TX_MSG_MAX_LEN];
 
 void rk3576_uart_port_Init(UartPort_t *port)
 {
     port->tx_queue = xQueueCreate(UART_TX_QUEUE_LENGTH, sizeof(UartTxMessage_t));
     port->rx_queue = xQueueCreate(UART_RX_QUEUE_SIZE, sizeof(UartRxMessage_t));
+    configASSERT(port->tx_queue != NULL);
+    configASSERT(port->rx_queue != NULL);
     port->uartTxDoneSem = xSemaphoreCreateBinary();
     xSemaphoreGive(port->uartTxDoneSem);
 
@@ -108,9 +112,16 @@ bool send_rk3576_uart_port_frame(DataType_t type, uint16_t frame_id, const void 
     }
     if (data_len > FRAME_MAX_DATA_LEN) return false;
 
-    UartTxMessage_t msg;
-    memset(&msg, 0, sizeof(msg));
-    uint8_t *p = msg.data;
+    // Serialize access to UART TX DMA using the same semaphore used by SerialTxTask
+    if (rk3576_uart_port.uartTxDoneSem == NULL) return false;
+    if (xSemaphoreTake(rk3576_uart_port.uartTxDoneSem, pdMS_TO_TICKS(200)) != pdTRUE) {
+        // Busy or timeout
+        return false;
+    }
+
+    // Build frame into persistent DMA buffer
+    memset(uart2_dma_tx_buf, 0, sizeof(uart2_dma_tx_buf));
+    uint8_t *p = uart2_dma_tx_buf;
 
     *p++ = FRAME_HEADER_1;
     *p++ = FRAME_HEADER_2;
@@ -132,13 +143,22 @@ bool send_rk3576_uart_port_frame(DataType_t type, uint16_t frame_id, const void 
         memcpy(p, data, data_len); p += data_len;
     }
 
-    uint16_t crc = crc16_modbus(msg.data + 2, (uint16_t)(2 + 1 + 2 + data_len));
+    uint16_t crc = crc16_modbus(uart2_dma_tx_buf + 2, (uint16_t)(2 + 1 + 2 + data_len));
     memcpy(p, &crc, 2); p += 2;
     *p++ = FRAME_TAIL_1;
     *p++ = FRAME_TAIL_2;
 
-    msg.length = (uint16_t)(p - msg.data);
-    return xQueueSend(rk3576_uart_port.tx_queue, &msg, 100) == pdPASS;
+    uint16_t len = (uint16_t)(p - uart2_dma_tx_buf);
+
+    // Launch DMA transmit directly
+    HAL_StatusTypeDef st = HAL_UART_Transmit_DMA(rk3576_uart_port.huart, uart2_dma_tx_buf, len);
+    if (st != HAL_OK) {
+        // Release semaphore on failure to avoid deadlock
+        xSemaphoreGive(rk3576_uart_port.uartTxDoneSem);
+        return false;
+    }
+    // Semaphore will be released in HAL_UART_TxCpltCallback
+    return true;
 }
 
 void parse_rk3576_uart_port_stream(const uint8_t *buf, uint16_t len)
@@ -198,4 +218,3 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
         xSemaphoreGiveFromISR(rk3576_uart_port.uartTxDoneSem, &hpw);
     portYIELD_FROM_ISR(hpw);
 }
-

@@ -125,12 +125,12 @@ void Error_Handler(void);
 #define OLED_SCL_GPIO_Port GPIOC
 #define WaterValve1_Pin GPIO_PIN_9
 #define WaterValve1_GPIO_Port GPIOC
-#define WaterValve2_Pin GPIO_PIN_0
-#define WaterValve2_GPIO_Port GPIOD
-#define WaterValve3_Pin GPIO_PIN_1
-#define WaterValve3_GPIO_Port GPIOD
-#define WaterValve4_Pin GPIO_PIN_2
-#define WaterValve4_GPIO_Port GPIOD
+#define MCU_Heat2_Sense_Pin GPIO_PIN_0
+#define MCU_Heat2_Sense_GPIO_Port GPIOD
+#define Heat2_Fuse_Blown_Pin GPIO_PIN_1
+#define Heat2_Fuse_Blown_GPIO_Port GPIOD
+#define Heat2_Fuse_Detection_Pin GPIO_PIN_2
+#define Heat2_Fuse_Detection_GPIO_Port GPIOD
 #define WaterValve5_Pin GPIO_PIN_3
 #define WaterValve5_GPIO_Port GPIOD
 #define AirPump3_Pin GPIO_PIN_4
@@ -139,6 +139,12 @@ void Error_Handler(void);
 #define TS1_GPIO_Port GPIOB
 #define SW_CNT_Pin GPIO_PIN_6
 #define SW_CNT_GPIO_Port GPIOB
+#define MCU_Heat1_Sense_Pin GPIO_PIN_7
+#define MCU_Heat1_Sense_GPIO_Port GPIOB
+#define Heat1_Fuse_Blown_Pin GPIO_PIN_8
+#define Heat1_Fuse_Blown_GPIO_Port GPIOB
+#define Heat1_Fuse_Detection_Pin GPIO_PIN_9
+#define Heat1_Fuse_Detection_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 #define Fan1_Pin GPIO_PIN_1

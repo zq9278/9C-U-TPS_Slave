@@ -4,6 +4,16 @@
  *   - 统一帧 ID 规划：0x1000~0x10FF 为上位机 -> 下位机控制命令；
  *                     0x1100~0x11FF 为下位机 -> 上位机实时反馈。
  *   - 声明帧调度函数与若干数据解析辅助函数。
+ *
+ * 压力曲线约定（三段式，由下位机维护与解析）:
+ *   1) 缓慢上升：维持时间 t1（秒），从 0 缓升到目标压力；
+ *   2) 恒定压力：维持时间 t2（秒），保持目标压力；
+ *   3) 脉动挤压：总维持时间 t3（秒），期间按 t_on/t_off 交替开关；
+ *
+ * 上位机简化交互建议:
+ *   - 仅发送模式标志位（U8_MODE_SELECT） + 启动/停止命令（U8_START_TREATMENT/U8_STOP_TREATMENT）；
+ *   - 具体曲线（t1/t2/t3、t_on/t_off、目标压力等）在下位机本地编辑/存储并生效；
+ *   - 下方的 Mode1/Mode2 精细化写入 ID 保留用于调试/备选，不是生产必要项。
  */
 
 #ifndef ELECTRICAL_MUSCLE_QUBEMX_UART_COMMUNICATE_H
@@ -30,29 +40,12 @@ typedef enum
     FRAME_ID_TEXT               = 0x10F0, // 调试文本帧（可选）
 
     // 新增：模式/曲线配置与控制
-    U8_MODE_SELECT              = 0x10C0, // 当前治疗模式选择（1/2）
+    U8_MODE_SELECT              = 0x10C0, // 当前治疗模式选择（1/2/3/4）
     U8_START_TREATMENT          = 0x10C1, // 启动治疗（当前模式）
     U8_STOP_TREATMENT           = 0x10C2, // 停止治疗（全部关闭）
     U8_SAVE_SETTINGS            = 0x10C3, // 保存当前设置到 EEPROM
     U8_USE_COMMON_TEMP          = 0x10C4, // 左右温度是否一致（uint8 0/1）
 
-    // Mode 1 profile
-    F32_MODE1_TARGET_KPA        = 0x10D0,
-    U32_MODE1_T_RISE_MS         = 0x10D1,
-    U32_MODE1_T_HOLD_MS         = 0x10D2,
-    U32_MODE1_T_PULSE_TOTAL_MS  = 0x10D3,
-    U16_MODE1_T_PULSE_ON_MS     = 0x10D4,
-    U16_MODE1_T_PULSE_OFF_MS    = 0x10D5,
-    U8_MODE1_SQUEEZE_MODE       = 0x10D6,
-
-    // Mode 2 profile
-    F32_MODE2_TARGET_KPA        = 0x10E0,
-    U32_MODE2_T_RISE_MS         = 0x10E1,
-    U32_MODE2_T_HOLD_MS         = 0x10E2,
-    U32_MODE2_T_PULSE_TOTAL_MS  = 0x10E3,
-    U16_MODE2_T_PULSE_ON_MS     = 0x10E4,
-    U16_MODE2_T_PULSE_OFF_MS    = 0x10E5,
-    U8_MODE2_SQUEEZE_MODE       = 0x10E6,
 
     // 下位机 -> 上位机（反馈/监测）
     U8_HEARTBEAT_ACK            = 0x1100, // 心跳应答

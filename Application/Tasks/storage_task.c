@@ -1,6 +1,7 @@
 #include "storage_task.h"
 #include "config.h"
 #include "LOG.h"
+#include "AppMain/mode_curves.h"
 
 extern SystemSettings_t g_settings;
 
@@ -16,6 +17,7 @@ void StorageTask(void *argument)
             {
                 case STORAGE_CMD_LOAD_ALL:
                     Config_Init();
+                    ModeCurves_InitFromSettings(&g_settings);
                     Settings_Broadcast();
                     break;
                 case STORAGE_CMD_SAVE_PARAM:
@@ -27,4 +29,3 @@ void StorageTask(void *argument)
         }
     }
 }
-
