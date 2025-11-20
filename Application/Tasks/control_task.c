@@ -163,7 +163,8 @@ void ControlTask(void *argument)
         // Single PID compute (kPa -> Pa*1e3 scaling)
         pid_press.setpoint = (int32_t)(set_eff * 1000.0f);
         int32_t u = PID_Compute(&pid_press, (int32_t)(meas_eff * 1000.0f));
-        uint16_t pwm = (u < 0) ? 0 : (u > 255 ? 255 : (uint16_t)u);
+       // uint16_t pwm = (u < 0) ? 0 : (u > 255 ? 255 : (uint16_t)u);
+        uint16_t pwm =255;
         TIM15->CCR1 = pwm;
 
 TEMP_CTRL:
@@ -189,10 +190,14 @@ TEMP_CTRL:
             last_tx_100ms = 0;
             tx_frame_t tx;
             tx.type = TX_DATA_FLOAT;
-            tx.frame_id = F32_LEFT_PRESSURE_VALUE;  tx.v.f32 = gSensorData.pressL; xQueueSend(gTxQueue, &tx, 0);
-            tx.frame_id = F32_RIGHT_PRESSURE_VALUE; tx.v.f32 = gSensorData.pressR; xQueueSend(gTxQueue, &tx, 0);
-            tx.frame_id = F32_LEFT_TEMP_VALUE;      tx.v.f32 = gSensorData.tempL;  xQueueSend(gTxQueue, &tx, 0);
-            tx.frame_id = F32_RIGHT_TEMP_VALUE;     tx.v.f32 = gSensorData.tempR;  xQueueSend(gTxQueue, &tx, 0);
+            tx.frame_id = F32_LEFT_PRESSURE_VALUE;  tx.v.f32 = gSensorData.pressL; (void)xQueueSend(gTxQueue, &tx, 0);
+            tx.frame_id = F32_RIGHT_PRESSURE_VALUE; tx.v.f32 = gSensorData.pressR; (void)xQueueSend(gTxQueue, &tx, 0);
+            tx.frame_id = F32_LEFT_TEMP_VALUE;      tx.v.f32 = gSensorData.tempL;  (void)xQueueSend(gTxQueue, &tx, 0);
+            tx.frame_id = F32_RIGHT_TEMP_VALUE;     tx.v.f32 = gSensorData.tempR;  (void)xQueueSend(gTxQueue, &tx, 0);
+
+            tx.type = TX_DATA_UINT8;
+            tx.frame_id = U8_HEARTBEAT_REQ; tx.v.u8 = 1; (void)xQueueSend(gTxQueue, &tx, 0);
+            tx.frame_id = U8_HEARTBEAT_ACK; tx.v.u8 = 1; (void)xQueueSend(gTxQueue, &tx, 0);
 
             SendHeaterStatusFrames();
         }

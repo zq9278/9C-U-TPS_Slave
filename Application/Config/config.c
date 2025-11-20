@@ -99,18 +99,14 @@ void Config_Init(void)
 
 void Settings_Broadcast(void)
 {
-    // Send current settings to host via rk3576 port
-    // Mode select
     uint8_t mode_sel = g_settings.mode_select;
     rk3576_uart_port.sender(DATA_UINT8_T, U8_MODE_SELECT, &mode_sel);
 
-    // Temperatures
-    float lt = g_settings.use_common_temp ? g_settings.left_temp_c : g_settings.left_temp_c;
-    float rt = g_settings.use_common_temp ? g_settings.left_temp_c : g_settings.right_temp_c;
-    rk3576_uart_port.sender(DATA_FLOAT, F32_LEFT_TEMP_SET_C,  &lt);
-    rk3576_uart_port.sender(DATA_FLOAT, F32_RIGHT_TEMP_SET_C, &rt);
+    float temp = g_settings.left_temp_c;
+    rk3576_uart_port.sender(DATA_FLOAT, F32_LEFT_TEMP_SET_C, &temp);
 
-
+    float press = g_settings.mode[(mode_sel <= 1) ? 0 : 1].target_kpa;
+    rk3576_uart_port.sender(DATA_FLOAT, F32_PRESSURE_SET_KPA, &press);
 }
 
 // Global settings instance
@@ -164,4 +160,3 @@ static inline void tx_f32(uint16_t id, float v)
     tx.type = TX_DATA_FLOAT; tx.frame_id = id; tx.v.f32 = v;
     (void)xQueueSend(gTxQueue, &tx, 0);
 }
-
