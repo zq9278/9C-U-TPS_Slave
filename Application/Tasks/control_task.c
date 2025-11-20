@@ -27,10 +27,10 @@ static inline uint32_t ms_since_start(void)
 static void SendHeaterStatusFrames(void)
 {
     tx_frame_t tx = {0};
-    uint8_t right_present = (HAL_GPIO_ReadPin(MCU_Heat1_Sense_GPIO_Port, MCU_Heat1_Sense_Pin) == GPIO_PIN_RESET) ? 1 : 0;
-    uint8_t left_present  = (HAL_GPIO_ReadPin(MCU_Heat2_Sense_GPIO_Port, MCU_Heat2_Sense_Pin) == GPIO_PIN_RESET) ? 1 : 0;
-    uint8_t right_fuse    = (HAL_GPIO_ReadPin(Heat1_Fuse_Detection_GPIO_Port, Heat1_Fuse_Detection_Pin) == GPIO_PIN_SET) ? 1 : 0;
-    uint8_t left_fuse     = (HAL_GPIO_ReadPin(Heat2_Fuse_Detection_GPIO_Port, Heat2_Fuse_Detection_Pin) == GPIO_PIN_SET) ? 1 : 0;
+    uint8_t right_present = (HAL_GPIO_ReadPin(MCU_Heat1_Sense_GPIO_Port, MCU_Heat1_Sense_Pin) == GPIO_PIN_RESET) ? 0 : 1;//低电平表示不存在，给0
+    uint8_t left_present  = (HAL_GPIO_ReadPin(MCU_Heat2_Sense_GPIO_Port, MCU_Heat2_Sense_Pin) == GPIO_PIN_RESET) ? 0 : 1;//低电平表示不存在，给0
+    uint8_t right_fuse    = (HAL_GPIO_ReadPin(Heat1_Fuse_Detection_GPIO_Port, Heat1_Fuse_Detection_Pin) == GPIO_PIN_SET) ? 0 : 1;//高电平表示没熔断，给0
+    uint8_t left_fuse     = (HAL_GPIO_ReadPin(Heat2_Fuse_Detection_GPIO_Port, Heat2_Fuse_Detection_Pin) == GPIO_PIN_SET) ? 0 : 1;//高电平表示没熔断，给0
 
     tx.type = TX_DATA_UINT8;
     tx.frame_id = U8_LEFT_HEATER_PRESENT;  tx.v.u8 = left_present;  xQueueSend(gTxQueue, &tx, 0);

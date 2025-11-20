@@ -39,7 +39,7 @@ QueueHandle_t gStorageQueue = NULL;
 QueueHandle_t gSafetyQueue = NULL;
 
 volatile sensor_data_t gSensorData = {0};
-volatile app_state_t gAppState = APP_STATE_IDLE;
+volatile app_state_t gAppState = APP_STATE_RUN_MODE1;//自定义曲线模式
 
 // Task prototypes
 // legacy task prototypes removed
@@ -65,7 +65,7 @@ void AppMain_FreeRTOS_Init(void)
     configASSERT(ret == pdPASS);
     ret = xTaskCreate(AppTask,     "AppTask",     512, NULL, 22, NULL);
     configASSERT(ret == pdPASS);
-    ret = xTaskCreate(SensorTask,  "SensorTask",  384, NULL, 2, NULL);
+    ret = xTaskCreate(SensorTask,  "SensorTask",  384, NULL, 19, NULL);
     configASSERT(ret == pdPASS);
     ret = xTaskCreate(ControlTask, "ControlTask", 512, NULL, 25, NULL);
     configASSERT(ret == pdPASS);

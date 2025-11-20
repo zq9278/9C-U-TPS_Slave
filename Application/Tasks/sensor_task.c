@@ -21,8 +21,8 @@ for(;;)
     {
         int32_t raw = ADS1248_Read();
         float t = ADC2Temperature(raw); // project-provided conversion, returns °C
-        if (RTDChannel == 0)gSensorData.tempR = t;
-        else gSensorData.tempL = t;
+        if (RTDChannel == 0)gSensorData.tempR = t/100.0f;
+        else gSensorData.tempL = t/100.0f;
         RTDChannel ^= 1; // 切换通道
         ADS1248_ChangeChannel(RTDChannel);
     }
@@ -36,7 +36,7 @@ for(;;)
 
     gSensorData.tick = xTaskGetTickCount();
 
-    // // 每 1 秒汇总一次
+    // 每 1 秒汇总一次
     // static uint16_t log_div = 0;
     // if (++log_div >= 10) {
     //     log_div = 0;

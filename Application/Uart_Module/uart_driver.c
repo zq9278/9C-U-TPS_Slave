@@ -27,6 +27,14 @@ uint8_t uart2_dma_rx_buf[UART_RX_DMA_BUFFER_SIZE];
 // DMA TX buffer (single in-flight frame, protected by uartTxDoneSem)
 static uint8_t uart2_dma_tx_buf[UART_TX_MSG_MAX_LEN];
 
+static void restart_rx_dma(UartPort_t *port)
+{
+    if (port->huart->hdmarx == NULL) return;
+    if (HAL_UARTEx_ReceiveToIdle_DMA(port->huart, port->dma_rx_buf, UART_RX_DMA_BUFFER_SIZE) == HAL_OK) {
+        __HAL_DMA_DISABLE_IT(port->huart->hdmarx, DMA_IT_HT);
+    }
+}
+
 void rk3576_uart_port_Init(UartPort_t *port)
 {
     port->tx_queue = xQueueCreate(UART_TX_QUEUE_LENGTH, sizeof(UartTxMessage_t));
@@ -42,7 +50,7 @@ void rk3576_uart_port_Init(UartPort_t *port)
     port->crc    = crc16_modbus;
 
     if (port->huart->hdmarx != NULL) {
-        HAL_UARTEx_ReceiveToIdle_DMA(port->huart, port->dma_rx_buf, UART_RX_DMA_BUFFER_SIZE);
+        restart_rx_dma(port);
         __HAL_UART_ENABLE_IT(port->huart, UART_IT_IDLE);
     } else {
         HAL_UARTEx_ReceiveToIdle_IT(port->huart, port->dma_rx_buf, UART_RX_DMA_BUFFER_SIZE);
@@ -58,7 +66,7 @@ void debug_uart_port_Init(UartPort_t *port)
     port->crc    = crc16_modbus;
 
     if (port->huart->hdmarx != NULL) {
-        HAL_UARTEx_ReceiveToIdle_DMA(port->huart, port->dma_rx_buf, UART_RX_DMA_BUFFER_SIZE);
+        restart_rx_dma(port);
         __HAL_UART_ENABLE_IT(port->huart, UART_IT_IDLE);
     } else {
         HAL_UARTEx_ReceiveToIdle_IT(port->huart, port->dma_rx_buf, UART_RX_DMA_BUFFER_SIZE);
@@ -71,7 +79,7 @@ void rk3576_uart_port_RxCallback(UartPort_t *port, uint16_t size)
     UartRxMessage_t msg;
     memcpy(msg.data, port->dma_rx_buf, size);
     msg.length = size;
-    HAL_UARTEx_ReceiveToIdle_DMA(port->huart, port->dma_rx_buf, UART_RX_DMA_BUFFER_SIZE);
+    restart_rx_dma(port);
     BaseType_t hpw = pdFALSE;
     xQueueSendFromISR(port->rx_queue, &msg, &hpw);
     portYIELD_FROM_ISR(hpw);
@@ -83,7 +91,7 @@ void debug_uart_port_RxCallback(UartPort_t *port, uint16_t size)
     UartRxMessage_t msg;
     memcpy(msg.data, port->dma_rx_buf, size);
     msg.length = size;
-    HAL_UARTEx_ReceiveToIdle_DMA(port->huart, port->dma_rx_buf, UART_RX_DMA_BUFFER_SIZE);
+    restart_rx_dma(port);
     BaseType_t hpw = pdFALSE;
     xQueueSendFromISR(port->rx_queue, &msg, &hpw);
     portYIELD_FROM_ISR(hpw);
@@ -154,7 +162,7 @@ bool send_rk3576_uart_port_frame(DataType_t type, uint16_t frame_id, const void 
     HAL_StatusTypeDef st = HAL_UART_Transmit_DMA(rk3576_uart_port.huart, uart2_dma_tx_buf, len);
     if (st != HAL_OK) {
         // Release semaphore on failure to avoid deadlock
-        xSemaphoreGive(rk3576_uart_port.uartTxDoneSem);
+        xSemaphoreGive(rk3576_uart_port.uartTxDoneSem); 
         return false;
     }
     // Semaphore will be released in HAL_UART_TxCpltCallback
@@ -207,7 +215,10 @@ uint16_t crc16_modbus(const uint8_t *buf, uint16_t len)
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
     if (huart == debug_uart_port.huart) {
-        (void)HAL_UARTEx_ReceiveToIdle_DMA(&huart1, uart1_dma_rx_buf, UART_RX_DMA_BUFFER_SIZE);
+        restart_rx_dma(&debug_uart_port);
+    }
+     if (huart == rk3576_uart_port.huart) {
+        restart_rx_dma(&rk3576_uart_port);
     }
 }
 
