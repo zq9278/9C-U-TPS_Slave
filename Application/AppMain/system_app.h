@@ -8,11 +8,11 @@
 
 // ---------------- Sensor data ----------------
 typedef struct {
-    float tempL;     // °C
-    float tempR;     // °C
-    float pressL;    // kPa
-    float pressR;    // kPa
-    uint32_t tick;   // FreeRTOS tick at sampling
+    float tempL;     // 左眼温度(摄氏度)
+    float tempR;     // 右眼温度(摄氏度)
+    float pressL;    // 左眼压力(kPa)
+    float pressR;    // 右眼压力(kPa)
+    uint32_t tick;   // 采样时间戳(FreeRTOS tick)
 } sensor_data_t;
 
 extern volatile sensor_data_t gSensorData;
@@ -36,7 +36,6 @@ typedef enum {
     APP_CMD_MODE_SELECT,       // u8: 1/2
     APP_CMD_SET_TEMP_LEFT,     // float °C
     APP_CMD_SET_TEMP_RIGHT,    // float °C
-    APP_CMD_SET_USE_COMMON_TEMP, // u8 0/1
     APP_CMD_SET_PRESSURE_KPA,  // float kPa (generic)
     APP_CMD_SET_MODE1_PARAM,   // structure index-based updates
     APP_CMD_SET_MODE2_PARAM,
@@ -47,31 +46,31 @@ typedef enum {
 } app_cmd_id_t;
 
 typedef struct {
-    app_cmd_id_t id;
-    uint16_t key;      // sub-field key when needed
+    app_cmd_id_t id;   // 命令ID
+    uint16_t key;      // 子字段键值(用于同一命令区分不同参数)
     union {
-        float    f32;
-        uint32_t u32;
-        uint16_t u16;
-        uint8_t  u8;
-    } v;
+        float    f32;  // 浮点数值
+        uint32_t u32;  // 32位无符号数
+        uint16_t u16;  // 16位无符号数
+        uint8_t  u8;   // 8位无符号数
+    } v;               // 数据载荷
 } app_cmd_t;
 
 // ---------------- Control config (App -> Control) ----------------
 typedef struct {
-    float temp_target;      // °C, same for L/R if use_common
-    float press_target_max; // kPa
-    float t1_rise_s;        // s
-    float t2_hold_s;        // s
-    float t3_pulse_s;       // s
-    float pulse_on_ms;      // ms
-    float pulse_off_ms;     // ms
-    uint8_t mode;           // 1 or 2
-    uint8_t running;        // 0/1
-    uint8_t squeeze_mode;   // 0 normal, 1 alternate, 2 sync
-    uint8_t press_enable_L; // 0/1 独立左侧压力开�?    
-    uint8_t press_enable_R; // 0/1 独立右侧压力开�?
-    } control_config_t;
+    float temp_target;      // 加热温度目标(摄氏度)
+    float press_target_max; // 压力目标(kPa)
+    float t1_rise_s;        // 缓慢上升阶段(秒)
+    float t2_hold_s;        // 恒压阶段(秒)
+    float t3_pulse_s;       // 脉动阶段总时长(秒)
+    float pulse_on_ms;      // 脉动ON时间(毫秒)
+    float pulse_off_ms;     // 脉动OFF时间(毫秒)
+    uint8_t mode;           // 模式号(固定1)
+    uint8_t running;        // 是否运行(1启动/0停止)
+    uint8_t squeeze_mode;   // 挤压模式(0同步/1交替/2同步)
+    uint8_t press_enable_L; // 左侧压力开关(0关/1开)
+    uint8_t press_enable_R; // 右侧压力开关(0关/1开)
+} control_config_t;
 
 typedef enum {
     CTRL_CMD_NONE = 0,
@@ -81,8 +80,8 @@ typedef enum {
 } ctrl_cmd_id_t;
 
 typedef struct {
-    ctrl_cmd_id_t id;
-    control_config_t cfg;
+    ctrl_cmd_id_t id;     // 控制命令ID
+    control_config_t cfg; // 控制参数载荷
 } ctrl_cmd_t;
 
 // ---------------- Storage commands ----------------
@@ -101,15 +100,15 @@ typedef enum {
 } tx_data_type_t;
 
 typedef struct {
-    uint16_t frame_id;
-    tx_data_type_t type;
+    uint16_t frame_id;   // 帧ID
+    tx_data_type_t type; // 数据类型
     union {
-        float f32;
-        uint32_t u32;
-        uint16_t u16;
-        uint8_t u8;
-        char text[32];
-    } v;
+        float f32;       // 浮点数据
+        uint32_t u32;    // 32位无符号
+        uint16_t u16;    // 16位无符号
+        uint8_t u8;      // 8位无符号
+        char text[32];   // 文本
+    } v;                 // 载荷
 } tx_frame_t;
 
 // ---------------- Queues ----------------
