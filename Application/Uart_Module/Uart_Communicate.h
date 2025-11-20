@@ -20,26 +20,26 @@
 typedef enum
 {
     // Host -> Device
-    U8_HEARTBEAT_REQ        = 0x1000,
-    F32_PRESSURE_SET_KPA    = 0x1001,
-    F32_LEFT_TEMP_SET_C     = 0x1002,
-    U8_LEFT_EYE_ENABLE      = 0x1004,
-    U8_RIGHT_EYE_ENABLE     = 0x1005,
-    U8_MODE_SELECT          = 0x10C0,
-    U8_START_TREATMENT      = 0x10C1,
-    U8_STOP_TREATMENT       = 0x10C2,
-    U8_SAVE_SETTINGS        = 0x10C3,
+    U8_HEARTBEAT_REQ        = 0x1000, // 心跳请求
+    F32_PRESSURE_SET_KPA    = 0x1001, // 压力设定(float kPa)
+    F32_LEFT_TEMP_SET_C     = 0x1002, // 温度设定(float °C)
+    U8_LEFT_EYE_ENABLE      = 0x1004, // 左眼功能开关
+    U8_RIGHT_EYE_ENABLE     = 0x1005, // 右眼功能开关
+    U8_MODE_SELECT          = 0x10C0, // 曲线模式选择(1..4)
+    U8_START_TREATMENT      = 0x10C1, // 启动治疗
+    U8_STOP_TREATMENT       = 0x10C2, // 停止治疗
+    U8_SAVE_SETTINGS        = 0x10C3, // 保存当前参数
 
     // Device -> Host
-    U8_HEARTBEAT_ACK        = 0x1100,
-    F32_LEFT_PRESSURE_VALUE = 0x1101,
-    F32_RIGHT_PRESSURE_VALUE= 0x1102,
-    F32_LEFT_TEMP_VALUE     = 0x1103,
-    F32_RIGHT_TEMP_VALUE    = 0x1104,
-    U8_LEFT_HEATER_PRESENT  = 0x1107,
-    U8_RIGHT_HEATER_PRESENT = 0x1108,
-    U8_LEFT_HEATER_FUSE     = 0x1109,
-    U8_RIGHT_HEATER_FUSE    = 0x110A,
+    U8_HEARTBEAT_ACK        = 0x1100, // 心跳应答
+    F32_LEFT_PRESSURE_VALUE = 0x1101, // 左眼压力反馈
+    F32_RIGHT_PRESSURE_VALUE= 0x1102, // 右眼压力反馈
+    F32_LEFT_TEMP_VALUE     = 0x1103, // 左眼温度反馈
+    F32_RIGHT_TEMP_VALUE    = 0x1104, // 右眼温度反馈
+    U8_LEFT_HEATER_PRESENT  = 0x1107, // 左眼盾存在
+    U8_RIGHT_HEATER_PRESENT = 0x1108, // 右眼盾存在
+    U8_LEFT_HEATER_FUSE     = 0x1109, // 左眼盾熔断
+    U8_RIGHT_HEATER_FUSE    = 0x110A, // 右眼盾熔断
 } FrameId_t;
 
 /* 鏁版嵁瑙ｆ瀽杈呭姪鎺ュ彛 */
