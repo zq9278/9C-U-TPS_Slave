@@ -20,7 +20,7 @@ extern volatile sensor_data_t gSensorData;
 // ---------------- App state ----------------
 typedef enum {
     APP_STATE_IDLE = 0,   // 空闲（未准备）
-    APP_STATE_READY,      // 就绪（待启动）
+    APP_STATE_READY,      // 就绪（等待启动）
     APP_STATE_RUN_MODE1,  // 运行模式1
     APP_STATE_RUN_MODE2,  // 运行模式2
     APP_STATE_ALARM,      // 告警/停止
