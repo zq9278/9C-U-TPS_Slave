@@ -59,6 +59,11 @@ static inline void push_cmd_f32(app_cmd_id_t id, float v)
 }
 
 // 协议帧分发
+// 解析上位机帧并转换为内部命令:
+// - 心跳 → ACK
+// - 压力/温度 → APP_CMD_SET_PRESSURE_KPA / APP_CMD_SET_TEMP
+// - 左/右眼开关 → APP_CMD_LEFT_ENABLE / APP_CMD_RIGHT_ENABLE
+// - 模式/保存等 → 对应 app_cmd_t
 void UartFrame_Dispatch(FrameId_t frame_id, const uint8_t *data_ptr, uint16_t data_len)
 {
     switch (frame_id)
@@ -85,17 +90,6 @@ void UartFrame_Dispatch(FrameId_t frame_id, const uint8_t *data_ptr, uint16_t da
 
         case U8_MODE_SELECT:
             push_cmd_u8(APP_CMD_MODE_SELECT, handle_uint8_t_data(data_ptr, data_len));
-            break;
-
-        case U8_START_TREATMENT:
-        {
-            uint8_t en = handle_uint8_t_data(data_ptr, data_len);
-            push_cmd_u8(en ? APP_CMD_START : APP_CMD_STOP, en);
-            break;
-        }
-
-        case U8_STOP_TREATMENT:
-            push_cmd_u8(APP_CMD_STOP, 0);
             break;
 
         case U8_SAVE_SETTINGS:
