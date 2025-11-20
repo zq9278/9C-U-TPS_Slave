@@ -68,35 +68,35 @@ void UartFrame_Dispatch(FrameId_t frame_id, const uint8_t *data_ptr, uint16_t da
 {
     switch (frame_id)
     {
-        case U8_HEARTBEAT_REQ:
+        case U8_HEARTBEAT_REQ:             // 心跳请求 -> 应答
             tx_u8(U8_HEARTBEAT_ACK, 1);
             break;
 
-        case F32_PRESSURE_SET_KPA:
+        case F32_PRESSURE_SET_KPA:         // 压力设定
             push_cmd_f32(APP_CMD_SET_PRESSURE_KPA, handle_float_data(data_ptr, data_len));
             break;
 
-        case F32_LEFT_TEMP_SET_C:
+        case F32_LEFT_TEMP_SET_C:          // 温度设定
             push_cmd_f32(APP_CMD_SET_TEMP, handle_float_data(data_ptr, data_len));
             break;
 
-        case U8_LEFT_EYE_ENABLE:
+        case U8_LEFT_EYE_ENABLE:           // 左眼开关
             push_cmd_u8(APP_CMD_LEFT_ENABLE, handle_uint8_t_data(data_ptr, data_len));
             break;
 
-        case U8_RIGHT_EYE_ENABLE:
+        case U8_RIGHT_EYE_ENABLE:          // 右眼开关
             push_cmd_u8(APP_CMD_RIGHT_ENABLE, handle_uint8_t_data(data_ptr, data_len));
             break;
 
-        case U8_MODE_SELECT:
+        case U8_MODE_SELECT:               // 模式选择
             push_cmd_u8(APP_CMD_MODE_SELECT, handle_uint8_t_data(data_ptr, data_len));
             break;
 
-        case U8_SAVE_SETTINGS:
+        case U8_SAVE_SETTINGS:             // 保存参数
             push_cmd_u8(APP_CMD_SAVE_PARAM, 0);
             break;
 
-        default:
+        default:                           // 未知帧
             LOG("unknown frame_id 0x%04X len=%d\r\n", frame_id, data_len);
             break;
     }
