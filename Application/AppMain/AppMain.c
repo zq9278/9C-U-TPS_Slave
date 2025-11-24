@@ -47,8 +47,7 @@ volatile app_state_t gAppState = APP_STATE_RUN_MODE1;//自定义曲线模式
 void AppMain_FreeRTOS_Init(void)
 {
     // Init UART ports (Comm on USART2, Debug on USART1)
-    rk3576_uart_port_Init(&rk3576_uart_port);
-    debug_uart_port_Init(&debug_uart_port);
+   
 
     // Create queues
     gCmdQueue      = xQueueCreate(16, sizeof(app_cmd_t));
@@ -65,7 +64,7 @@ void AppMain_FreeRTOS_Init(void)
     configASSERT(ret == pdPASS);
     ret = xTaskCreate(AppTask,     "AppTask",     512, NULL, 22, NULL);
     configASSERT(ret == pdPASS);
-    ret = xTaskCreate(SensorTask,  "SensorTask",  384, NULL, 19, NULL);
+    ret = xTaskCreate(SensorTask,  "SensorTask",  384, NULL, 24, NULL);
     configASSERT(ret == pdPASS);
     ret = xTaskCreate(ControlTask, "ControlTask", 512, NULL, 25, NULL);
     configASSERT(ret == pdPASS);

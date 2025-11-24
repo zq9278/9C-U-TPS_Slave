@@ -30,6 +30,11 @@ static uint8_t right_enable = 0;
 static float   target_temp_c = 38.0f;
 /** 当前模式实时使用的压力/时间曲线（含上次保存的自定义参数） */
 static ModeCurve_t gCurveRT;
+/** ???????????5????1??????? */
+static uint16_t treatment_minutes = 5;
+/** ?????? */
+static TickType_t session_end_tick = 0;
+static uint8_t session_timer_active = 0;
 
 static uint8_t storage_slot_for_mode(uint8_t mode)
 {
@@ -52,6 +57,7 @@ static void fill_control_cfg(control_config_t *cfg, uint8_t running)
     cfg->squeeze_mode    = 0;
     cfg->press_enable_L  = left_enable;
     cfg->press_enable_R  = right_enable;
+    cfg->treatment_minutes = (treatment_minutes == 0) ? 1 : treatment_minutes;
 }
 
 static void post_control_cmd(ctrl_cmd_id_t id, uint8_t running)
@@ -63,6 +69,22 @@ static void post_control_cmd(ctrl_cmd_id_t id, uint8_t running)
     (void)xQueueSend(gCtrlCmdQueue, &c, 0);
 }
 
+static uint32_t curve_cycle_duration_ms(void)
+{
+    float total_s = gCurveRT.t1_rise_s + gCurveRT.t2_hold_s + gCurveRT.t3_pulse_s;
+    if (total_s <= 0.0f) total_s = 60.0f;
+    return (uint32_t)(total_s * 1000.0f);
+}
+
+static void arm_session_timer(void)
+{
+    uint32_t minutes = (treatment_minutes == 0) ? 1U : (uint32_t)treatment_minutes;
+    TickType_t now = xTaskGetTickCount();
+    uint32_t total_ms = curve_cycle_duration_ms() * minutes;
+    session_end_tick = now + pdMS_TO_TICKS(total_ms);
+    session_timer_active = 1;
+}
+
 static void update_control_state(void)
 {
     /* 根据run_request与左右使能状态决定是否要驱动控制任务运行 */
@@ -72,8 +94,12 @@ static void update_control_state(void)
         if (!control_active) {
             control_active = 1;
             post_control_cmd(CTRL_CMD_START, 1);
+            arm_session_timer();
         } else {
             post_control_cmd(CTRL_CMD_UPDATE_CFG, 1);
+            if (!session_timer_active) {
+                arm_session_timer();
+            }
         }
     } else {
         if (control_active) {
@@ -81,6 +107,7 @@ static void update_control_state(void)
             post_control_cmd(CTRL_CMD_STOP, 0);
         }
         gAppState = APP_STATE_READY;
+        session_timer_active = 0;
     }
 }
 
@@ -150,7 +177,20 @@ void AppTask(void *argument)
                     update_control_state();
                     break;
 
+                case APP_CMD_SET_TREATMENT_TIME:
+                    treatment_minutes = (cmd.v.u16 == 0) ? 1 : cmd.v.u16;
+                    if (control_active) {
+                        arm_session_timer();
+                        update_control_state();
+                    }
+                    break;
+
                 case APP_CMD_START:
+                    /* 接到“开始治疗”时，默认打开两侧控制，直接进入运行 */
+                    if (left_enable == 0 && right_enable == 0) {
+                        left_enable = 1;
+                        right_enable = 1;
+                    }
                     run_request = 1;
                     update_control_state();
                     break;
@@ -186,13 +226,26 @@ void AppTask(void *argument)
 
         uint8_t fault;
         if (xQueueReceive(gSafetyQueue, &fault, 0) == pdPASS && fault) {
-            /* 安全任务上报故障：立即停止所有运行并切换到报警状态 */
+            /* ????????????????????????????????????????? */
             run_request = 0;
             left_enable = 0;
             right_enable = 0;
             update_control_state();
             gAppState = APP_STATE_ALARM;
         }
+
+        if (control_active && session_timer_active) {
+            TickType_t now = xTaskGetTickCount();
+            if ((int32_t)(now - session_end_tick) >= 0) {
+                run_request = 0;
+                session_timer_active = 0;
+                update_control_state();
+                tx_frame_t tx = {0};
+                tx.type = TX_DATA_UINT8;
+                tx.frame_id = U8_STOP_TREATMENT;
+                tx.v.u8 = 1;
+                xQueueSend(gTxQueue, &tx, 0);
+            }
+        }
     }
 }
-

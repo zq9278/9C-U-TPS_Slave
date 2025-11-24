@@ -36,6 +36,7 @@ typedef enum {
     APP_CMD_MODE_SELECT,       // 选择曲线模式(1..4)
     APP_CMD_SET_TEMP,          // 温度设定
     APP_CMD_SET_PRESSURE_KPA,  // 压力设定
+    APP_CMD_SET_TREATMENT_TIME,// 总治疗时长(分钟)
     APP_CMD_LEFT_ENABLE,       // 左眼开关
     APP_CMD_RIGHT_ENABLE,      // 右眼开关
     APP_CMD_READ_PARAM,        // 读取当前参数
@@ -66,6 +67,7 @@ typedef struct {
     uint8_t squeeze_mode;   // 挤压模式(0同步/1交替/2同步)
     uint8_t press_enable_L; // 左侧压力开关(0关/1开)
     uint8_t press_enable_R; // 右侧压力开关(0关/1开)
+    uint16_t treatment_minutes; // ?????(??)
 } control_config_t;
 
 typedef enum {

@@ -42,11 +42,13 @@ static void SendHeaterStatusFrames(void)
 void ControlTask(void *argument)
 {
     (void)argument;
+    /* Initialize control config and PID controllers (heating left/right, pressure) */
     memset(&gCfg, 0, sizeof(gCfg));
 
     PID_Init(&pid_heat_L, 400, 2, 200, 100000, 0, 1999, 0, 0);
     PID_Init(&pid_heat_R, 400, 2, 200, 100000, 0, 1999, 0, 0);
     PID_Init(&pid_press, 500, 5, 50, 100000, 0, 255, 0, 0);
+    HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1); // ensure pump PWM timer is running
 
     uint8_t last_tx_100ms = 0;
 
@@ -54,6 +56,7 @@ void ControlTask(void *argument)
     {
         vTaskDelay(pdMS_TO_TICKS(10));
 
+        /* Handle control commands from AppTask (start/stop/update config) */
         ctrl_cmd_t c;
         if (xQueueReceive(gCtrlCmdQueue, &c, 0) == pdPASS)
         {
@@ -77,12 +80,14 @@ void ControlTask(void *argument)
             }
         }
 
+        /* Safety/idle path: not running or both sides disabled -> stop pump/heat and vent */
         if (!gCfg.running || emergency_stop || (!gCfg.press_enable_L && !gCfg.press_enable_R)) {
             HeatPWMSet(Left, 0);  HeatPower(Left, 0);
             HeatPWMSet(Right, 0); HeatPower(Right, 0);
             AirValve1(1); AirValve2(1);
             TIM15->CCR1 = 0;
         } else {
+            /* Pressure profile: rise -> hold -> pulse */
             uint32_t t1_ms = (uint32_t)(gCfg.t1_rise_s * 1000.0f);
             uint32_t t2_ms = (uint32_t)(gCfg.t2_hold_s * 1000.0f);
             uint32_t t3_ms = (uint32_t)(gCfg.t3_pulse_s * 1000.0f);
@@ -116,6 +121,7 @@ void ControlTask(void *argument)
             if (!gCfg.press_enable_L) Pset_L = 0.0f;
             if (!gCfg.press_enable_R) Pset_R = 0.0f;
 
+            /* Decide whether each side needs more pressure (hysteresis +0.2kPa) */
             bool needL = (Pset_L > gSensorData.pressL + 0.2f);
             bool needR = (Pset_R > gSensorData.pressR + 0.2f);
 
@@ -123,6 +129,11 @@ void ControlTask(void *argument)
             float meas_eff = 0.0f;
             bool pump_on = false;
 
+            /* Valve/pump selection:
+             * - Both need: open both valves, track higher setpoint vs lower measured side
+             * - Single side need: open corresponding valve only
+             * - None: close/vent and stop pump
+             */
             if (needL && needR) {
                 AirValve1(0); AirValve2(0);
                 set_eff  = (Pset_L > Pset_R) ? Pset_L : Pset_R;
@@ -143,6 +154,7 @@ void ControlTask(void *argument)
                 TIM15->CCR1 = 0;
             }
 
+            /* Pump PID control (pressure) */
             if (pump_on) {
                 pid_press.setpoint = (int32_t)(set_eff * 1000.0f);
                 int32_t u = PID_Compute(&pid_press, (int32_t)(meas_eff * 1000.0f));
@@ -151,6 +163,7 @@ void ControlTask(void *argument)
                 TIM15->CCR1 = (uint16_t)u;
             }
 
+            /* Heating control per side */
             if (gCfg.press_enable_L) {
                 HeatPower(Left, 1);
                 PID_Heat(Left, &pid_heat_L, (int32_t)(gSensorData.tempL * 100.0f));
@@ -168,7 +181,8 @@ void ControlTask(void *argument)
             }
         }
 
-        if (++last_tx_100ms >= 10) {
+        /* Telemetry @100ms: send pressures, temps, heater status */
+        if (++last_tx_100ms >= 100) {
             last_tx_100ms = 0;
             tx_frame_t tx;
             tx.type = TX_DATA_FLOAT;
@@ -177,9 +191,20 @@ void ControlTask(void *argument)
             tx.frame_id = F32_LEFT_TEMP_VALUE;      tx.v.f32 = gSensorData.tempL;  xQueueSend(gTxQueue, &tx, 0);
             tx.frame_id = F32_RIGHT_TEMP_VALUE;     tx.v.f32 = gSensorData.tempR;  xQueueSend(gTxQueue, &tx, 0);
             tx.type = TX_DATA_UINT8;
-            tx.frame_id = U8_HEARTBEAT_ACK;         tx.v.u8 = 1;                   xQueueSend(gTxQueue, &tx, 0);
+            //tx.frame_id = U8_HEARTBEAT_ACK;         tx.v.u8 = 1;                   xQueueSend(gTxQueue, &tx, 0);
+
+            /* Log motor/heater power and channel enable states */
+            uint16_t pump_pwm = TIM15->CCR1;  // 0..255
+            uint16_t heat_pwm_L = TIM14->CCR1; // 0..1999
+            uint16_t heat_pwm_R = TIM17->CCR1; // 0..1999
+            LOG_I("ctrl run=%u pump=%u/255 heatL=%u/1999 heatR=%u/1999 enL=%u enR=%u T(L,R)=%.2f,%.2f PL,PR=%.2f,%.2f",
+                  gCfg.running, pump_pwm, heat_pwm_L, heat_pwm_R,
+                  gCfg.press_enable_L, gCfg.press_enable_R,
+                  gSensorData.tempL, gSensorData.tempR,
+                  gSensorData.pressL, gSensorData.pressR,
+                  gCfg.press_enable_L, gCfg.press_enable_R);
+
             SendHeaterStatusFrames();
         }
     }
 }
-

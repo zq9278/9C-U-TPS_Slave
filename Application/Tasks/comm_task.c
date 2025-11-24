@@ -10,6 +10,8 @@ extern UartPort_t debug_uart_port;
 void CommTask(void *argument)
 {
     (void)argument;
+    rk3576_uart_port_Init(&rk3576_uart_port);
+    debug_uart_port_Init(&debug_uart_port);
     UartRxMessage_t rx_msg;
     tx_frame_t tx;
     LogMessage_t log_msg;

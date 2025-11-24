@@ -93,8 +93,11 @@ u32 ADS1248_Read(void)
 volatile int64_t r;
 u16 ADC2Temperature(u32 adc_code)
 {
-	u16 resistance_ohm;
-	resistance_ohm=((int64_t)adc_code * R_REF) / ADC_MAX;
+    u16 resistance_ohm;
+    if (adc_code == 0 || adc_code == 0xFFFFFF) {
+        return 0; // invalid reading
+    }
+    resistance_ohm=((int64_t)adc_code * R_REF) / ADC_MAX;
     // 低温段：温度 0~30°C，电阻 > 8301Ω（电阻表是降序）
     if (resistance_ohm > 8301) {
         s16 temperature_index = (27445 - (s16)resistance_ohm) / 796;

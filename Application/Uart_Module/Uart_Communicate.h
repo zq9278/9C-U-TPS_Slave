@@ -20,6 +20,7 @@ typedef enum
     F32_LEFT_TEMP_SET_C     = 0x1002, // 温度设定 (float °C)
     U8_LEFT_EYE_ENABLE      = 0x1004, // 左眼功能开关
     U8_RIGHT_EYE_ENABLE     = 0x1005, // 右眼功能开关
+    U16_TREAT_TIME_MIN      = 0x1006, // 总治疗时间(分钟)
     U8_MODE_SELECT          = 0x10C0, // 曲线模式选择 (1..4)
     U8_START_TREATMENT      = 0x10C1, // 启动治疗
     U8_STOP_TREATMENT       = 0x10C2, // 停止治疗
@@ -40,6 +41,7 @@ typedef enum
 /* 数据解析辅助接口 */
 void handle_config_data(const uint8_t* data_ptr, uint16_t data_len);
 uint8_t handle_uint8_t_data(const uint8_t *data_ptr, uint16_t data_len);
+uint16_t handle_uint16_data(const uint8_t *data_ptr, uint16_t data_len);
 float handle_float_data(const uint8_t *data_ptr, uint16_t data_len);
 
 /* 帧调度入口 */

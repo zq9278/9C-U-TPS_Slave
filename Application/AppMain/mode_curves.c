@@ -5,14 +5,14 @@
 // Built-in default curves (read-only).
 // Format: { target_kpa, t1_rise_s, t2_hold_s, t3_pulse_s, pulse_on_ms, pulse_off_ms }
 const ModeCurve_t gModeCurves[4] = {
-    // Mode 1: slow rise 1.5s -> hold 2s -> pulse 4s (300/300ms)
-    { 25.0f, 1.5f, 2.0f, 4.0f, 300.0f, 300.0f },
-    // Mode 2: slow rise 2.0s -> hold 3s -> pulse 5s (250/250ms)
-    { 30.0f, 2.0f, 3.0f, 5.0f, 250.0f, 250.0f },
-    // Mode 3: default same as Mode 2 (customize if needed)
-    { 30.0f, 2.0f, 3.0f, 5.0f, 250.0f, 250.0f },
-    // Mode 4: default same as Mode 2 (customize if needed)
-    { 30.0f, 2.0f, 3.0f, 5.0f, 250.0f, 250.0f },
+    // Mode 1: t1=25s, t2=20s, t3=15s -> total 60s,柔和脉动
+    { 25.0f, 25.0f, 20.0f, 15.0f, 500.0f, 500.0f },
+    // Mode 2: t1=20s, t2=20s, t3=20s -> total 60s,均衡脉动
+    { 28.0f, 20.0f, 20.0f, 20.0f, 400.0f, 400.0f },
+    // Mode 3: t1=15s, t2=25s, t3=20s -> total 60s,更长保持
+    { 32.0f, 15.0f, 25.0f, 20.0f, 350.0f, 350.0f },
+    // Mode 4: t1=10s, t2=30s, t3=20s -> total 60s,快速上升
+    { 35.0f, 10.0f, 30.0f, 20.0f, 300.0f, 300.0f },
 };
 
 void ModeCurves_InitFromSettings(const SystemSettings_t *s)
