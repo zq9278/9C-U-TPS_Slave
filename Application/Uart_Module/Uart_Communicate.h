@@ -36,6 +36,7 @@ typedef enum
     U8_RIGHT_HEATER_PRESENT = 0x1108, // 右眼盾存在
     U8_LEFT_HEATER_FUSE     = 0x1109, // 左眼盾熔断状态
     U8_RIGHT_HEATER_FUSE    = 0x110A, // 右眼盾熔断状态
+    U8_MODE_CURVES          = 0x110B, // 当前模式阶段标记 (r/h/p)
 } FrameId_t;
 
 /* 数据解析辅助接口 */

@@ -54,6 +54,7 @@ void ADS1248_Init(void)
 
 void ADS1248_ChangeChannel(u8 RTCNum)
 {
+    ADS1248_Init();
 	    // 1. 停止当前转换
     ADS1248_SendCommand(0x0A);   // 0x0A
 	if(RTCNum==RTD1)

@@ -25,6 +25,7 @@ void CommTask(void *argument)
 
         // TX path: send frames enqueued by other tasks
         if (xQueueReceive(gTxQueue, &tx, 0) == pdPASS) {
+            //LOG_I("comm send: type=%u frame_id=0x%04X", tx.type, tx.frame_id);
             switch (tx.type) {
                 case TX_DATA_FLOAT:
                     rk3576_uart_port.sender(DATA_FLOAT, tx.frame_id, &tx.v.f32);
@@ -47,7 +48,7 @@ void CommTask(void *argument)
 
         // Debug log drain
         if (xQueueReceive(debug_uart_port.tx_queue, &log_msg, 0) == pdPASS) {
-            HAL_UART_Transmit(debug_uart_port.huart, (uint8_t*)log_msg.buf, (uint16_t)log_msg.len, HAL_MAX_DELAY);
+            HAL_UART_Transmit(debug_uart_port.huart, (uint8_t*)log_msg.buf, (uint16_t)log_msg.len, 100);
         }
 
         vTaskDelay(pdMS_TO_TICKS(5));

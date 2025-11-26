@@ -4,29 +4,29 @@
 #define PID_H
 #include "stm32g0xx_hal.h"
 typedef struct {
-    int32_t Kp;
-    int32_t Ki;
-    int32_t Kd;
-    int32_t previous_error;
-    int32_t integral;
-    int32_t integral_max;   // »ý·ÖÏÞ·ùÖµ
-    int32_t integral_min;   // »ý·ÖÏÂÏÞ·ùÖµ
-    int32_t output_max;     // Êä³öÏÞ·ùÖµ
-    int32_t output_min;     // Êä³öÏÂÏÞ·ùÖµ
-    int32_t setpoint;       // Éè¶¨Öµ
-    int32_t previous_measured_value ;
-    int32_t derivative_filtered ;
+    float Kp;
+    float Ki;
+    float Kd;
+    float previous_error;
+    float integral;
+    float integral_max;   // ï¿½ï¿½ï¿½ï¿½ï¿½Þ·ï¿½Öµ
+    float integral_min;   // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Þ·ï¿½Öµ
+    float output_max;     // ï¿½ï¿½ï¿½ï¿½Þ·ï¿½Öµ
+    float output_min;     // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Þ·ï¿½Öµ
+    float setpoint;       // ï¿½è¶¨Öµ
+    float previous_measured_value ;
+    float derivative_filtered ;
 } PID_TypeDef;
 
-// ³õÊ¼»¯PID¿ØÖÆÆ÷
-void PID_Init(PID_TypeDef *pid, int32_t Kp, int32_t Ki, int32_t Kd,
-                  int32_t integral_max, int32_t integral_min,
-                  int32_t output_max, int32_t output_min, int32_t setpoint) ;
+// ï¿½ï¿½Ê¼ï¿½ï¿½PIDï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+void PID_Init(PID_TypeDef *pid, float Kp, float Ki, float Kd,
+                  float integral_max, float integral_min,
+                  float output_max, float output_min, float setpoint) ;
 
-// ¼ÆËãPID¿ØÖÆÊä³ö
-int32_t PID_Compute(PID_TypeDef *pid, int32_t measured_value);
+// ï¿½ï¿½ï¿½ï¿½PIDï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+float PID_Compute(PID_TypeDef *pid, float measured_value);
 
-// ÏÞ·ùºê
+// ï¿½Þ·ï¿½ï¿½ï¿½
 //#define Limit(x, min, max) ((x) = (((x) <= (min)) ? (min) : (((x) >= (max)) ? (max) : (x))))
 #define Limit(x, min, max) (((x) <= (min)) ? (min) : (((x) >= (max)) ? (max) : (x)))
 

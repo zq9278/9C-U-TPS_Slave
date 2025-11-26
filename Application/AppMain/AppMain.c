@@ -48,6 +48,7 @@ void AppMain_FreeRTOS_Init(void)
 {
     // Init UART ports (Comm on USART2, Debug on USART1)
    
+   
 
     // Create queues
     gCmdQueue      = xQueueCreate(16, sizeof(app_cmd_t));

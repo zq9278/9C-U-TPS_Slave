@@ -66,7 +66,11 @@ static void post_control_cmd(ctrl_cmd_id_t id, uint8_t running)
     ctrl_cmd_t c = {0};
     c.id = id;
     fill_control_cfg(&c.cfg, running);
-    (void)xQueueSend(gCtrlCmdQueue, &c, 0);
+    if (xQueueSend(gCtrlCmdQueue, &c, 0) != pdPASS) {
+        //LOG_W("post_control_cmd id=%d failed", id);
+    } else {
+        //LOG_I("post_control_cmd id=%d running=%u L_en=%u R_en=%u", id, running, c.cfg.press_enable_L, c.cfg.press_enable_R);
+    }
 }
 
 static uint32_t curve_cycle_duration_ms(void)
@@ -93,9 +97,11 @@ static void update_control_state(void)
         gAppState = APP_STATE_RUN_MODE1;
         if (!control_active) {
             control_active = 1;
+            //LOG_I("update_control_state: START should_run=1 run_req=%u L_en=%u R_en=%u", run_request, left_enable, right_enable);
             post_control_cmd(CTRL_CMD_START, 1);
             arm_session_timer();
         } else {
+            //LOG_I("update_control_state: UPDATE_CFG should_run=1 run_req=%u L_en=%u R_en=%u", run_request, left_enable, right_enable);
             post_control_cmd(CTRL_CMD_UPDATE_CFG, 1);
             if (!session_timer_active) {
                 arm_session_timer();
@@ -104,6 +110,7 @@ static void update_control_state(void)
     } else {
         if (control_active) {
             control_active = 0;
+            //LOG_W("update_control_state: STOP should_run=0 run_req=%u L_en=%u R_en=%u", run_request, left_enable, right_enable);
             post_control_cmd(CTRL_CMD_STOP, 0);
         }
         gAppState = APP_STATE_READY;
@@ -160,7 +167,7 @@ void AppTask(void *argument)
                     break;
 
                 case APP_CMD_SET_PRESSURE_KPA:
-                    /* 修改目标压力，按当前模式对应的存储槽缓存 */
+                    /* 上位机传入单位为 mmHg，内部统一使用 mmHg（字段名沿用） */
                     gCurveRT.target_kpa = cmd.v.f32;
                     g_settings.mode[storage_slot_for_mode(current_mode)].target_kpa = cmd.v.f32;
                     save_due_tick = xTaskGetTickCount() + pdMS_TO_TICKS(3000);
@@ -168,11 +175,13 @@ void AppTask(void *argument)
                     break;
 
                 case APP_CMD_LEFT_ENABLE:
-                    left_enable = cmd.v.u8 ? 1 : 0;
+                    //LOG_I("AppTask LEFT_EN: %u", cmd.v.u8 ? 1 : 0);
+                    left_enable = cmd.v.u8 ? 1 : 0; 
                     update_control_state();
                     break;
 
                 case APP_CMD_RIGHT_ENABLE:
+                    //LOG_I("AppTask RIGHT_EN: %u", cmd.v.u8 ? 1 : 0);
                     right_enable = cmd.v.u8 ? 1 : 0;
                     update_control_state();
                     break;
@@ -186,20 +195,22 @@ void AppTask(void *argument)
                     break;
 
                 case APP_CMD_START:
-                    /* 接到“开始治疗”时，默认打开两侧控制，直接进入运行 */
+                    /* ?????????????????????????? */
                     if (left_enable == 0 && right_enable == 0) {
                         left_enable = 1;
                         right_enable = 1;
                     }
                     run_request = 1;
+                    //LOG_I("AppTask START: run_request=%u L_en=%u R_en=%u", run_request, left_enable, right_enable);
                     update_control_state();
                     break;
 
                 case APP_CMD_STOP:
+                    //LOG_I("AppTask STOP: run_request=%u L_en=%u R_en=%u", run_request, left_enable, right_enable);
                     run_request = 0;
+                    //LOG_I("AppTask STOP: run_request=%u L_en=%u R_en=%u", run_request, left_enable, right_enable);
                     update_control_state();
                     break;
-
                 case APP_CMD_READ_PARAM:
                     Settings_Broadcast();
                     break;
@@ -230,6 +241,7 @@ void AppTask(void *argument)
             run_request = 0;
             left_enable = 0;
             right_enable = 0;
+            //LOG_W("AppTask SAFETY fault=%u -> stop, L_en=%u R_en=%u", fault, left_enable, right_enable);
             update_control_state();
             gAppState = APP_STATE_ALARM;
         }
