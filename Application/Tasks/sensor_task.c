@@ -21,12 +21,21 @@ void SensorTask(void *argument)
 for(;;)
 {
     // RTD via SPI (wait for DRDY falling edge -> semaphore from EXTI)
-    if (xSemaphoreTake(gRtdDrdySem, pdMS_TO_TICKS(100)) == pdTRUE)
+    if (xSemaphoreTake(gRtdDrdySem, pdMS_TO_TICKS(50)) == pdTRUE) // shorter wait to speed cadence
     {
         int32_t raw = ADS1248_Read();
-        float t = ADC2Temperature(raw); // project-provided conversion, returns °C
-        if (RTDChannel == 0)gSensorData.tempR = t/100.0f;
-        else gSensorData.tempL = t/100.0f;
+        float temp_c = ADC2Temperature(raw) / 100.0f; // project-provided conversion returns °C*100
+        float prev = (RTDChannel == 0) ? gSensorData.tempR : gSensorData.tempL;
+        bool bad_code = (raw == 0) || (raw == 0x7FFFFF) || (raw == 0xFFFFFF);
+        bool valid = (!bad_code) && (temp_c > -20.0f) && (temp_c < 80.0f);
+        if (valid) {
+            if (RTDChannel == 0) gSensorData.tempR = temp_c;
+            else gSensorData.tempL = temp_c;
+        } else {
+            // keep previous value to avoid zeros/gaps
+            if (RTDChannel == 0) gSensorData.tempR = prev;
+            else gSensorData.tempL = prev;
+        }
         RTDChannel ^= 1; // 切换通道
         ADS1248_ChangeChannel(RTDChannel);
     } 
@@ -38,7 +47,7 @@ for(;;)
     gSensorData.pressL = pressL_kpa * 7.50062f;  // convert kPa -> mmHg
     gSensorData.pressR = pressR_kpa * 7.50062f;
 
-    vTaskDelay(pdMS_TO_TICKS(2));
+    vTaskDelay(pdMS_TO_TICKS(1)); // faster loop to raise effective sampling rate
 
     gSensorData.tick = xTaskGetTickCount();
 

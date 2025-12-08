@@ -12,6 +12,9 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+/* Uncomment this for debugging: ignore heater fuse (presence still enforced) */
+#define IGNORE_FUSE_PROTECTION_DEBUG
+
 static PID_TypeDef pid_press;
 static PID_TypeDef pid_heat_L, pid_heat_R;
 
@@ -95,19 +98,42 @@ static void SendHeaterStatusFrames(void)
     tx.frame_id = U8_LEFT_HEATER_FUSE;     tx.v.u8 = left_fuse;     xQueueSend(gTxQueue, &tx, 0);
     tx.frame_id = U8_RIGHT_HEATER_FUSE;    tx.v.u8 = right_fuse;    xQueueSend(gTxQueue, &tx, 0);
 
-    /* 熔断或不存在时关闭对应侧阀门/加热 */
-    if (!left_present || !left_fuse) {
+    /* 缺失时关闭对应侧阀门/加热（调试宏也不绕过） */
+    if (!left_present) {
         gCfg.press_enable_L = 0;
         HeatPWMSet(Left, 0);
         HeatPower(Left, 0);
         VALVE_LEFT(0);
     }
-    if (!right_present || !right_fuse) {
+    if (!right_present) {
         gCfg.press_enable_R = 0;
         HeatPWMSet(Right, 0);
         HeatPower(Right, 0);
         VALVE_RIGHT(0);
     }
+
+#ifndef IGNORE_FUSE_PROTECTION_DEBUG
+    /* 熔断时关闭对应侧阀门/加热 */
+    if (!left_fuse) {
+        gCfg.press_enable_L = 0;
+        HeatPWMSet(Left, 0);
+        HeatPower(Left, 0);
+        VALVE_LEFT(0);
+    }
+    if (!right_fuse) {
+        gCfg.press_enable_R = 0;
+        HeatPWMSet(Right, 0);
+        HeatPower(Right, 0);
+        VALVE_RIGHT(0);
+    }
+#else
+    /* 调试宏开启时：熔断不关闭加热，只打印一次提示 */
+    static uint8_t fuse_warned = 0;
+    if (!fuse_warned && (!left_fuse || !right_fuse)) {
+        fuse_warned = 1;
+        LOG_W("DEBUG: ignore fuse, heaters stay enabled (L_fuse=%u R_fuse=%u)", left_fuse, right_fuse);
+    }
+#endif
 }
 
 void ControlTask(void *argument)
@@ -118,7 +144,7 @@ void ControlTask(void *argument)
 
     PID_Init(&pid_heat_L, 400, 2, 200, 100000, 0, 1999, 0, 0);
     PID_Init(&pid_heat_R, 400, 2, 200, 100000, 0, 1999, 0, 0);
-    PID_Init(&pid_press, 5000, 0, 0, 1, 0, 255, 0, 0);
+    PID_Init(&pid_press, 1000, 0, 0, 1, 0, 255, 0, 0);
     HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1); // ensure pump PWM timer is running
 
     uint8_t last_tx_100ms = 0;
@@ -165,12 +191,24 @@ void ControlTask(void *argument)
         if (!gCfg.running || emergency_stop || (!gCfg.press_enable_L && !gCfg.press_enable_R)) { // 未运行或急停或两侧都禁用
             static uint8_t last_idle_reason = 0xFF;
             uint8_t idle_reason = 0;
-            if (!gCfg.running) idle_reason |= 0x01;        // bit0: not running
-            if (emergency_stop) idle_reason |= 0x02;       // bit1: emergency stop
-            if (!gCfg.press_enable_L && !gCfg.press_enable_R) idle_reason |= 0x04; // bit2: both disabled
+            bool reason_not_running = !gCfg.running;
+            bool reason_emergency = (emergency_stop != 0);
+            bool reason_both_disabled = (!gCfg.press_enable_L && !gCfg.press_enable_R);
+            if (reason_not_running) idle_reason |= 0x01;        // bit0: not running
+            if (reason_emergency) idle_reason |= 0x02;          // bit1: emergency stop
+            if (reason_both_disabled) idle_reason |= 0x04;      // bit2: both disabled
             if (idle_reason != last_idle_reason) {
                 last_idle_reason = idle_reason;
-                LOG_W("ctrl idle reason mask=0x%02X run=%u emg=%u enL=%u enR=%u", idle_reason, gCfg.running, emergency_stop, gCfg.press_enable_L, gCfg.press_enable_R);
+                if (reason_not_running || reason_emergency || reason_both_disabled) {
+                    LOG_W("控制已空闲，原因：%s%s%s(run=%u emg=%u enL=%u enR=%u)",
+                          reason_not_running ? "未启动; " : "",
+                          reason_emergency ? "已按急停; " : "",
+                          reason_both_disabled ? "两侧压力已禁用; " : "",
+                          gCfg.running, emergency_stop, gCfg.press_enable_L, gCfg.press_enable_R);
+                } else {
+                    LOG_W("控制已空闲，原因：未知(run=%u emg=%u enL=%u enR=%u)",
+                          gCfg.running, emergency_stop, gCfg.press_enable_L, gCfg.press_enable_R);
+                }
             }
 
             ctrl_state = CTRL_STATE_IDLE;

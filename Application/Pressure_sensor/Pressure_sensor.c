@@ -33,7 +33,7 @@ void pressure_sensor_read() {
   HAL_I2C_Master_Receive(&hi2c1, 0xF1, left_raw_data, 6, HAL_MAX_DELAY);
   uint32_t left_pressure_raw =
       (left_raw_data[1] << 16) | (left_raw_data[2] << 8) | left_raw_data[3];
-  left_pressure = (left_pressure_raw>>8)*40000/65536;
+  left_pressure = (left_pressure_raw>>8)*100000/65536;
   left_temperature = (uint8_t)(left_temperature_temp);
 
   HAL_I2C_Master_Receive(&hi2c2, 0xF1, &right_sensor_status, 1, HAL_MAX_DELAY);  //右眼
@@ -45,7 +45,7 @@ void pressure_sensor_read() {
   HAL_I2C_Master_Receive(&hi2c2, 0xF1, right_raw_data, 6, HAL_MAX_DELAY);
   uint32_t right_pressure_raw =
       (right_raw_data[1] << 16) | (right_raw_data[2] << 8) | right_raw_data[3];
-  right_pressure = (right_pressure_raw>>8)*40000/65536;
+  right_pressure = (right_pressure_raw>>8)*100000/65536;
   right_temperature = (uint8_t)(right_temperature_temp);
 }
 
