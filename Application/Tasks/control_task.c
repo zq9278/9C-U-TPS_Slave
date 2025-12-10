@@ -147,7 +147,7 @@ void ControlTask(void *argument)
     PID_Init(&pid_press, 1000, 0, 0, 1, 0, 255, 0, 0);
     HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1); // ensure pump PWM timer is running
 
-    uint8_t last_tx_100ms = 0;
+    TickType_t next_tx_tick = 0;   // 下一次遥测发送时间戳
     uint8_t heater_status_div = 0; // 节流加热器状态上报
     const char *phase = "idle"; // 当前阶段标签，默认闲置
     apply_idle_outputs();
@@ -361,7 +361,6 @@ void ControlTask(void *argument)
             } else {
                 /* 泄气阶段：阀通电泄气，停泵 */
                 TIM15->CCR1 = 0;
-                osDelay(500);
                 VALVE_LEFT(0); VALVE_RIGHT(0);
                 
             }
@@ -398,8 +397,9 @@ void ControlTask(void *argument)
 telemetry:
         /* Telemetry @100ms when running: send pressures, temps, heater status */
         if (gCfg.running) { // 仅运行时发送
-            if (++last_tx_100ms >= 2) { // 2*10ms=20ms? 此处计数基于10ms循环
-                last_tx_100ms = 0; // 复位计数
+            TickType_t now = xTaskGetTickCount();
+            if ((int32_t)(now - next_tx_tick) >= 0) { // 固定节拍，避免高优先级任务打断后堆积
+                next_tx_tick = now + pdMS_TO_TICKS(20); // 20ms 一次
                 tx_frame_t tx;
                 tx.type = TX_DATA_FLOAT; // 浮点数据
                 tx.frame_id = F32_LEFT_PRESSURE_VALUE;  tx.v.f32 = gSensorData.pressL; xQueueSend(gTxQueue, &tx, 0); // 左压
@@ -425,7 +425,7 @@ telemetry:
                 
             }
         } else {
-            last_tx_100ms = 0; // reset counter when stopped
+            next_tx_tick = xTaskGetTickCount() + pdMS_TO_TICKS(20); // 重置节拍，避免启动时等待过久
         }
         /* 加热器存在/熔断状态节流上报（约~100ms，一直发送） */
         if (++heater_status_div >= 10) {
