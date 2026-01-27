@@ -144,7 +144,8 @@ void ControlTask(void *argument)
 
     PID_Init(&pid_heat_L, 400, 2, 200, 100000, 0, 1999, 0, 0);
     PID_Init(&pid_heat_R, 400, 2, 200, 100000, 0, 1999, 0, 0);
-    PID_Init(&pid_press, 1000, 0, 0, 1, 0, 255, 0, 0);
+    // Pressure PID: allow integral to remove steady-state error; enable negative windup
+    PID_Init(&pid_press, 800, 200, 0, 1000, -1000, 255, 0, 0);
     HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1); // ensure pump PWM timer is running
 
     TickType_t next_tx_tick = 0;   // 下一次遥测发送时间戳
