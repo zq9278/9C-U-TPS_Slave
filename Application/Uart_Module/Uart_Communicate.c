@@ -8,9 +8,23 @@
 
 #include "Uart_Communicate.h"
 #include "AppMain/system_app.h"
+#include "main.h"
 #include "FreeRTOS.h"
 #include "queue.h"
 #include "LOG.h"
+
+/* Pressure compensation applied right after UART RX (host setpoint -> internal setpoint). */
+#define PRESSURE_SET_COMP_ADD    (0.0f)//压力补偿
+#define PRESSURE_SET_COMP_MIN    (0.0f)
+#define PRESSURE_SET_COMP_MAX    (400.0f)
+
+static float compensate_pressure_set(float raw_set)
+{
+    float v = raw_set + PRESSURE_SET_COMP_ADD;
+    if (v < PRESSURE_SET_COMP_MIN) v = PRESSURE_SET_COMP_MIN;
+    if (v > PRESSURE_SET_COMP_MAX) v = PRESSURE_SET_COMP_MAX;
+    return v;
+}
 
 // Data parse helpers
 void handle_config_data(const uint8_t* data_ptr, uint16_t data_len)
@@ -88,8 +102,12 @@ void UartFrame_Dispatch(FrameId_t frame_id, const uint8_t *data_ptr, uint16_t da
             break;
 
         case F32_PRESSURE_SET_KPA:         // Pressure set
-            push_cmd_f32(APP_CMD_SET_PRESSURE_KPA, handle_float_data(data_ptr, data_len));
+        {
+            float raw_set = handle_float_data(data_ptr, data_len);
+            float comp_set = compensate_pressure_set(raw_set);
+            push_cmd_f32(APP_CMD_SET_PRESSURE_KPA, comp_set);
             break;
+        }
 
         case F32_LEFT_TEMP_SET_C:          // Temperature set
             push_cmd_f32(APP_CMD_SET_TEMP, handle_float_data(data_ptr, data_len));
@@ -101,6 +119,22 @@ void UartFrame_Dispatch(FrameId_t frame_id, const uint8_t *data_ptr, uint16_t da
 
         case U8_RIGHT_EYE_ENABLE:          // Right eye enable
             push_cmd_u8(APP_CMD_RIGHT_ENABLE, handle_uint8_t_data(data_ptr, data_len));
+            break;
+
+        case U8_LEFT_HEATER_FUSE_BLOW_CMD: // Force blow left fuse
+            // HAL_GPIO_WritePin(Heat1_Fuse_Blown_GPIO_Port, Heat1_Fuse_Blown_Pin, GPIO_PIN_SET);
+            // HAL_GPIO_WritePin(Heat2_Fuse_Blown_GPIO_Port, Heat2_Fuse_Blown_Pin, GPIO_PIN_SET);
+            // HAL_Delay(200);
+            // HAL_GPIO_WritePin(Heat1_Fuse_Blown_GPIO_Port, Heat1_Fuse_Blown_Pin, GPIO_PIN_RESET);
+            // HAL_GPIO_WritePin(Heat2_Fuse_Blown_GPIO_Port, Heat2_Fuse_Blown_Pin, GPIO_PIN_RESET);
+            break;
+
+        case U8_RIGHT_HEATER_FUSE_BLOW_CMD: // Force blow right fuse
+            HAL_GPIO_WritePin(Heat2_Fuse_Blown_GPIO_Port, Heat2_Fuse_Blown_Pin, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(Heat1_Fuse_Blown_GPIO_Port, Heat1_Fuse_Blown_Pin, GPIO_PIN_SET);
+            HAL_Delay(200);
+            HAL_GPIO_WritePin(Heat2_Fuse_Blown_GPIO_Port, Heat2_Fuse_Blown_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(Heat1_Fuse_Blown_GPIO_Port, Heat1_Fuse_Blown_Pin, GPIO_PIN_RESET);
             break;
 
         case U8_MODE_SELECT:               // Mode select

@@ -1,4 +1,4 @@
-#include "Uart_Communicate.h"
+﻿#include "Uart_Communicate.h"
 #include <string.h>
 #include <stdbool.h>
 #include "control_task.h"
@@ -12,7 +12,17 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-/* Uncomment this for debugging: ignore heater fuse (presence still enforced) */
+/*
+ * control_task.c
+ *
+ * 职责：
+ * 1) 接收 AppTask 下发的控制命令（启动/停止/更新配置）
+ * 2) 执行压力阶段状态机（预泄压->上升->保压->脉冲->周期间泄压）
+ * 3) 执行气泵 PID、温控 PID、阀门与加热输出控制
+ * 4) 周期上报压力/温度/阶段及加热盾状态
+ */
+
+/* 调试宏：忽略熔断保护（在位检测仍然生效） */
 #define IGNORE_FUSE_PROTECTION_DEBUG
 
 static PID_TypeDef pid_press;
@@ -23,12 +33,12 @@ static TickType_t t_start_tick = 0;
 static uint8_t emergency_stop = 0;
 
 typedef enum {
-    CTRL_STATE_IDLE = 0,
-    CTRL_STATE_PRE_RISE_VENT,
-    CTRL_STATE_RISE,
-    CTRL_STATE_HOLD,
-    CTRL_STATE_PULSE,
-    CTRL_STATE_INTER_CYCLE_VENT,
+    CTRL_STATE_IDLE = 0,          // 空闲
+    CTRL_STATE_PRE_RISE_VENT,     // 启动前预泄压
+    CTRL_STATE_RISE,              // 压力上升
+    CTRL_STATE_HOLD,              // 保压
+    CTRL_STATE_PULSE,             // 脉冲
+    CTRL_STATE_INTER_CYCLE_VENT,  // 周期之间泄压
 } ctrl_state_t;
 
 static ctrl_state_t ctrl_state = CTRL_STATE_IDLE;
@@ -37,7 +47,31 @@ static TickType_t cycle_start_tick = 0;
 static TickType_t pre_vent_end_tick = 0;
 static TickType_t inter_vent_end_tick = 0;
 static uint8_t pre_vent_close_done = 0;
-static uint8_t pre_r_vent_done = 0; // 上升阶段前的泄压动作是否已执行
+static uint8_t pre_r_vent_done = 0; // 本次运行中是否已经执行过“启动前预泄压”
+
+#define TX_PRESS_MEDIAN_WINDOW 3
+
+/*
+ * 发送侧压力中位数滤波：仅用于上位机显示，不影响控制闭环。
+ */
+static float median_filter_tx(const float *buf, uint8_t count)
+{
+    float tmp[TX_PRESS_MEDIAN_WINDOW];
+    for (uint8_t i = 0; i < count; ++i) tmp[i] = buf[i];
+    for (uint8_t i = 0; i + 1 < count; ++i) {
+        for (uint8_t j = i + 1; j < count; ++j) {
+            if (tmp[j] < tmp[i]) {
+                float t = tmp[i];
+                tmp[i] = tmp[j];
+                tmp[j] = t;
+            }
+        }
+    }
+
+    if (count == 0) return 0.0f;
+    if (count & 1U) return tmp[count / 2U];
+    return 0.5f * (tmp[count / 2U - 1U] + tmp[count / 2U]);
+}
 
 static inline uint32_t ms_since_tick(TickType_t tick)
 {
@@ -45,60 +79,89 @@ static inline uint32_t ms_since_tick(TickType_t tick)
     return (uint32_t)((now - tick) * portTICK_PERIOD_MS);
 }
 
+/* 切换状态并刷新状态进入时刻 */
 static void enter_state(ctrl_state_t s)
 {
     ctrl_state = s;
     state_enter_tick = xTaskGetTickCount();
 }
 
+/* 将所有执行器切到安全空闲态 */
 static void apply_idle_outputs(void)
 {
-    HeatPWMSet(Left, 0);  HeatPower(Left, 0);
-    HeatPWMSet(Right, 0); HeatPower(Right, 0);
-    VALVE_LEFT(0); VALVE_RIGHT(0);
+    HeatPWMSet(Left, 0);
+    HeatPower(Left, 0);
+    HeatPWMSet(Right, 0);
+    HeatPower(Right, 0);
+    VALVE_LEFT(0);
+    VALVE_RIGHT(0);
     TIM15->CCR1 = 0;
 }
 
+/*
+ * 启动一个压力周期。
+ * allow_pre_vent=1 且本次还未预泄压时，先执行 1s 预泄压再进入 RISE。
+ */
 static void start_pressure_cycle(uint8_t allow_pre_vent)
 {
     cycle_start_tick = xTaskGetTickCount();
     state_enter_tick = cycle_start_tick;
     t_start_tick = cycle_start_tick;
+
     if (allow_pre_vent && !pre_r_vent_done) {
         ctrl_state = CTRL_STATE_PRE_RISE_VENT;
         pre_vent_end_tick = state_enter_tick + pdMS_TO_TICKS(1000);
         pre_vent_close_done = 0;
-        VALVE_LEFT(0); VALVE_RIGHT(0); // 通电泄气
+        VALVE_LEFT(0);
+        VALVE_RIGHT(0); // 预泄压
         TIM15->CCR1 = 0;
     } else {
         ctrl_state = CTRL_STATE_RISE;
     }
 }
 
+/* 启动周期间泄压（固定 2s） */
 static void start_inter_cycle_vent(void)
 {
     ctrl_state = CTRL_STATE_INTER_CYCLE_VENT;
     state_enter_tick = xTaskGetTickCount();
     inter_vent_end_tick = state_enter_tick + pdMS_TO_TICKS(2000);
-    VALVE_LEFT(0); VALVE_RIGHT(0);
+    VALVE_LEFT(0);
+    VALVE_RIGHT(0);
     TIM15->CCR1 = 0;
 }
 
+/*
+ * 上报加热盾状态（在位/熔断），并按安全策略执行保护。
+ */
 static void SendHeaterStatusFrames(void)
 {
     tx_frame_t tx = {0};
-    uint8_t right_present = (HAL_GPIO_ReadPin(MCU_Heat1_Sense_GPIO_Port, MCU_Heat1_Sense_Pin) == GPIO_PIN_RESET) ? 0 : 1; // 低电平表示不存在，给0
-    uint8_t left_present  = (HAL_GPIO_ReadPin(MCU_Heat2_Sense_GPIO_Port, MCU_Heat2_Sense_Pin) == GPIO_PIN_RESET) ? 0 : 1; // 低电平表示不存在，给0
-    uint8_t right_fuse    = (HAL_GPIO_ReadPin(Heat1_Fuse_Detection_GPIO_Port, Heat1_Fuse_Detection_Pin) == GPIO_PIN_RESET) ? 0 : 1; // 低电平表示熔断，给0
-    uint8_t left_fuse     = (HAL_GPIO_ReadPin(Heat2_Fuse_Detection_GPIO_Port, Heat2_Fuse_Detection_Pin) == GPIO_PIN_RESET) ? 0 : 1; // 低电平表示熔断，给0
+
+    /* 约定：低电平表示不存在/熔断，发送 0；高电平发送 1 */
+    uint8_t right_present = (HAL_GPIO_ReadPin(MCU_Heat1_Sense_GPIO_Port, MCU_Heat1_Sense_Pin) == GPIO_PIN_RESET) ? 0 : 1;
+    uint8_t left_present  = (HAL_GPIO_ReadPin(MCU_Heat2_Sense_GPIO_Port, MCU_Heat2_Sense_Pin) == GPIO_PIN_RESET) ? 0 : 1;
+    uint8_t right_fuse    = (HAL_GPIO_ReadPin(Heat1_Fuse_Detection_GPIO_Port, Heat1_Fuse_Detection_Pin) == GPIO_PIN_RESET) ? 0 : 1;
+    uint8_t left_fuse     = (HAL_GPIO_ReadPin(Heat2_Fuse_Detection_GPIO_Port, Heat2_Fuse_Detection_Pin) == GPIO_PIN_RESET) ? 0 : 1;
 
     tx.type = TX_DATA_UINT8;
-    tx.frame_id = U8_LEFT_HEATER_PRESENT;  tx.v.u8 = left_present;  xQueueSend(gTxQueue, &tx, 0);
-    tx.frame_id = U8_RIGHT_HEATER_PRESENT; tx.v.u8 = right_present; xQueueSend(gTxQueue, &tx, 0);
-    tx.frame_id = U8_LEFT_HEATER_FUSE;     tx.v.u8 = left_fuse;     xQueueSend(gTxQueue, &tx, 0);
-    tx.frame_id = U8_RIGHT_HEATER_FUSE;    tx.v.u8 = right_fuse;    xQueueSend(gTxQueue, &tx, 0);
+    tx.frame_id = U8_LEFT_HEATER_PRESENT;
+    tx.v.u8 = left_present;
+    xQueueSend(gTxQueue, &tx, 0);
 
-    /* 缺失时关闭对应侧阀门/加热（调试宏也不绕过） */
+    tx.frame_id = U8_RIGHT_HEATER_PRESENT;
+    tx.v.u8 = right_present;
+    xQueueSend(gTxQueue, &tx, 0);
+
+    tx.frame_id = U8_LEFT_HEATER_FUSE;
+    tx.v.u8 = left_fuse;
+    xQueueSend(gTxQueue, &tx, 0);
+
+    tx.frame_id = U8_RIGHT_HEATER_FUSE;
+    tx.v.u8 = right_fuse;
+    xQueueSend(gTxQueue, &tx, 0);
+
+    /* 盾不在位：强制关闭对应侧 */
     if (!left_present) {
         gCfg.press_enable_L = 0;
         HeatPWMSet(Left, 0);
@@ -113,7 +176,7 @@ static void SendHeaterStatusFrames(void)
     }
 
 #ifndef IGNORE_FUSE_PROTECTION_DEBUG
-    /* 熔断时关闭对应侧阀门/加热 */
+    /* 熔断：强制关闭对应侧 */
     if (!left_fuse) {
         gCfg.press_enable_L = 0;
         HeatPWMSet(Left, 0);
@@ -127,7 +190,7 @@ static void SendHeaterStatusFrames(void)
         VALVE_RIGHT(0);
     }
 #else
-    /* 调试宏开启时：熔断不关闭加热，只打印一次提示 */
+    /* 调试模式：只告警，不因熔断自动关停 */
     static uint8_t fuse_warned = 0;
     if (!fuse_warned && (!left_fuse || !right_fuse)) {
         fuse_warned = 1;
@@ -139,75 +202,98 @@ static void SendHeaterStatusFrames(void)
 void ControlTask(void *argument)
 {
     (void)argument;
-    /* Initialize control config and PID controllers (heating left/right, pressure) */
+
+    /* 初始化控制配置与 PID */
     memset(&gCfg, 0, sizeof(gCfg));
 
-    PID_Init(&pid_heat_L, 400, 2, 200, 100000, 0, 1999, 0, 0);
-    PID_Init(&pid_heat_R, 400, 2, 200, 100000, 0, 1999, 0, 0);
-    // Pressure PID: allow integral to remove steady-state error; enable negative windup
-    PID_Init(&pid_press, 800, 200, 0, 1000, -1000, 255, 0, 0);
-    HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1); // ensure pump PWM timer is running
+    PID_Init(&pid_heat_L, 390, 1.8, 200, 100000, 0, 1999, 0, 0);
+    PID_Init(&pid_heat_R, 390, 1.8, 200, 100000, 0, 1999, 0, 0);
+    PID_Init(&pid_press, 420, 500, 0, 1, 0, 255, 0, 0);
+    HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1); // 保证气泵 PWM 定时器已启动
 
-    TickType_t next_tx_tick = 0;   // 下一次遥测发送时间戳
-    uint8_t heater_status_div = 0; // 节流加热器状态上报
-    const char *phase = "idle"; // 当前阶段标签，默认闲置
+    TickType_t next_tx_tick = 0;
+    uint8_t heater_status_div = 0;
+    const char *phase = "idle";
+
+    /* 发送侧压力中位数滤波窗口 */
+    float tx_press_buf_l[TX_PRESS_MEDIAN_WINDOW] = {0};
+    float tx_press_buf_r[TX_PRESS_MEDIAN_WINDOW] = {0};
+    uint8_t tx_press_idx_l = 0;
+    uint8_t tx_press_idx_r = 0;
+    uint8_t tx_press_count_l = 0;
+    uint8_t tx_press_count_r = 0;
+
     apply_idle_outputs();
     ctrl_state = CTRL_STATE_IDLE;
-    for(;;)
+
+    for (;;)
     {
         vTaskDelay(pdMS_TO_TICKS(2));
 
-        /* Handle control commands from AppTask (start/stop/update config) */
+        /* 1) 处理来自 AppTask 的控制命令 */
         ctrl_cmd_t c;
-        if (xQueueReceive(gCtrlCmdQueue, &c, 0) == pdPASS) // 有新控制命令
+        if (xQueueReceive(gCtrlCmdQueue, &c, 0) == pdPASS)
         {
-            //LOG_I("ctrl cmd recv id=%d", c.id);
-            if (c.id == CTRL_CMD_STOP) { // 停止治疗
-                gCfg.running = 0;       // 标记停止
-                emergency_stop = 0;     // 清紧急停
-                pre_r_vent_done = 0;    // 下次启动可再做预泄压
+            if (c.id == CTRL_CMD_STOP) {
+                gCfg.running = 0;
+                emergency_stop = 0;
+                pre_r_vent_done = 0;
                 ctrl_state = CTRL_STATE_IDLE;
                 apply_idle_outputs();
-            } else if (c.id == CTRL_CMD_START) { // 启动治疗
-                gCfg = c.cfg;                     // 应用新配置
-                gCfg.running = 1;                 // 标记运行
-                emergency_stop = 0;               // 清紧急停
-                pre_r_vent_done = 0;              // 允许预泄压
-                pid_heat_L.setpoint = (float)(gCfg.temp_target * 100.0f); // 左加热目标
-                pid_heat_R.setpoint = (float)(gCfg.temp_target * 100.0f); // 右加热目标
-                start_pressure_cycle(1);
-            } else if (c.id == CTRL_CMD_UPDATE_CFG) { // 仅更新配置
-                gCfg = c.cfg;                         // 应用新配置
-                if (gCfg.running) {
-                    start_pressure_cycle(0); // 运行中刷新周期，但不重复预泄压
+            } else if (c.id == CTRL_CMD_START) {
+                gCfg = c.cfg;
+                gCfg.running = 1;
+                emergency_stop = 0;
+                pre_r_vent_done = 0;
+                /* 仅在收到 START 命令时执行一次 OTP_Reset */
+                if (gCfg.press_enable_L) {
+                    OTP_Reset(Left);
                 }
-                pid_heat_L.setpoint = (float)(gCfg.temp_target * 100.0f); // 左加热目标
-                pid_heat_R.setpoint = (float)(gCfg.temp_target * 100.0f); // 右加热目标
+                if (gCfg.press_enable_R) {
+                    OTP_Reset(Right);
+                }
+                pid_heat_L.setpoint = (float)(gCfg.temp_target * 100.0f);
+                pid_heat_R.setpoint = (float)(gCfg.temp_target * 100.0f);
+                start_pressure_cycle(1);
+            } else if (c.id == CTRL_CMD_UPDATE_CFG) {
+                  /* 仅在收到 START 命令时执行一次 OTP_Reset */
+                if (gCfg.press_enable_L) {
+                    OTP_Reset(Left);
+                }
+                if (gCfg.press_enable_R) {
+                    OTP_Reset(Right);
+                }
+                gCfg = c.cfg;
+                if (gCfg.running) {
+                    start_pressure_cycle(0); // 运行中刷新周期，不重复预泄压
+                }
+                pid_heat_L.setpoint = (float)(gCfg.temp_target * 100.0f);
+                pid_heat_R.setpoint = (float)(gCfg.temp_target * 100.0f);
             }
         }
 
-
-
-        /* Safety/idle path: not running or both sides disabled -> stop pump/heat and vent */
-        if (!gCfg.running || emergency_stop || (!gCfg.press_enable_L && !gCfg.press_enable_R)) { // 未运行或急停或两侧都禁用
+        /* 2) 空闲/保护路径：未运行、急停或双侧都禁用 */
+        if (!gCfg.running || emergency_stop || (!gCfg.press_enable_L && !gCfg.press_enable_R)) {
             static uint8_t last_idle_reason = 0xFF;
             uint8_t idle_reason = 0;
             bool reason_not_running = !gCfg.running;
             bool reason_emergency = (emergency_stop != 0);
             bool reason_both_disabled = (!gCfg.press_enable_L && !gCfg.press_enable_R);
-            if (reason_not_running) idle_reason |= 0x01;        // bit0: not running
-            if (reason_emergency) idle_reason |= 0x02;          // bit1: emergency stop
-            if (reason_both_disabled) idle_reason |= 0x04;      // bit2: both disabled
+
+            if (reason_not_running) idle_reason |= 0x01;
+            if (reason_emergency) idle_reason |= 0x02;
+            if (reason_both_disabled) idle_reason |= 0x04;
+
             if (idle_reason != last_idle_reason) {
                 last_idle_reason = idle_reason;
                 if (reason_not_running || reason_emergency || reason_both_disabled) {
-                    LOG_W("控制已空闲，原因：%s%s%s(run=%u emg=%u enL=%u enR=%u)",
+                    LOG_W("控制空闲：%s%s%s(run=%u emg=%u enL=%u enR=%u)",
                           reason_not_running ? "未启动; " : "",
-                          reason_emergency ? "已按急停; " : "",
-                          reason_both_disabled ? "两侧压力已禁用; " : "",
+                          reason_emergency ? "急停; " : "",
+                          reason_both_disabled ? "双侧压力禁用; " : "",
                           gCfg.running, emergency_stop, gCfg.press_enable_L, gCfg.press_enable_R);
                 } else {
-                    LOG_W("控制已空闲，原因：未知(run=%u emg=%u enL=%u enR=%u)",
+                    LOG_W("控制空闲：未知(run=%u emg=%u enL=%u enR=%u)",
                           gCfg.running, emergency_stop, gCfg.press_enable_L, gCfg.press_enable_R);
                 }
             }
@@ -216,13 +302,13 @@ void ControlTask(void *argument)
             phase = "idle";
             apply_idle_outputs();
         } else {
-            /* Pressure profile state machine: idle/pre-vent/rise/hold/pulse */
+            /* 3) 运行路径：执行压力状态机 */
             uint32_t t1_ms = (uint32_t)(gCfg.t1_rise_s * 1000.0f);
             uint32_t t2_ms = (uint32_t)(gCfg.t2_hold_s * 1000.0f);
             uint32_t t3_ms = (uint32_t)(gCfg.t3_pulse_s * 1000.0f);
 
             if (ctrl_state == CTRL_STATE_IDLE) {
-                start_pressure_cycle(1); // 运行状态但还未启动周期时触发
+                start_pressure_cycle(1);
             }
 
             float Pset_L = 0.0f, Pset_R = 0.0f;
@@ -234,10 +320,7 @@ void ControlTask(void *argument)
             switch (ctrl_state) {
                 case CTRL_STATE_PRE_RISE_VENT:
                     phase = "pre_vent";
-                    /* 预泄压到时后关闭阀并进入上升阶段 */
                     if (!pre_vent_close_done && (int32_t)(xTaskGetTickCount() - pre_vent_end_tick) >= 0) {
-                        // VALVE_LEFT(1); VALVE_RIGHT(1); // 通电泄气
-                        // osDelay(1000);
                         pre_vent_close_done = 1;
                         pre_r_vent_done = 1;
                         enter_state(CTRL_STATE_RISE);
@@ -246,19 +329,21 @@ void ControlTask(void *argument)
 
                 case CTRL_STATE_RISE: {
                     phase = "rise";
-                    VALVE_LEFT(1); VALVE_RIGHT(1); // 断电充气
+                    VALVE_LEFT(1);
+                    VALVE_RIGHT(1); // 充气
                     uint32_t elapsed = ms_since_tick(state_enter_tick);
                     float ratio = (t1_ms > 0) ? (float)elapsed / (float)t1_ms : 1.0f;
                     if (ratio > 1.0f) ratio = 1.0f;
                     Pset_L = Pset_R = Pmax * ratio;
                     inflating_phase = true;
+
                     if (t1_ms == 0 || elapsed >= t1_ms) {
                         if (t2_ms > 0) {
                             enter_state(CTRL_STATE_HOLD);
                         } else if (t3_ms > 0) {
                             enter_state(CTRL_STATE_PULSE);
                         } else {
-                            start_inter_cycle_vent(); // ???????2s???
+                            start_inter_cycle_vent();
                         }
                     }
                     break;
@@ -287,6 +372,7 @@ void ControlTask(void *argument)
                     phase = on_phase ? "pulse_on" : "pulse_off";
                     Pset_L = Pset_R = on_phase ? Pmax : 0.0f;
                     inflating_phase = on_phase;
+
                     if (t3_ms == 0 || elapsed >= t3_ms) {
                         start_inter_cycle_vent();
                     }
@@ -295,7 +381,8 @@ void ControlTask(void *argument)
 
                 case CTRL_STATE_INTER_CYCLE_VENT:
                     phase = "vent";
-                    VALVE_LEFT(0); VALVE_RIGHT(0);
+                    VALVE_LEFT(0);
+                    VALVE_RIGHT(0);
                     TIM15->CCR1 = 0;
                     if ((int32_t)(xTaskGetTickCount() - inter_vent_end_tick) >= 0) {
                         start_pressure_cycle(0);
@@ -306,53 +393,47 @@ void ControlTask(void *argument)
                     break;
             }
 
-            if (!gCfg.press_enable_L) Pset_L = 0.0f; // 左侧禁用则目标为0
-            if (!gCfg.press_enable_R) Pset_R = 0.0f; // 右侧禁用则目标为0
+            if (!gCfg.press_enable_L) Pset_L = 0.0f;
+            if (!gCfg.press_enable_R) Pset_R = 0.0f;
 
-            /* Decide whether each side needs more pressure (hysteresis +0.2kPa) */
-            bool needL = (Pset_L > gSensorData.pressL + 0.2f); // 左侧是否需要补压
-            bool needR = (Pset_R > gSensorData.pressR + 0.2f); // 右侧是否需要补压
+            /* 迟滞判断是否需要补压，避免抖动 */
+            bool needL = (Pset_L > gSensorData.pressL + 0.2f);
+            bool needR = (Pset_R > gSensorData.pressR + 0.2f);
 
             float set_eff = 0.0f;
             float meas_eff = 0.0f;
-            bool force_pump = (ctrl_state == CTRL_STATE_RISE); // 上升阶段要求泵连续运行
+            bool force_pump = (ctrl_state == CTRL_STATE_RISE); // 上升阶段尽量连续驱动
 
-            /* Valve/pump selection:
-             * - Both need: open both valves, track higher setpoint vs lower measured side
-             * - Single side need: open corresponding valve only
-             * - None: close/vent and stop pump
-             */
             if (inflating_phase) {
-                /* 充气阶段：阀保持断电充气（1），按需要决定是否开泵 */
-                uint8_t left_valve_state  = gCfg.press_enable_L;
+                uint8_t left_valve_state = gCfg.press_enable_L;
                 uint8_t right_valve_state = gCfg.press_enable_R;
 
                 VALVE_LEFT(left_valve_state);
                 VALVE_RIGHT(right_valve_state);
 
-                if (force_pump) { // 上升阶段：泵保持连续
+                if (force_pump) {
                     if (gCfg.press_enable_L && gCfg.press_enable_R) {
-                        set_eff  = (Pset_L > Pset_R) ? Pset_L : Pset_R;
+                        set_eff = (Pset_L > Pset_R) ? Pset_L : Pset_R;
                         meas_eff = (gSensorData.pressL < gSensorData.pressR) ? gSensorData.pressL : gSensorData.pressR;
                     } else if (gCfg.press_enable_L) {
-                        set_eff  = Pset_L;
+                        set_eff = Pset_L;
                         meas_eff = gSensorData.pressL;
                     } else if (gCfg.press_enable_R) {
-                        set_eff  = Pset_R;
+                        set_eff = Pset_R;
                         meas_eff = gSensorData.pressR;
                     }
                     pump_on = (gCfg.press_enable_L || gCfg.press_enable_R);
-                } else { // 其他充气阶段按需启停泵
+                } else {
                     if (needL && needR) {
-                        set_eff  = (Pset_L > Pset_R) ? Pset_L : Pset_R;
+                        set_eff = (Pset_L > Pset_R) ? Pset_L : Pset_R;
                         meas_eff = (gSensorData.pressL < gSensorData.pressR) ? gSensorData.pressL : gSensorData.pressR;
                         pump_on = true;
                     } else if (needL) {
-                        set_eff  = Pset_L;
+                        set_eff = Pset_L;
                         meas_eff = gSensorData.pressL;
                         pump_on = true;
                     } else if (needR) {
-                        set_eff  = Pset_R;
+                        set_eff = Pset_R;
                         meas_eff = gSensorData.pressR;
                         pump_on = true;
                     } else {
@@ -360,75 +441,99 @@ void ControlTask(void *argument)
                     }
                 }
             } else {
-                /* 泄气阶段：阀通电泄气，停泵 */
                 TIM15->CCR1 = 0;
-                VALVE_LEFT(0); VALVE_RIGHT(0);
-                
+                VALVE_LEFT(0);
+                VALVE_RIGHT(0); // 泄压
             }
 
-            /* Pump PID control (pressure) */
+            /* 压力 PID -> 气泵 PWM */
             if (pump_on) {
-                pid_press.setpoint = (float)(set_eff * 1.0f); // 设定压 x1000
-                int32_t u = PID_Compute(&pid_press, (float)(meas_eff * 1.0f)); // PID输出
-                if (u < 20) u = 20; // 下限
-                /* 上升阶段保持泵连续转动，避免PWM降为0导致反复启停 */
-                //if (ctrl_state == CTRL_STATE_RISE && u < 100) u = 10;
-                if (u > 255) u = 255; // 上限
-                TIM15->CCR1 = (uint16_t)u; // 写泵PWM
+                pid_press.setpoint = set_eff;
+                int32_t u = PID_Compute(&pid_press, meas_eff);
+                if (u < 20) u = 20;
+                if (u > 255) u = 255;
+                TIM15->CCR1 = (uint16_t)u;
             }
 
-            /* Heating control per side */
-            if (gCfg.press_enable_L) { // 左侧启用
-                HeatPower(Left, 1); // 开左加热电源
-                PID_Heat(Left, &pid_heat_L, (float)(gSensorData.tempL * 100.0f)); // 左温度PID
+            /* 温控分通道执行 */
+            if (gCfg.press_enable_L) {
+                HeatPower(Left, 1);
+                PID_Heat(Left, &pid_heat_L, (float)(gSensorData.tempL * 100.0f));
             } else {
-                HeatPWMSet(Left, 0); // 关左PWM
-                HeatPower(Left, 0);  // 断左加热
+                HeatPWMSet(Left, 0);
+                HeatPower(Left, 0);
             }
 
-            if (gCfg.press_enable_R) { // 右侧启用
-                HeatPower(Right, 1); // 开右加热电源
-                PID_Heat(Right, &pid_heat_R, (float)(gSensorData.tempR * 100.0f)); // 右温度PID
+            if (gCfg.press_enable_R) {
+                HeatPower(Right, 1);
+                PID_Heat(Right, &pid_heat_R, (float)(gSensorData.tempR * 100.0f));
             } else {
-                HeatPWMSet(Right, 0); // 关右PWM
-                HeatPower(Right, 0);  // 断右加热
+                HeatPWMSet(Right, 0);
+                HeatPower(Right, 0);
             }
         }
 
 telemetry:
-        /* Telemetry @100ms when running: send pressures, temps, heater status */
-        if (gCfg.running) { // 仅运行时发送
+        /* 4) 遥测上报：运行时按节拍发送 */
+        if (gCfg.running) {
             TickType_t now = xTaskGetTickCount();
-            if ((int32_t)(now - next_tx_tick) >= 0) { // 固定节拍，避免高优先级任务打断后堆积
-                next_tx_tick = now + pdMS_TO_TICKS(20); // 20ms 一次
+            if ((int32_t)(now - next_tx_tick) >= 0) {
+                next_tx_tick = now + pdMS_TO_TICKS(20);
+
                 tx_frame_t tx;
-                tx.type = TX_DATA_FLOAT; // 浮点数据
-                tx.frame_id = F32_LEFT_PRESSURE_VALUE;  tx.v.f32 = gSensorData.pressL; xQueueSend(gTxQueue, &tx, 0); // 左压
-                tx.frame_id = F32_RIGHT_PRESSURE_VALUE; tx.v.f32 = gSensorData.pressR; xQueueSend(gTxQueue, &tx, 0); // 右压
-                tx.frame_id = F32_LEFT_TEMP_VALUE;      tx.v.f32 = gSensorData.tempL;  xQueueSend(gTxQueue, &tx, 0); // 左温
-                tx.frame_id = F32_RIGHT_TEMP_VALUE;     tx.v.f32 = gSensorData.tempR;  xQueueSend(gTxQueue, &tx, 0); // 右温
+
+                /* 压力发送前再做一次中位数滤波 */
+                tx_press_buf_l[tx_press_idx_l] = gSensorData.pressL;
+                tx_press_idx_l = (uint8_t)((tx_press_idx_l + 1U) % TX_PRESS_MEDIAN_WINDOW);
+                if (tx_press_count_l < TX_PRESS_MEDIAN_WINDOW) tx_press_count_l++;
+
+                tx_press_buf_r[tx_press_idx_r] = gSensorData.pressR;
+                tx_press_idx_r = (uint8_t)((tx_press_idx_r + 1U) % TX_PRESS_MEDIAN_WINDOW);
+                if (tx_press_count_r < TX_PRESS_MEDIAN_WINDOW) tx_press_count_r++;
+
+                float tx_press_l = median_filter_tx(tx_press_buf_l, tx_press_count_l);
+                float tx_press_r = median_filter_tx(tx_press_buf_r, tx_press_count_r);
+
+                tx.type = TX_DATA_FLOAT;
+                tx.frame_id = F32_LEFT_PRESSURE_VALUE;
+                tx.v.f32 = tx_press_l;
+                xQueueSend(gTxQueue, &tx, 0);
+
+                tx.frame_id = F32_RIGHT_PRESSURE_VALUE;
+                tx.v.f32 = tx_press_r;
+                xQueueSend(gTxQueue, &tx, 0);
+
+                tx.frame_id = F32_LEFT_TEMP_VALUE;
+                tx.v.f32 = gSensorData.tempL;
+                xQueueSend(gTxQueue, &tx, 0);
+
+                tx.frame_id = F32_RIGHT_TEMP_VALUE;
+                tx.v.f32 = gSensorData.tempR;
+                xQueueSend(gTxQueue, &tx, 0);
+
                 tx.type = TX_DATA_UINT8;
-                tx.frame_id = U8_MODE_CURVES;           tx.v.u8 = (uint8_t)(phase[0]); xQueueSend(gTxQueue, &tx, 0); // 用首字母标记阶段（r/h/p)
-                //LOG_I("phase telem frame 0x%04X val=%c", tx.frame_id, (char)tx.v.u8);
-                tx.type = TX_DATA_UINT8; // 切回u8类型（备用）
+                tx.frame_id = U8_MODE_CURVES;
+                tx.v.u8 = (uint8_t)(phase[0]); // r/h/p
+                xQueueSend(gTxQueue, &tx, 0);
 
-                /* Log motor/heater power and channel enable states */
-                uint16_t pump_pwm = TIM15->CCR1;  // 0..255 泵PWM
-                uint16_t heat_pwm_L = TIM14->CCR1; // 0..1999 左加热PWM
-                uint16_t heat_pwm_R = TIM17->CCR1; // 0..1999 右加热PWM
-                // LOG_I("ctrl phase=%s run=%u pump=%u/255 heatL=%u/1999 heatR=%u/1999 enL=%u enR=%u T(L,R)=%.2f,%.2f PL,PR=%.2f,%.2f\n",
-                //       phase,
-                //       gCfg.running, pump_pwm, heat_pwm_L, heat_pwm_R,
-                //       gCfg.press_enable_L, gCfg.press_enable_R,
-                //       gSensorData.tempL, gSensorData.tempR,
-                //       gSensorData.pressL, gSensorData.pressR); // 打印控制状态
+                tx.type = TX_DATA_UINT8;
 
-                
+                /* 调试参考量（当前未打印） */
+                uint16_t pump_pwm = TIM15->CCR1;
+                uint16_t heat_pwm_L = TIM14->CCR1;
+                uint16_t heat_pwm_R = TIM17->CCR1;
+                (void)pump_pwm;
+                (void)heat_pwm_L;
+                (void)heat_pwm_R;
             }
         } else {
-            next_tx_tick = xTaskGetTickCount() + pdMS_TO_TICKS(20); // 重置节拍，避免启动时等待过久
+            /* 停机时重置发送滤波窗口，避免旧值带入 */
+            next_tx_tick = xTaskGetTickCount() + pdMS_TO_TICKS(20);
+            tx_press_idx_l = tx_press_idx_r = 0;
+            tx_press_count_l = tx_press_count_r = 0;
         }
-        /* 加热器存在/熔断状态节流上报（约~100ms，一直发送） */
+
+        /* 约每 100ms 上报一次加热盾状态 */
         if (++heater_status_div >= 10) {
             heater_status_div = 0;
             SendHeaterStatusFrames();
