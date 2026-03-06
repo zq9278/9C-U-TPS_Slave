@@ -122,19 +122,19 @@ void UartFrame_Dispatch(FrameId_t frame_id, const uint8_t *data_ptr, uint16_t da
             break;
 
         case U8_LEFT_HEATER_FUSE_BLOW_CMD: // Force blow left fuse
-            // HAL_GPIO_WritePin(Heat1_Fuse_Blown_GPIO_Port, Heat1_Fuse_Blown_Pin, GPIO_PIN_SET);
-            // HAL_GPIO_WritePin(Heat2_Fuse_Blown_GPIO_Port, Heat2_Fuse_Blown_Pin, GPIO_PIN_SET);
-            // HAL_Delay(200);
-            // HAL_GPIO_WritePin(Heat1_Fuse_Blown_GPIO_Port, Heat1_Fuse_Blown_Pin, GPIO_PIN_RESET);
-            // HAL_GPIO_WritePin(Heat2_Fuse_Blown_GPIO_Port, Heat2_Fuse_Blown_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(Heat1_Fuse_Blown_GPIO_Port, Heat1_Fuse_Blown_Pin, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(Heat2_Fuse_Blown_GPIO_Port, Heat2_Fuse_Blown_Pin, GPIO_PIN_SET);
+            HAL_Delay(200);
+            HAL_GPIO_WritePin(Heat1_Fuse_Blown_GPIO_Port, Heat1_Fuse_Blown_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(Heat2_Fuse_Blown_GPIO_Port, Heat2_Fuse_Blown_Pin, GPIO_PIN_RESET);
             break;
 
         case U8_RIGHT_HEATER_FUSE_BLOW_CMD: // Force blow right fuse
-            HAL_GPIO_WritePin(Heat2_Fuse_Blown_GPIO_Port, Heat2_Fuse_Blown_Pin, GPIO_PIN_SET);
-            HAL_GPIO_WritePin(Heat1_Fuse_Blown_GPIO_Port, Heat1_Fuse_Blown_Pin, GPIO_PIN_SET);
-            HAL_Delay(200);
-            HAL_GPIO_WritePin(Heat2_Fuse_Blown_GPIO_Port, Heat2_Fuse_Blown_Pin, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(Heat1_Fuse_Blown_GPIO_Port, Heat1_Fuse_Blown_Pin, GPIO_PIN_RESET);
+            // HAL_GPIO_WritePin(Heat2_Fuse_Blown_GPIO_Port, Heat2_Fuse_Blown_Pin, GPIO_PIN_SET);
+            // HAL_GPIO_WritePin(Heat1_Fuse_Blown_GPIO_Port, Heat1_Fuse_Blown_Pin, GPIO_PIN_SET);
+            // HAL_Delay(200);
+            // HAL_GPIO_WritePin(Heat2_Fuse_Blown_GPIO_Port, Heat2_Fuse_Blown_Pin, GPIO_PIN_RESET);
+            // HAL_GPIO_WritePin(Heat1_Fuse_Blown_GPIO_Port, Heat1_Fuse_Blown_Pin, GPIO_PIN_RESET);
             break;
 
         case U8_MODE_SELECT:               // Mode select
