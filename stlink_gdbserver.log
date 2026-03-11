@@ -1,0 +1,3 @@
+[0.116] ServerSocket():  Failed to bind to port 50001, error code -1: No error
+[0.116] initServerContext():  Failure starting SWV server on TCP port: 50001
+[0.117] ServerSocket():  Failed to bind to port 50000, error code -1: No error

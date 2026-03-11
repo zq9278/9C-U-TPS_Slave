@@ -208,7 +208,7 @@ void ControlTask(void *argument)
 
     PID_Init(&pid_heat_L, 390, 1.8, 200, 100000, 0, 1999, 0, 0);
     PID_Init(&pid_heat_R, 390, 1.8, 200, 100000, 0, 1999, 0, 0);
-    PID_Init(&pid_press, 420, 500, 0, 1, 0, 255, 0, 0);
+    PID_Init(&pid_press, 350, 140, 0, 200, -200, 255, 0, 0);
     HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1); // 保证气泵 PWM 定时器已启动
 
     TickType_t next_tx_tick = 0;

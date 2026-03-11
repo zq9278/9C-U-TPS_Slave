@@ -1,0 +1,39 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Flash/Debug (J-Link)",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/Debug/SAT01_Ctrl_V1_0.elf",
+      "request": "launch",
+      "type": "cortex-debug",
+      "servertype": "jlink",
+      "serverpath": "C:/Users/ZQ-MagicBook/AppData/Local/stm32cube/bundles/jlink-gdbserver/8.80.0+st.1/bin/JLinkGDBServerCL.exe",
+      "armToolchainPath": "C:/Users/ZQ-MagicBook/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin",
+      "gdbPath": "C:/Users/ZQ-MagicBook/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-gdb.exe",
+      "device": "STM32G070RBTx",
+      "interface": "swd",
+      "runToEntryPoint": "main"
+    },
+    {
+      "name": "Flash/Debug (ST-Link, Built-in)",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/Debug/SAT01_Ctrl_V1_0.elf",
+      "request": "launch",
+      "type": "cortex-debug",
+      "servertype": "stlink",
+      "serverpath": "C:/Users/ZQ-MagicBook/AppData/Local/stm32cube/bundles/stlink-gdbserver/7.13.0+st.3/bin/ST-LINK_gdbserver.exe",
+      "stm32cubeprogrammer": "C:/Users/ZQ-MagicBook/AppData/Local/stm32cube/bundles/programmer/2.22.0+st.1/bin",
+      "serverArgs": [
+        "-k",
+        "--frequency",
+        "2000"
+      ],
+      "armToolchainPath": "C:/Users/ZQ-MagicBook/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin",
+      "gdbPath": "C:/Users/ZQ-MagicBook/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-gdb.exe",
+      "device": "STM32G070RBTx",
+      "interface": "swd",
+      "runToEntryPoint": "main"
+    }
+  ]
+}
