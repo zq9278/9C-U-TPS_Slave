@@ -14,7 +14,9 @@
 #include "LOG.h"
 #include "pid.h"
 
-float p, i, d;
+volatile float gPidP = 0.0f;
+volatile float gPidI = 0.0f;
+volatile float gPidD = 0.0f;
 
 #define DERIVATIVE_FILTER_ALPHA 0.8f
 
@@ -56,18 +58,18 @@ float PID_Compute(PID_TypeDef *pid, float measured_value)
     pid->previous_measured_value = measured_value;
 
     // PID 锟斤拷锟斤拷锟斤拷悖拷锟较碉拷锟斤拷糯锟?000锟斤拷锟斤拷锟斤拷要锟斤拷锟斤拷去锟斤拷
-    p = (pid->Kp * error) / 1000;
-    i = (pid->Ki * pid->integral) / 1000;
-    d = -(pid->Kd) / 1000;//-(pid->Kd * pid->derivative_filtered) / 1000;
+    gPidP = (pid->Kp * error) / 1000;
+    gPidI = (pid->Ki * pid->integral) / 1000;
+    gPidD = -(pid->Kd) / 1000;//-(pid->Kd * pid->derivative_filtered) / 1000;
 
-    float output = p + i + d;
+    float output = gPidP + gPidI + gPidD;
 
     // 锟斤拷锟斤拷薹锟?
     if (output > pid->output_max) output = pid->output_max;
     else if (output < pid->output_min) output = pid->output_min;
 
     // 锟斤拷锟斤拷锟斤拷锟斤拷锟斤拷锟窖★拷锟?
-    //LOG("%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n", p, i, d,error, pid->integral,pid->setpoint, measured_value, output);
+    //LOG("%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n", gPidP, gPidI, gPidD,error, pid->integral,pid->setpoint, measured_value, output);
 
     return output;
 }

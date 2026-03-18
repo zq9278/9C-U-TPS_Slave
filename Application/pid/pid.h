@@ -26,6 +26,10 @@ void PID_Init(PID_TypeDef *pid, float Kp, float Ki, float Kd,
 // ����PID�������
 float PID_Compute(PID_TypeDef *pid, float measured_value);
 
+extern volatile float gPidP;
+extern volatile float gPidI;
+extern volatile float gPidD;
+
 // �޷���
 //#define Limit(x, min, max) ((x) = (((x) <= (min)) ? (min) : (((x) >= (max)) ? (max) : (x))))
 #define Limit(x, min, max) (((x) <= (min)) ? (min) : (((x) >= (max)) ? (max) : (x)))

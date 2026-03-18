@@ -24,9 +24,12 @@
 
 /* 调试宏：忽略熔断保护（在位检测仍然生效） */
 #define IGNORE_FUSE_PROTECTION_DEBUG
+#define HEATER_STATUS_DEBOUNCE_COUNT 3U
+#define TEMP_DISPLAY_OFFSET_C 2.0f//界面显示加2度
 
 static PID_TypeDef pid_press;
 static PID_TypeDef pid_heat_L, pid_heat_R;
+volatile uint16_t gPumpPwmDebug = 0;
 
 static control_config_t gCfg;
 static TickType_t t_start_tick = 0;
@@ -96,6 +99,7 @@ static void apply_idle_outputs(void)
     VALVE_LEFT(0);
     VALVE_RIGHT(0);
     TIM15->CCR1 = 0;
+    gPumpPwmDebug = 0;
 }
 
 /*
@@ -115,6 +119,7 @@ static void start_pressure_cycle(uint8_t allow_pre_vent)
         VALVE_LEFT(0);
         VALVE_RIGHT(0); // 预泄压
         TIM15->CCR1 = 0;
+        gPumpPwmDebug = 0;
     } else {
         ctrl_state = CTRL_STATE_RISE;
     }
@@ -129,6 +134,7 @@ static void start_inter_cycle_vent(void)
     VALVE_LEFT(0);
     VALVE_RIGHT(0);
     TIM15->CCR1 = 0;
+    gPumpPwmDebug = 0;
 }
 
 /*
@@ -137,12 +143,65 @@ static void start_inter_cycle_vent(void)
 static void SendHeaterStatusFrames(void)
 {
     tx_frame_t tx = {0};
+    static uint8_t right_present_stable = 1;
+    static uint8_t left_present_stable = 1;
+    static uint8_t right_fuse_stable = 1;
+    static uint8_t left_fuse_stable = 1;
+    static uint8_t right_present_count = 0;
+    static uint8_t left_present_count = 0;
+    static uint8_t right_fuse_count = 0;
+    static uint8_t left_fuse_count = 0;
 
     /* 约定：低电平表示不存在/熔断，发送 0；高电平发送 1 */
-    uint8_t right_present = (HAL_GPIO_ReadPin(MCU_Heat1_Sense_GPIO_Port, MCU_Heat1_Sense_Pin) == GPIO_PIN_RESET) ? 0 : 1;
-    uint8_t left_present  = (HAL_GPIO_ReadPin(MCU_Heat2_Sense_GPIO_Port, MCU_Heat2_Sense_Pin) == GPIO_PIN_RESET) ? 0 : 1;
-    uint8_t right_fuse    = (HAL_GPIO_ReadPin(Heat1_Fuse_Detection_GPIO_Port, Heat1_Fuse_Detection_Pin) == GPIO_PIN_RESET) ? 0 : 1;
-    uint8_t left_fuse     = (HAL_GPIO_ReadPin(Heat2_Fuse_Detection_GPIO_Port, Heat2_Fuse_Detection_Pin) == GPIO_PIN_RESET) ? 0 : 1;
+    uint8_t right_present_raw = (HAL_GPIO_ReadPin(MCU_Heat1_Sense_GPIO_Port, MCU_Heat1_Sense_Pin) == GPIO_PIN_RESET) ? 0 : 1;
+    uint8_t left_present_raw  = (HAL_GPIO_ReadPin(MCU_Heat2_Sense_GPIO_Port, MCU_Heat2_Sense_Pin) == GPIO_PIN_RESET) ? 0 : 1;
+    uint8_t right_fuse_raw    = (HAL_GPIO_ReadPin(Heat1_Fuse_Detection_GPIO_Port, Heat1_Fuse_Detection_Pin) == GPIO_PIN_RESET) ? 0 : 1;
+    uint8_t left_fuse_raw     = (HAL_GPIO_ReadPin(Heat2_Fuse_Detection_GPIO_Port, Heat2_Fuse_Detection_Pin) == GPIO_PIN_RESET) ? 0 : 1;
+    uint8_t right_present;
+    uint8_t left_present;
+    uint8_t right_fuse;
+    uint8_t left_fuse;
+
+    if (right_present_raw != right_present_stable) {
+        if (++right_present_count >= HEATER_STATUS_DEBOUNCE_COUNT) {
+            right_present_stable = right_present_raw;
+            right_present_count = 0;
+        }
+    } else {
+        right_present_count = 0;
+    }
+
+    if (left_present_raw != left_present_stable) {
+        if (++left_present_count >= HEATER_STATUS_DEBOUNCE_COUNT) {
+            left_present_stable = left_present_raw;
+            left_present_count = 0;
+        }
+    } else {
+        left_present_count = 0;
+    }
+
+    if (right_fuse_raw != right_fuse_stable) {
+        if (++right_fuse_count >= HEATER_STATUS_DEBOUNCE_COUNT) {
+            right_fuse_stable = right_fuse_raw;
+            right_fuse_count = 0;
+        }
+    } else {
+        right_fuse_count = 0;
+    }
+
+    if (left_fuse_raw != left_fuse_stable) {
+        if (++left_fuse_count >= HEATER_STATUS_DEBOUNCE_COUNT) {
+            left_fuse_stable = left_fuse_raw;
+            left_fuse_count = 0;
+        }
+    } else {
+        left_fuse_count = 0;
+    }
+
+    right_present = right_present_stable;
+    left_present = left_present_stable;
+    right_fuse = right_fuse_stable;
+    left_fuse = left_fuse_stable;
 
     tx.type = TX_DATA_UINT8;
     tx.frame_id = U8_LEFT_HEATER_PRESENT;
@@ -208,7 +267,7 @@ void ControlTask(void *argument)
 
     PID_Init(&pid_heat_L, 390, 1.8, 200, 100000, 0, 1999, 0, 0);
     PID_Init(&pid_heat_R, 390, 1.8, 200, 100000, 0, 1999, 0, 0);
-    PID_Init(&pid_press, 350, 140, 0, 200, -200, 255, 0, 0);
+    PID_Init(&pid_press, 360, 140, 0, 200, -200, 255, 0, 0);
     HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1); // 保证气泵 PWM 定时器已启动
 
     TickType_t next_tx_tick = 0;
@@ -384,6 +443,7 @@ void ControlTask(void *argument)
                     VALVE_LEFT(0);
                     VALVE_RIGHT(0);
                     TIM15->CCR1 = 0;
+                    gPumpPwmDebug = 0;
                     if ((int32_t)(xTaskGetTickCount() - inter_vent_end_tick) >= 0) {
                         start_pressure_cycle(0);
                     }
@@ -438,10 +498,12 @@ void ControlTask(void *argument)
                         pump_on = true;
                     } else {
                         TIM15->CCR1 = 0;
+                        gPumpPwmDebug = 0;
                     }
                 }
             } else {
                 TIM15->CCR1 = 0;
+                gPumpPwmDebug = 0;
                 VALVE_LEFT(0);
                 VALVE_RIGHT(0); // 泄压
             }
@@ -453,6 +515,7 @@ void ControlTask(void *argument)
                 if (u < 20) u = 20;
                 if (u > 255) u = 255;
                 TIM15->CCR1 = (uint16_t)u;
+                gPumpPwmDebug = (uint16_t)u;
             }
 
             /* 温控分通道执行 */
@@ -504,11 +567,11 @@ telemetry:
                 xQueueSend(gTxQueue, &tx, 0);
 
                 tx.frame_id = F32_LEFT_TEMP_VALUE;
-                tx.v.f32 = gSensorData.tempL;
+                tx.v.f32 = gSensorData.tempL + TEMP_DISPLAY_OFFSET_C;
                 xQueueSend(gTxQueue, &tx, 0);
 
                 tx.frame_id = F32_RIGHT_TEMP_VALUE;
-                tx.v.f32 = gSensorData.tempR;
+                tx.v.f32 = gSensorData.tempR + TEMP_DISPLAY_OFFSET_C;
                 xQueueSend(gTxQueue, &tx, 0);
 
                 tx.type = TX_DATA_UINT8;

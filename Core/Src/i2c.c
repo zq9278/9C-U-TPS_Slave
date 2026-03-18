@@ -21,6 +21,23 @@
 #include "i2c.h"
 
 /* USER CODE BEGIN 0 */
+void I2C_Recover(I2C_HandleTypeDef *hi2c)
+{
+  if (hi2c == NULL)
+  {
+    return;
+  }
+
+  __HAL_I2C_DISABLE_IT(hi2c, I2C_IT_ERRI);
+  __HAL_I2C_DISABLE(hi2c);
+  __HAL_I2C_CLEAR_FLAG(hi2c, I2C_FLAG_BERR | I2C_FLAG_ARLO | I2C_FLAG_OVR | I2C_FLAG_TIMEOUT);
+
+  (void)HAL_I2C_DeInit(hi2c);
+  (void)HAL_I2C_Init(hi2c);
+  (void)HAL_I2CEx_ConfigAnalogFilter(hi2c, I2C_ANALOGFILTER_ENABLE);
+  (void)HAL_I2CEx_ConfigDigitalFilter(hi2c, 0);
+  __HAL_I2C_ENABLE_IT(hi2c, I2C_IT_ERRI);
+}
 
 /* USER CODE END 0 */
 
@@ -66,6 +83,7 @@ void MX_I2C1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN I2C1_Init 2 */
+  __HAL_I2C_ENABLE_IT(&hi2c1, I2C_IT_ERRI);
 
   /* USER CODE END I2C1_Init 2 */
 
@@ -109,6 +127,7 @@ void MX_I2C2_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN I2C2_Init 2 */
+  __HAL_I2C_ENABLE_IT(&hi2c2, I2C_IT_ERRI);
 
   /* USER CODE END I2C2_Init 2 */
 
@@ -149,6 +168,8 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef* i2cHandle)
     /* I2C1 clock enable */
     __HAL_RCC_I2C1_CLK_ENABLE();
   /* USER CODE BEGIN I2C1_MspInit 1 */
+    HAL_NVIC_SetPriority(I2C1_IRQn, 3, 0);
+    HAL_NVIC_EnableIRQ(I2C1_IRQn);
 
   /* USER CODE END I2C1_MspInit 1 */
   }
@@ -173,6 +194,8 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef* i2cHandle)
     /* I2C2 clock enable */
     __HAL_RCC_I2C2_CLK_ENABLE();
   /* USER CODE BEGIN I2C2_MspInit 1 */
+    HAL_NVIC_SetPriority(I2C2_IRQn, 3, 0);
+    HAL_NVIC_EnableIRQ(I2C2_IRQn);
 
   /* USER CODE END I2C2_MspInit 1 */
   }
@@ -198,6 +221,7 @@ void HAL_I2C_MspDeInit(I2C_HandleTypeDef* i2cHandle)
     HAL_GPIO_DeInit(Heat1_SDA_GPIO_Port, Heat1_SDA_Pin);
 
   /* USER CODE BEGIN I2C1_MspDeInit 1 */
+    HAL_NVIC_DisableIRQ(I2C1_IRQn);
 
   /* USER CODE END I2C1_MspDeInit 1 */
   }
@@ -218,11 +242,16 @@ void HAL_I2C_MspDeInit(I2C_HandleTypeDef* i2cHandle)
     HAL_GPIO_DeInit(Heat2_SDA_GPIO_Port, Heat2_SDA_Pin);
 
   /* USER CODE BEGIN I2C2_MspDeInit 1 */
+    HAL_NVIC_DisableIRQ(I2C2_IRQn);
 
   /* USER CODE END I2C2_MspDeInit 1 */
   }
 }
 
 /* USER CODE BEGIN 1 */
+void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c)
+{
+  I2C_Recover(hi2c);
+}
 
 /* USER CODE END 1 */

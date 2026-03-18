@@ -1,4 +1,4 @@
-/* USER CODE BEGIN Header */
+﻿/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : main.c
@@ -85,8 +85,8 @@ int main(void)
 
   /* MCU Configuration--------------------------------------------------------*/
 
-
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */   HAL_Init();
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
 
   /* USER CODE BEGIN Init */
 
@@ -120,7 +120,7 @@ int main(void)
 	Fan1(1);
 	
 	
-	// HAL_UART_Receive_IT(&huart3, (uint8_t *)&uart_rx_byte, 1);  // ��ʼ���յ�1�ֽ�
+	// HAL_UART_Receive_IT(&huart3, (uint8_t *)&uart_rx_byte, 1);  // 锟斤拷始锟斤拷锟秸碉拷1锟街斤拷
   /* USER CODE END 2 */
 
   /* Call init function for freertos objects (in cmsis_os2.c) */
@@ -242,3 +242,5 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
+
+

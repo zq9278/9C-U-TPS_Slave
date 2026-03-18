@@ -18,6 +18,10 @@
 #define PRESSURE_SET_COMP_MIN    (0.0f)
 #define PRESSURE_SET_COMP_MAX    (400.0f)
 
+#define TEMP_SET_COMP_SUB        (2.0f)//实际温度降2度。
+#define TEMP_SET_COMP_MIN        (0.0f)
+#define TEMP_SET_COMP_MAX        (80.0f)
+
 static float compensate_pressure_set(float raw_set)
 {
     float v = raw_set + PRESSURE_SET_COMP_ADD;
@@ -25,6 +29,8 @@ static float compensate_pressure_set(float raw_set)
     if (v > PRESSURE_SET_COMP_MAX) v = PRESSURE_SET_COMP_MAX;
     return v;
 }
+
+
 
 // Data parse helpers
 void handle_config_data(const uint8_t* data_ptr, uint16_t data_len)
@@ -110,8 +116,11 @@ void UartFrame_Dispatch(FrameId_t frame_id, const uint8_t *data_ptr, uint16_t da
         }
 
         case F32_LEFT_TEMP_SET_C:          // Temperature set
-            push_cmd_f32(APP_CMD_SET_TEMP, handle_float_data(data_ptr, data_len));
+        {
+            float raw_set = handle_float_data(data_ptr, data_len);
+            push_cmd_f32(APP_CMD_SET_TEMP, raw_set);
             break;
+        }
 
         case U8_LEFT_EYE_ENABLE:           // Left eye enable
             push_cmd_u8(APP_CMD_LEFT_ENABLE, handle_uint8_t_data(data_ptr, data_len));

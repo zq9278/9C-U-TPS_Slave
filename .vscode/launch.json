@@ -11,6 +11,10 @@
       "serverpath": "C:/Users/ZQ-MagicBook/AppData/Local/stm32cube/bundles/jlink-gdbserver/8.80.0+st.1/bin/JLinkGDBServerCL.exe",
       "armToolchainPath": "C:/Users/ZQ-MagicBook/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin",
       "gdbPath": "C:/Users/ZQ-MagicBook/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-gdb.exe",
+      "liveWatch": {
+        "enabled": true,
+        "samplesPerSecond": 4
+      },
       "device": "STM32G070RBTx",
       "interface": "swd",
       "runToEntryPoint": "main"
