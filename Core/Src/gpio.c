@@ -103,8 +103,8 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(OTP2_RESET_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : RTD_CS_Pin RTD_START_Pin */
-  GPIO_InitStruct.Pin = RTD_CS_Pin|RTD_START_Pin;
+  /*Configure GPIO pins : RTD_CS_Pin RTD_START_Pin Heat1_Fuse_Blown_Pin */
+  GPIO_InitStruct.Pin = RTD_CS_Pin|RTD_START_Pin|Heat1_Fuse_Blown_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -112,25 +112,18 @@ void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : RTD_RDY_Pin */
   GPIO_InitStruct.Pin = RTD_RDY_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(RTD_RDY_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : MCU_Heat2_Sense_Pin Heat2_Fuse_Detection_Pin */
   GPIO_InitStruct.Pin = MCU_Heat2_Sense_Pin|Heat2_Fuse_Detection_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : Heat2_Fuse_Blown_Pin */
-  GPIO_InitStruct.Pin = Heat2_Fuse_Blown_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(Heat2_Fuse_Blown_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : WaterValve5_Pin AirPump3_Pin */
-  GPIO_InitStruct.Pin = WaterValve5_Pin|AirPump3_Pin;
+  /*Configure GPIO pins : Heat2_Fuse_Blown_Pin WaterValve5_Pin AirPump3_Pin */
+  GPIO_InitStruct.Pin = Heat2_Fuse_Blown_Pin|WaterValve5_Pin|AirPump3_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -159,24 +152,15 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(TS1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : SW_CNT_Pin */
-  GPIO_InitStruct.Pin = SW_CNT_Pin;
+  /*Configure GPIO pins : SW_CNT_Pin MCU_Heat1_Sense_Pin Heat1_Fuse_Detection_Pin */
+  GPIO_InitStruct.Pin = SW_CNT_Pin|MCU_Heat1_Sense_Pin|Heat1_Fuse_Detection_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(SW_CNT_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : MCU_Heat1_Sense_Pin Heat1_Fuse_Detection_Pin */
-  GPIO_InitStruct.Pin = MCU_Heat1_Sense_Pin|Heat1_Fuse_Detection_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : Heat1_Fuse_Blown_Pin */
-  GPIO_InitStruct.Pin = Heat1_Fuse_Blown_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(Heat1_Fuse_Blown_GPIO_Port, &GPIO_InitStruct);
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI4_15_IRQn, 3, 0);
+  HAL_NVIC_EnableIRQ(EXTI4_15_IRQn);
 
 }
 

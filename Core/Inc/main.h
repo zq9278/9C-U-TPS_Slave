@@ -107,6 +107,7 @@ void Error_Handler(void);
 #define RTD_START_GPIO_Port GPIOB
 #define RTD_RDY_Pin GPIO_PIN_8
 #define RTD_RDY_GPIO_Port GPIOA
+#define RTD_RDY_EXTI_IRQn EXTI4_15_IRQn
 #define Heat1_SCL_Pin GPIO_PIN_9
 #define Heat1_SCL_GPIO_Port GPIOA
 #define LED1_Pin GPIO_PIN_6

@@ -5,5 +5,6 @@
 
 void ControlTask(void *argument);
 
-#endif // CONTROL_TASK_H
+extern volatile uint16_t gPumpPwmDebug;
 
+#endif // CONTROL_TASK_H

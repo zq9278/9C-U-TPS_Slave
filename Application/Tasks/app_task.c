@@ -1,12 +1,12 @@
-/**
+﻿/**
  * @file app_task.c
- * @brief 负责应用层调度逻辑：接收App命令、管理运行模式、更新控制器配置并处理安全/存储事件。
+ * @brief 璐熻矗搴旂敤灞傝皟搴﹂€昏緫锛氭帴鏀禔pp鍛戒护銆佺鐞嗚繍琛屾ā寮忋€佹洿鏂版帶鍒跺櫒閰嶇疆骞跺鐞嗗畨鍏?瀛樺偍浜嬩欢銆?
  *
- * 该文件是TPS从机应用的“大脑”，通过队列与各模块通信：
- *  - gCmdQueue: 由通信任务/UART发来的上位机指令
- *  - gCtrlCmdQueue: 下发到控制任务的启动/停止/参数更新指令
- *  - gStorageQueue: 触发参数保存
- *  - gSafetyQueue: 安全任务上报的故障
+ * 璇ユ枃浠舵槸TPS浠庢満搴旂敤鐨勨€滃ぇ鑴戔€濓紝閫氳繃闃熷垪涓庡悇妯″潡閫氫俊锛?
+ *  - gCmdQueue: 鐢遍€氫俊浠诲姟/UART鍙戞潵鐨勪笂浣嶆満鎸囦护
+ *  - gCtrlCmdQueue: 涓嬪彂鍒版帶鍒朵换鍔＄殑鍚姩/鍋滄/鍙傛暟鏇存柊鎸囦护
+ *  - gStorageQueue: 瑙﹀彂鍙傛暟淇濆瓨
+ *  - gSafetyQueue: 瀹夊叏浠诲姟涓婃姤鐨勬晠闅?
  */
 #include <string.h>
 #include "app_task.h"
@@ -17,18 +17,19 @@
 
 extern SystemSettings_t g_settings;
 
-/** 当前运行模式编号（1~4，对应不同压控曲线） */
+/** 褰撳墠杩愯妯″紡缂栧彿锛?~4锛屽搴斾笉鍚屽帇鎺ф洸绾匡級 */
 static uint8_t current_mode = 1;
-/** 控制任务实际运行状态（1=已下发START且未STOP） */
+/** 鎺у埗浠诲姟瀹為檯杩愯鐘舵€侊紙1=宸蹭笅鍙慡TART涓旀湭STOP锛?*/
 static uint8_t control_active = 0;
-/** 用户是否请求运行（START/STOP控制此标志） */
+/** 鐢ㄦ埛鏄惁璇锋眰杩愯锛圫TART/STOP鎺у埗姝ゆ爣蹇楋級 */
 static uint8_t run_request = 0;
-/** 左右两侧气袋使能标志 */
+/** 宸﹀彸涓や晶姘旇浣胯兘鏍囧織 */
 static uint8_t left_enable = 0;
 static uint8_t right_enable = 0;
-/** 目标温度（°C） */
+/** 鐩爣娓╁害锛埪癈锛?*/
 static float   target_temp_c = 38.0f;
-/** 当前模式实时使用的压力/时间曲线（含上次保存的自定义参数） */
+#define TEMP_CONTROL_COMP_SUB_C  (2.0f)
+/** 褰撳墠妯″紡瀹炴椂浣跨敤鐨勫帇鍔?鏃堕棿鏇茬嚎锛堝惈涓婃淇濆瓨鐨勮嚜瀹氫箟鍙傛暟锛?*/
 static ModeCurve_t gCurveRT;
 /** ???????????5????1??????? */
 static uint16_t treatment_minutes = 5;
@@ -38,16 +39,18 @@ static uint8_t session_timer_active = 0;
 
 static uint8_t storage_slot_for_mode(uint8_t mode)
 {
-    /* 模式1~2写入槽0，其余写入槽1；用于映射全局设置结构 */
+    /* 妯″紡1~2鍐欏叆妲?锛屽叾浣欏啓鍏ユЫ1锛涚敤浜庢槧灏勫叏灞€璁剧疆缁撴瀯 */
     return (mode <= 1) ? 0 : 1;
 }
 
 static void fill_control_cfg(control_config_t *cfg, uint8_t running)
 {
-    /* 将当前应用层配置打包成控制任务能理解的结构，running用于保持控制器状态 */
+    float control_temp_c = target_temp_c - TEMP_CONTROL_COMP_SUB_C;
+    if (control_temp_c < 0.0f) control_temp_c = 0.0f;
+    /* 灏嗗綋鍓嶅簲鐢ㄥ眰閰嶇疆鎵撳寘鎴愭帶鍒朵换鍔¤兘鐞嗚В鐨勭粨鏋勶紝running鐢ㄤ簬淇濇寔鎺у埗鍣ㄧ姸鎬?*/
     cfg->mode            = current_mode;
     cfg->running         = running;
-    cfg->temp_target     = target_temp_c;
+    cfg->temp_target     = control_temp_c;
     cfg->press_target_max= gCurveRT.target_kpa;
     cfg->t1_rise_s       = gCurveRT.t1_rise_s;
     cfg->t2_hold_s       = gCurveRT.t2_hold_s;
@@ -62,11 +65,15 @@ static void fill_control_cfg(control_config_t *cfg, uint8_t running)
 
 static void post_control_cmd(ctrl_cmd_id_t id, uint8_t running)
 {
-    /* 构造控制命令并立即投递到控制任务队列 */
+    /* 鏋勯€犳帶鍒跺懡浠ゅ苟绔嬪嵆鎶曢€掑埌鎺у埗浠诲姟闃熷垪 */
     ctrl_cmd_t c = {0};
     c.id = id;
     fill_control_cfg(&c.cfg, running);
-    (void)xQueueSend(gCtrlCmdQueue, &c, 0);
+    if (xQueueSend(gCtrlCmdQueue, &c, 0) != pdPASS) {
+        //LOG_W("post_control_cmd id=%d failed", id);
+    } else {
+        //LOG_I("post_control_cmd id=%d running=%u L_en=%u R_en=%u", id, running, c.cfg.press_enable_L, c.cfg.press_enable_R);
+    }
 }
 
 static uint32_t curve_cycle_duration_ms(void)
@@ -87,15 +94,17 @@ static void arm_session_timer(void)
 
 static void update_control_state(void)
 {
-    /* 根据run_request与左右使能状态决定是否要驱动控制任务运行 */
+    /* 鏍规嵁run_request涓庡乏鍙充娇鑳界姸鎬佸喅瀹氭槸鍚﹁椹卞姩鎺у埗浠诲姟杩愯 */
     uint8_t should_run = (run_request && (left_enable || right_enable));
     if (should_run) {
         gAppState = APP_STATE_RUN_MODE1;
         if (!control_active) {
             control_active = 1;
+            //LOG_I("update_control_state: START should_run=1 run_req=%u L_en=%u R_en=%u", run_request, left_enable, right_enable);
             post_control_cmd(CTRL_CMD_START, 1);
             arm_session_timer();
         } else {
+            //LOG_I("update_control_state: UPDATE_CFG should_run=1 run_req=%u L_en=%u R_en=%u", run_request, left_enable, right_enable);
             post_control_cmd(CTRL_CMD_UPDATE_CFG, 1);
             if (!session_timer_active) {
                 arm_session_timer();
@@ -104,6 +113,7 @@ static void update_control_state(void)
     } else {
         if (control_active) {
             control_active = 0;
+            //LOG_W("update_control_state: STOP should_run=0 run_req=%u L_en=%u R_en=%u", run_request, left_enable, right_enable);
             post_control_cmd(CTRL_CMD_STOP, 0);
         }
         gAppState = APP_STATE_READY;
@@ -113,7 +123,7 @@ static void update_control_state(void)
 
 static void load_mode_curve(uint8_t mode)
 {
-    /* 装载指定模式曲线并应用用户自定义的目标压力 */
+    /* 瑁呰浇鎸囧畾妯″紡鏇茬嚎骞跺簲鐢ㄧ敤鎴疯嚜瀹氫箟鐨勭洰鏍囧帇鍔?*/
     if (mode < 1) mode = 1;
     if (mode > 4) mode = 4;
     current_mode = mode;
@@ -128,7 +138,7 @@ void AppTask(void *argument)
     app_cmd_t cmd;
     uint32_t save_due_tick = 0;
 
-    /* 上电初始化：根据持久化设置恢复模式/温度/目标压力 */
+    /* 涓婄數鍒濆鍖栵細鏍规嵁鎸佷箙鍖栬缃仮澶嶆ā寮?娓╁害/鐩爣鍘嬪姏 */
     load_mode_curve((g_settings.mode_select >= 1 && g_settings.mode_select <= 4) ? g_settings.mode_select : 1);
     target_temp_c = g_settings.left_temp_c;
     left_enable = 0;
@@ -144,14 +154,14 @@ void AppTask(void *argument)
             switch (cmd.id)
             {
                 case APP_CMD_MODE_SELECT:
-                    /* 切换模式，立刻加载对应曲线并刷新控制状态 */
+                    /* 鍒囨崲妯″紡锛岀珛鍒诲姞杞藉搴旀洸绾垮苟鍒锋柊鎺у埗鐘舵€?*/
                     g_settings.mode_select = cmd.v.u8;
                     load_mode_curve(cmd.v.u8);
                     update_control_state();
                     break;
 
                 case APP_CMD_SET_TEMP:
-                    /* 上位机设置目标温度，延时写入Flash（防止频繁擦写） */
+                    /* 涓婁綅鏈鸿缃洰鏍囨俯搴︼紝寤舵椂鍐欏叆Flash锛堥槻姝㈤绻佹摝鍐欙級 */
                     target_temp_c = cmd.v.f32;
                     g_settings.left_temp_c  = target_temp_c;
                     g_settings.right_temp_c = target_temp_c;
@@ -160,7 +170,7 @@ void AppTask(void *argument)
                     break;
 
                 case APP_CMD_SET_PRESSURE_KPA:
-                    /* 修改目标压力，按当前模式对应的存储槽缓存 */
+                    /* 涓婁綅鏈轰紶鍏ュ崟浣嶄负 mmHg锛屽唴閮ㄧ粺涓€浣跨敤 mmHg锛堝瓧娈靛悕娌跨敤锛?*/
                     gCurveRT.target_kpa = cmd.v.f32;
                     g_settings.mode[storage_slot_for_mode(current_mode)].target_kpa = cmd.v.f32;
                     save_due_tick = xTaskGetTickCount() + pdMS_TO_TICKS(3000);
@@ -168,11 +178,13 @@ void AppTask(void *argument)
                     break;
 
                 case APP_CMD_LEFT_ENABLE:
-                    left_enable = cmd.v.u8 ? 1 : 0;
+                    //LOG_I("AppTask LEFT_EN: %u", cmd.v.u8 ? 1 : 0);
+                    left_enable = cmd.v.u8 ? 1 : 0; 
                     update_control_state();
                     break;
 
                 case APP_CMD_RIGHT_ENABLE:
+                    //LOG_I("AppTask RIGHT_EN: %u", cmd.v.u8 ? 1 : 0);
                     right_enable = cmd.v.u8 ? 1 : 0;
                     update_control_state();
                     break;
@@ -186,27 +198,29 @@ void AppTask(void *argument)
                     break;
 
                 case APP_CMD_START:
-                    /* 接到“开始治疗”时，默认打开两侧控制，直接进入运行 */
+                    /* ?????????????????????????? */
                     if (left_enable == 0 && right_enable == 0) {
                         left_enable = 1;
                         right_enable = 1;
                     }
                     run_request = 1;
+                    //LOG_I("AppTask START: run_request=%u L_en=%u R_en=%u", run_request, left_enable, right_enable);
                     update_control_state();
                     break;
 
                 case APP_CMD_STOP:
+                    //LOG_I("AppTask STOP: run_request=%u L_en=%u R_en=%u", run_request, left_enable, right_enable);
                     run_request = 0;
+                    //LOG_I("AppTask STOP: run_request=%u L_en=%u R_en=%u", run_request, left_enable, right_enable);
                     update_control_state();
                     break;
-
                 case APP_CMD_READ_PARAM:
                     Settings_Broadcast();
                     break;
 
                 case APP_CMD_SAVE_PARAM:
                 {
-                    /* 立即触发存储任务写入Flash（高优先级请求） */
+                    /* 绔嬪嵆瑙﹀彂瀛樺偍浠诲姟鍐欏叆Flash锛堥珮浼樺厛绾ц姹傦級 */
                     storage_cmd_t s = STORAGE_CMD_SAVE_PARAM;
                     xQueueSend(gStorageQueue, &s, 0);
                     break;
@@ -218,7 +232,7 @@ void AppTask(void *argument)
         }
 
         if (save_due_tick != 0 && (int32_t)(xTaskGetTickCount() - save_due_tick) >= 0) {
-            /* 延迟保存到期：写入Flash并清除计时 */
+            /* 寤惰繜淇濆瓨鍒版湡锛氬啓鍏lash骞舵竻闄よ鏃?*/
             storage_cmd_t s = STORAGE_CMD_SAVE_PARAM;
             xQueueSend(gStorageQueue, &s, 0);
             save_due_tick = 0;
@@ -230,6 +244,7 @@ void AppTask(void *argument)
             run_request = 0;
             left_enable = 0;
             right_enable = 0;
+            //LOG_W("AppTask SAFETY fault=%u -> stop, L_en=%u R_en=%u", fault, left_enable, right_enable);
             update_control_state();
             gAppState = APP_STATE_ALARM;
         }
@@ -249,3 +264,5 @@ void AppTask(void *argument)
         }
     }
 }
+
+

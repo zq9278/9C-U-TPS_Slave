@@ -2,8 +2,8 @@
 #include "LOG.h"
 
 // Simple thresholds (can be tuned or loaded from settings)
-#define TEMP_MAX_C     60.0f
-#define PRESS_MAX_KPA  40.0f
+#define TEMP_MAX_C     70.0f
+#define PRESS_MAX_KPA  600.0f
 
 void SafetyTask(void *argument)
 {

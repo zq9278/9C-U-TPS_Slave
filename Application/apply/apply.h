@@ -2,10 +2,12 @@
 #define _APPLY_H
 #include <sys.h>	  
 
+
+
 #define AirPump1(n)  (n?HAL_GPIO_WritePin(AirPump1_GPIO_Port,AirPump1_Pin,GPIO_PIN_SET):HAL_GPIO_WritePin(AirPump1_GPIO_Port,AirPump1_Pin,GPIO_PIN_RESET)) 
 #define AirPump2(n)  (n?HAL_GPIO_WritePin(AirPump2_GPIO_Port,AirPump2_Pin,GPIO_PIN_SET):HAL_GPIO_WritePin(AirPump2_GPIO_Port,AirPump2_Pin,GPIO_PIN_RESET)) 
-#define AirValve1(n)  (n?HAL_GPIO_WritePin(AirValve1_GPIO_Port,AirValve1_Pin,GPIO_PIN_SET):HAL_GPIO_WritePin(AirValve1_GPIO_Port,AirValve1_Pin,GPIO_PIN_RESET)) 
-#define AirValve2(n)  (n?HAL_GPIO_WritePin(AirValve2_GPIO_Port,AirValve2_Pin,GPIO_PIN_SET):HAL_GPIO_WritePin(AirValve2_GPIO_Port,AirValve2_Pin,GPIO_PIN_RESET)) 
+#define VALVE_LEFT(n)  (n?HAL_GPIO_WritePin(AirValve1_GPIO_Port,AirValve1_Pin,GPIO_PIN_SET):HAL_GPIO_WritePin(AirValve1_GPIO_Port,AirValve1_Pin,GPIO_PIN_RESET)) 
+#define VALVE_RIGHT(n)  (n?HAL_GPIO_WritePin(AirValve2_GPIO_Port,AirValve2_Pin,GPIO_PIN_SET):HAL_GPIO_WritePin(AirValve2_GPIO_Port,AirValve2_Pin,GPIO_PIN_RESET)) 
 
 typedef enum {
     EYE_NONE = 0,
