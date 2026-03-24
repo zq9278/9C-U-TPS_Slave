@@ -54,27 +54,6 @@ void ADS1248_SendCommand(uint8_t cmd)
 	
 // }
 
-<<<<<<< HEAD
-// void ADS1248_ChangeChannel(u8 RTCNum)
-// {
-// 	    // 1. 停止当前转换
-//     ADS1248_SendCommand(0x0A);   // 0x0A
-// 	if(RTCNum==RTD1)
-// 	{
-// 		ADS1248_Reg_Set(0x00,0x13);//0x13:AIN2 AIN3;0x01:AIN0 AIN1
-// 		ADS1248_Reg_Set(0x02,0x28);//0x28:REFP1 REFN1;0x20:REFP0 REFN0
-// 	}
-// 	else if (RTCNum==RTD2) {
-// 	ADS1248_Reg_Set(0x00,0x01);//0x13:AIN2 AIN3;0x01:AIN0 AIN1
-// 	ADS1248_Reg_Set(0x02,0x20);//0x28:REFP1 REFN1;0x20:REFP0 REFN0
-// 	}
-// 	  // 3. 同步并唤醒滤波器
-//     ADS1248_SendCommand(0x04);   // 0x04
-//     ADS1248_SendCommand(0x02); // 0x02
-// 	 // 4. 重新启动转换
-//     ADS1248_SendCommand(0x08);  // 0x08
-// }
-=======
 void ADS1248_ChangeChannel(u8 RTCNum)
 {
     ADS1248_Init();
@@ -95,7 +74,6 @@ void ADS1248_ChangeChannel(u8 RTCNum)
 	 // 4. 重新启动转换
     ADS1248_SendCommand(0x08);  // 0x08
 }
->>>>>>> ae2699219119f269734c243acf88d8e2a47df6df
 
 
 // u32 ADS1248_Read(void)
@@ -199,24 +177,24 @@ for(int i = 0; i < 16; i++) {
 // 当前选择的 RTD 通道（0/1）
 static uint8_t s_rtd_channel = RTD2;   // 跟任务里的初始值保持一致
 
-void ADS1248_ChangeChannel(uint8_t ch)
-{
-    ADS1248_SendCommand(0x0A);
+// void ADS1248_ChangeChannel(uint8_t ch)
+// {
+//     ADS1248_SendCommand(0x0A);
 
-    if(ch == 0) {
-        ADS1248_Reg_Set(0x00, 0x01); //AIN0-AIN1
-        ADS1248_Reg_Set(0x02, 0x20); //REFP0-REFN0
-        ADS1248_Reg_Set(0x0B, 0x89);
-    }else{
-        ADS1248_Reg_Set(0x00, 0x13); //AIN2-AIN3
-        ADS1248_Reg_Set(0x02, 0x28); //REFP1-REFN1
-        ADS1248_Reg_Set(0x0B, 0x8A);
-    }
+//     if(ch == 0) {
+//         ADS1248_Reg_Set(0x00, 0x01); //AIN0-AIN1
+//         ADS1248_Reg_Set(0x02, 0x20); //REFP0-REFN0
+//         ADS1248_Reg_Set(0x0B, 0x89);
+//     }else{
+//         ADS1248_Reg_Set(0x00, 0x13); //AIN2-AIN3
+//         ADS1248_Reg_Set(0x02, 0x28); //REFP1-REFN1
+//         ADS1248_Reg_Set(0x0B, 0x8A);
+//     }
 
-    ADS1248_SendCommand(0x04);
-    ADS1248_SendCommand(0x02);
-    ADS1248_SendCommand(0x08);
-}
+//     ADS1248_SendCommand(0x04);
+//     ADS1248_SendCommand(0x02);
+//     ADS1248_SendCommand(0x08);
+// }
 
 
 int32_t ADS1248_Read(void)
