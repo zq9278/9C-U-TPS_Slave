@@ -1,4 +1,6 @@
 #include <string.h>
+#include "FreeRTOS.h"
+#include "task.h"
 #include "comm_task.h"
 #include "uart_driver.h"
 #include "Uart_Communicate.h"
@@ -14,7 +16,6 @@ void CommTask(void *argument)
     debug_uart_port_Init(&debug_uart_port);
     UartRxMessage_t rx_msg;
     tx_frame_t tx;
-    LogMessage_t log_msg;
 
     for(;;)
     {
@@ -46,12 +47,6 @@ void CommTask(void *argument)
             }
         }
 
-        // Debug log drain
-        if (xQueueReceive(debug_uart_port.tx_queue, &log_msg, 0) == pdPASS) {
-            HAL_UART_Transmit(debug_uart_port.huart, (uint8_t*)log_msg.buf, (uint16_t)log_msg.len, 100);
-        }
-
         vTaskDelay(pdMS_TO_TICKS(2));
     }
 }
-

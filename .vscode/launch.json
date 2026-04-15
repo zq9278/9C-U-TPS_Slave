@@ -8,16 +8,20 @@
       "request": "launch",
       "type": "cortex-debug",
       "servertype": "jlink",
-      "serverpath": "C:/Users/ZQ-MagicBook/AppData/Local/stm32cube/bundles/jlink-gdbserver/8.80.0+st.1/bin/JLinkGDBServerCL.exe",
-      "armToolchainPath": "C:/Users/ZQ-MagicBook/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin",
-      "gdbPath": "C:/Users/ZQ-MagicBook/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-gdb.exe",
+      "serverpath": "${env:USERPROFILE}/AppData/Local/stm32cube/bundles/jlink-gdbserver/8.38.0+st.1/bin/JLinkGDBServerCL.exe",
+      "armToolchainPath": "${env:USERPROFILE}/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin",
+      "gdbPath": "${env:USERPROFILE}/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-gdb.exe",
       "liveWatch": {
         "enabled": true,
         "samplesPerSecond": 4
       },
       "device": "STM32G070RBTx",
       "interface": "swd",
-      "runToEntryPoint": "main"
+       "runToEntryPoint": "main", // 保留原配置；当前改为烧录后自动继续运行
+      // "postLaunchCommands": [
+      //   "monitor reset",
+      //   "continue"
+      // ]
     },
     {
       "name": "Flash/Debug (ST-Link, Built-in)",
@@ -26,18 +30,57 @@
       "request": "launch",
       "type": "cortex-debug",
       "servertype": "stlink",
-      "serverpath": "C:/Users/ZQ-MagicBook/AppData/Local/stm32cube/bundles/stlink-gdbserver/7.13.0+st.3/bin/ST-LINK_gdbserver.exe",
-      "stm32cubeprogrammer": "C:/Users/ZQ-MagicBook/AppData/Local/stm32cube/bundles/programmer/2.22.0+st.1/bin",
+      "serverpath": "${env:USERPROFILE}/AppData/Local/stm32cube/bundles/stlink-gdbserver/7.13.0+st.3/bin/ST-LINK_gdbserver.exe",
+      "stm32cubeprogrammer": "${env:USERPROFILE}/AppData/Local/stm32cube/bundles/programmer/2.22.0+st.1/bin",
       "serverArgs": [
         "-k",
         "--frequency",
         "2000"
       ],
-      "armToolchainPath": "C:/Users/ZQ-MagicBook/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin",
-      "gdbPath": "C:/Users/ZQ-MagicBook/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-gdb.exe",
+      "armToolchainPath": "${env:USERPROFILE}/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin",
+      "gdbPath": "${env:USERPROFILE}/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-gdb.exe",
+      "liveWatch": {
+        "enabled": true,
+        "samplesPerSecond": 4
+      },
       "device": "STM32G070RBTx",
       "interface": "swd",
-      "runToEntryPoint": "main"
+      // "runToEntryPoint": "main", // 保留原配置；当前改为烧录后自动继续运行
+      "postLaunchCommands": [
+        "monitor reset",
+        "continue"
+      ]
+    },
+    {
+      "name": "Flash/Debug (OpenOCD, CMSIS-DAP)",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/Debug/SAT01_Ctrl_V1_0.elf",
+      "request": "launch",
+      "type": "cortex-debug",
+      "servertype": "openocd",
+      "serverpath": "${env:USERPROFILE}/AppData/Local/Microsoft/WinGet/Packages/xpack-dev-tools.openocd-xpack_Microsoft.Winget.Source_8wekyb3d8bbwe/xpack-openocd-0.12.0-7/bin/openocd.exe",
+      "serverArgs": [
+        "-c",
+        "adapter speed 6000"
+      ],
+      "configFiles": [
+        "interface/cmsis-dap.cfg",
+        "target/stm32g0x.cfg"
+      ],
+      "showDevDebugOutput": "raw",
+      "armToolchainPath": "${env:USERPROFILE}/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin",
+      "gdbPath": "${env:USERPROFILE}/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-gdb.exe",
+      "liveWatch": {
+        "enabled": true,
+        "samplesPerSecond": 4
+      },
+      "device": "STM32G070RBTx",
+      "interface": "swd",
+      // "runToEntryPoint": "main", // 保留原配置；当前改为烧录后自动继续运行
+      "postLaunchCommands": [
+        "monitor reset",
+        "continue"
+      ]
     }
   ]
 }

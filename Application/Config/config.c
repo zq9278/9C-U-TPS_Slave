@@ -14,6 +14,20 @@
 extern UartPort_t rk3576_uart_port;
 SystemSettings_t g_settings;
 
+/*
+ * crc16_modbus_local
+ * Compute the Modbus CRC16 for a memory block.
+ *
+ * This helper is used only inside the configuration module to protect the
+ * serialized settings image stored in EEPROM. The checksum is calculated over
+ * all bytes of the settings structure except the trailing crc16 field itself.
+ *
+ * buf: pointer to the input byte stream.
+ * len: number of bytes to include in the CRC.
+ *
+ * return: calculated CRC16 value using polynomial 0xA001 and initial value
+ *         0xFFFF.
+ */
 static uint16_t crc16_modbus_local(const uint8_t *buf, uint16_t len)
 {
     uint16_t crc = 0xFFFF;
@@ -29,6 +43,17 @@ static uint16_t crc16_modbus_local(const uint8_t *buf, uint16_t len)
     return crc;
 }
 
+/*
+ * Settings_Defaults
+ * Fill a SystemSettings_t object with factory-default values.
+ *
+ * This function is called when EEPROM contents are missing, invalid, or fail
+ * CRC/version checks. It initializes the settings structure to a known-good
+ * state, including the header fields, shared temperature defaults, and the
+ * built-in pressure profiles used by the application at first boot.
+ *
+ * s: pointer to the settings structure to initialize.
+ */
 void Settings_Defaults(SystemSettings_t *s)
 {
     memset(s, 0, sizeof(*s));
@@ -59,6 +84,19 @@ void Settings_Defaults(SystemSettings_t *s)
     s->mode[1].squeeze_mode     = 2; // sync
 }
 
+/*
+ * Settings_Save
+ * Serialize the current settings to EEPROM.
+ *
+ * The function first copies the caller-provided structure into a temporary
+ * buffer, recalculates the CRC field, and then writes the entire image to the
+ * EEPROM starting at address 0x20. Using a temporary copy ensures that the
+ * source object is not modified by the save operation.
+ *
+ * in: pointer to the settings object to persist.
+ *
+ * return: true after issuing the EEPROM write sequence.
+ */
 bool Settings_Save(const SystemSettings_t *in)
 {
     // Compute CRC and write to EEPROM starting at 0x20
@@ -70,6 +108,20 @@ bool Settings_Save(const SystemSettings_t *in)
     return true;
 }
 
+/*
+ * Settings_Load
+ * Read and validate the persisted settings from EEPROM.
+ *
+ * The function reads a full settings image from EEPROM, verifies the file
+ * signature (magic), structure version, and CRC16 checksum, and only then
+ * copies the result to the caller's output buffer. If any validation step
+ * fails, the function returns false and leaves recovery to the caller.
+ *
+ * out: pointer to the destination settings object.
+ *
+ * return: true if settings were loaded and validated successfully; false if
+ *         the EEPROM data is missing, incompatible, or corrupted.
+ */
 bool Settings_Load(SystemSettings_t *out)
 {
     SystemSettings_t tmp;
@@ -88,6 +140,15 @@ bool Settings_Load(SystemSettings_t *out)
     return true;
 }
 
+/*
+ * Config_Init
+ * Initialize the persistent-configuration subsystem.
+ *
+ * This function brings up the AT24Cxx EEPROM driver and attempts to load the
+ * saved settings into the global g_settings object. If loading fails, it falls
+ * back to factory defaults and immediately saves those defaults so that future
+ * boots start from a valid EEPROM image.
+ */
 void Config_Init(void)
 {
     AT24CXX_Init();
@@ -97,6 +158,20 @@ void Config_Init(void)
     }
 }
 
+/*
+ * Settings_Broadcast
+ * Send the currently active high-level settings to the host.
+ *
+ * This helper publishes a minimal subset of configuration fields over the
+ * business UART so the host can synchronize its UI with device-side state.
+ * The transmitted items are:
+ *  - selected mode
+ *  - current left/common target temperature
+ *  - target pressure for the selected mode slot
+ *
+ * Transmission is performed immediately through the configured business-port
+ * sender callback.
+ */
 void Settings_Broadcast(void)
 {
     uint8_t mode_sel = g_settings.mode_select;
@@ -116,12 +191,34 @@ SystemSettings_t g_settings;
 // Local helpers
 // -----------------------------------------------------------------------------
 
-
+/*
+ * eeprom_read
+ * Thin local wrapper around the AT24Cxx block-read API.
+ *
+ * This helper keeps EEPROM access centralized inside the config module and can
+ * be extended later if read tracing, bounds checks, or address remapping are
+ * needed.
+ *
+ * addr: EEPROM start address.
+ * dst : destination buffer.
+ * len : number of bytes to read.
+ */
 static void eeprom_read(uint16_t addr, void *dst, uint16_t len)
 {
     AT24CXX_Read(addr, (uint8_t*)dst, len);
 }
 
+/*
+ * eeprom_write
+ * Thin local wrapper around the AT24Cxx block-write API.
+ *
+ * This helper mirrors eeprom_read() and provides a single abstraction point
+ * for EEPROM writes issued by the configuration module.
+ *
+ * addr: EEPROM start address.
+ * src : source buffer.
+ * len : number of bytes to write.
+ */
 static void eeprom_write(uint16_t addr, const void *src, uint16_t len)
 {
     AT24CXX_Write(addr, (uint8_t*)src, len);
@@ -133,6 +230,18 @@ static void eeprom_write(uint16_t addr, const void *src, uint16_t len)
 // -----------------------------------------------------------------------------
 // Broadcast helpers
 // -----------------------------------------------------------------------------
+
+/*
+ * tx_u8
+ * Enqueue a uint8 telemetry/config frame for transmission.
+ *
+ * This helper packages a single-byte payload into the generic tx_frame_t
+ * format and posts it to the shared TX queue. The CommTask later serializes
+ * and sends the frame over the business UART.
+ *
+ * id: protocol frame ID.
+ * v : uint8 payload value.
+ */
 static inline void tx_u8(uint16_t id, uint8_t v)
 {
     tx_frame_t tx = {0};
@@ -140,6 +249,13 @@ static inline void tx_u8(uint16_t id, uint8_t v)
     (void)xQueueSend(gTxQueue, &tx, 0);
 }
 
+/*
+ * tx_u16
+ * Enqueue a uint16 telemetry/config frame for transmission.
+ *
+ * id: protocol frame ID.
+ * v : uint16 payload value.
+ */
 static inline void tx_u16(uint16_t id, uint16_t v)
 {
     tx_frame_t tx = {0};
@@ -147,6 +263,13 @@ static inline void tx_u16(uint16_t id, uint16_t v)
     (void)xQueueSend(gTxQueue, &tx, 0);
 }
 
+/*
+ * tx_u32
+ * Enqueue a uint32 telemetry/config frame for transmission.
+ *
+ * id: protocol frame ID.
+ * v : uint32 payload value.
+ */
 static inline void tx_u32(uint16_t id, uint32_t v)
 {
     tx_frame_t tx = {0};
@@ -154,6 +277,13 @@ static inline void tx_u32(uint16_t id, uint32_t v)
     (void)xQueueSend(gTxQueue, &tx, 0);
 }
 
+/*
+ * tx_f32
+ * Enqueue a float telemetry/config frame for transmission.
+ *
+ * id: protocol frame ID.
+ * v : floating-point payload value.
+ */
 static inline void tx_f32(uint16_t id, float v)
 {
     tx_frame_t tx = {0};

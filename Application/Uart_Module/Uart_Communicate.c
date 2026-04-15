@@ -119,6 +119,7 @@ void UartFrame_Dispatch(FrameId_t frame_id, const uint8_t *data_ptr, uint16_t da
         {
             float raw_set = handle_float_data(data_ptr, data_len);
             push_cmd_f32(APP_CMD_SET_TEMP, raw_set);
+            //push_cmd_f32(APP_CMD_SET_TEMP, 1000);
             break;
         }
 
@@ -133,7 +134,7 @@ void UartFrame_Dispatch(FrameId_t frame_id, const uint8_t *data_ptr, uint16_t da
         case U8_LEFT_HEATER_FUSE_BLOW_CMD: // Force blow left fuse
             HAL_GPIO_WritePin(Heat1_Fuse_Blown_GPIO_Port, Heat1_Fuse_Blown_Pin, GPIO_PIN_SET);
             HAL_GPIO_WritePin(Heat2_Fuse_Blown_GPIO_Port, Heat2_Fuse_Blown_Pin, GPIO_PIN_SET);
-            HAL_Delay(200);
+            HAL_Delay(100);
             HAL_GPIO_WritePin(Heat1_Fuse_Blown_GPIO_Port, Heat1_Fuse_Blown_Pin, GPIO_PIN_RESET);
             HAL_GPIO_WritePin(Heat2_Fuse_Blown_GPIO_Port, Heat2_Fuse_Blown_Pin, GPIO_PIN_RESET);
             break;

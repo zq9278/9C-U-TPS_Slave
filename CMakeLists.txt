@@ -52,6 +52,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Application/AppMain/mode_curves.c
     Application/Config/config.c
     Application/Tasks/comm_task.c
+    Application/Tasks/debug_log_task.c
     Application/Tasks/app_task.c
     Application/Tasks/sensor_task.c
     Application/Tasks/control_task.c

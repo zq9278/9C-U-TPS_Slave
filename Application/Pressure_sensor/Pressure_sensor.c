@@ -9,10 +9,12 @@
 #include "i2c.h"
 #include "cmsis_os.h"
 #include "LOG.h"
+#include "system_app.h"
 #include <stdint.h>
 
 extern I2C_HandleTypeDef hi2c1;
 extern I2C_HandleTypeDef hi2c2;
+extern volatile uint8_t gTreatmentRunning;
 
 uint8_t right_raw_data[6] = {0};
 uint8_t left_raw_data[6] = {0};
@@ -64,6 +66,10 @@ static HAL_StatusTypeDef pressure_i2c_read_one(I2C_HandleTypeDef *hi2c,
       uint32_t pressure_raw = ((uint32_t)raw_data[1] << 16) |
                               ((uint32_t)raw_data[2] << 8) |
                               (uint32_t)raw_data[3];
+      if ((pressure_raw == 0U) || (pressure_raw == 0xFFFFFFU)) {
+        I2C_Recover(hi2c);
+        continue;
+      }
       *pressure_out = (u16)(((pressure_raw >> 8) * 100000U) / 65536U);
     }
     return HAL_OK;
@@ -75,15 +81,13 @@ static HAL_StatusTypeDef pressure_i2c_read_one(I2C_HandleTypeDef *hi2c,
 void pressure_sensor_read(void)
 {
   u16 last_left_pressure = left_pressure;
-  u16 last_right_pressure = right_pressure;
 
   if (pressure_i2c_read_one(&hi2c1, &left_sensor_status, left_raw_data, &left_pressure, "pressL") != HAL_OK) {
     left_pressure = last_left_pressure;
   }
   left_temperature = (uint8_t)(left_temperature_temp);
 
-  if (pressure_i2c_read_one(&hi2c2, &right_sensor_status, right_raw_data, &right_pressure, "pressR") != HAL_OK) {
-    right_pressure = last_right_pressure;
-  }
-  right_temperature = (uint8_t)(right_temperature_temp);
+  /* Single-sensor pressure mode: both channels share the left pressure sensor value. */
+  right_pressure = left_pressure;
+  right_temperature = left_temperature;
 }

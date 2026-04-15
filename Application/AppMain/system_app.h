@@ -8,66 +8,72 @@
 
 // ---------------- Sensor data ----------------
 typedef struct {
-    float tempL;     // 左眼温度(摄氏度)
-    float tempR;     // 右眼温度(摄氏度)
-    float pressL;    // 左眼压力(kPa)
-    float pressR;    // 右眼压力(kPa)
-    uint32_t tick;   // 采样时间戳(FreeRTOS tick)
+    float tempL;     // left eye temperature
+    float tempR;     // right eye temperature
+    float pressL;    // left eye pressure
+    float pressR;    // right eye pressure
+    uint8_t heaterPresentL; // 1 = present, 0 = absent
+    uint8_t heaterPresentR; // 1 = present, 0 = absent
+    uint8_t heaterFuseL;    // 1 = normal, 0 = blown
+    uint8_t heaterFuseR;    // 1 = normal, 0 = blown
+    uint32_t tick;   // FreeRTOS sampling tick
 } sensor_data_t;
 
 extern volatile sensor_data_t gSensorData;
+extern volatile uint8_t gTreatmentRunning;
 
 // ---------------- App state ----------------
 typedef enum {
-    APP_STATE_IDLE = 0,   // 空闲（未准备）
-    APP_STATE_READY,      // 就绪（等待启动）
-    APP_STATE_RUN_MODE1,  // 运行模式1
-    APP_STATE_RUN_MODE2,  // 运行模式2
-    APP_STATE_ALARM,      // 告警/停止
+    APP_STATE_IDLE = 0,
+    APP_STATE_READY,
+    APP_STATE_RUN_MODE1,
+    APP_STATE_RUN_MODE2,
+    APP_STATE_ALARM,
 } app_state_t;
 
 extern volatile app_state_t gAppState;
 
 // ---------------- Commands from Comm -> App ----------------
 typedef enum {
-    APP_CMD_NONE = 0,          // 无命令
-    APP_CMD_START,             // 启动治疗
-    APP_CMD_STOP,              // 停止治疗
-    APP_CMD_MODE_SELECT,       // 选择曲线模式(1..4)
-    APP_CMD_SET_TEMP,          // 温度设定
-    APP_CMD_SET_PRESSURE_KPA,  // 压力设定
-    APP_CMD_SET_TREATMENT_TIME,// 总治疗时长(分钟)
-    APP_CMD_LEFT_ENABLE,       // 左眼开关
-    APP_CMD_RIGHT_ENABLE,      // 右眼开关
-    APP_CMD_READ_PARAM,        // 读取当前参数
-    APP_CMD_SAVE_PARAM,        // 保存参数
+    APP_CMD_NONE = 0,
+    APP_CMD_START,
+    APP_CMD_STOP,
+    APP_CMD_MODE_SELECT,
+    APP_CMD_SET_TEMP,
+    APP_CMD_SET_PRESSURE_KPA,
+    APP_CMD_SET_TREATMENT_TIME,
+    APP_CMD_LEFT_ENABLE,
+    APP_CMD_RIGHT_ENABLE,
+    APP_CMD_READ_PARAM,
+    APP_CMD_SAVE_PARAM,
 } app_cmd_id_t;
+
 typedef struct {
-    app_cmd_id_t id;   // 命令ID
-    uint16_t key;      // 子字段键值(用于同一命令区分不同参数)
+    app_cmd_id_t id;
+    uint16_t key;
     union {
-        float    f32;  // 浮点数值
-        uint32_t u32;  // 32位无符号数
-        uint16_t u16;  // 16位无符号数
-        uint8_t  u8;   // 8位无符号数
-    } v;               // 数据载荷
-} app_cmd_t;//app_task的cmd
+        float    f32;
+        uint32_t u32;
+        uint16_t u16;
+        uint8_t  u8;
+    } v;
+} app_cmd_t;
 
 // ---------------- Control config (App -> Control) ----------------
 typedef struct {
-    float temp_target;      // 加热温度目标(摄氏度)
-    float press_target_max; // 压力目标(kPa)
-    float t1_rise_s;        // 缓慢上升阶段(秒)
-    float t2_hold_s;        // 恒压阶段(秒)
-    float t3_pulse_s;       // 脉动阶段总时长(秒)
-    float pulse_on_ms;      // 脉动ON时间(毫秒)
-    float pulse_off_ms;     // 脉动OFF时间(毫秒)
-    uint8_t mode;           // 模式号(固定1)
-    uint8_t running;        // 是否运行(1启动/0停止)
-    uint8_t squeeze_mode;   // 挤压模式(0同步/1交替/2同步)
-    uint8_t press_enable_L; // 左侧压力开关(0关/1开)
-    uint8_t press_enable_R; // 右侧压力开关(0关/1开)
-    uint16_t treatment_minutes; // ?????(??)
+    float temp_target;
+    float press_target_max;
+    float t1_rise_s;
+    float t2_hold_s;
+    float t3_pulse_s;
+    float pulse_on_ms;
+    float pulse_off_ms;
+    uint8_t mode;
+    uint8_t running;
+    uint8_t squeeze_mode;
+    uint8_t press_enable_L;
+    uint8_t press_enable_R;
+    uint16_t treatment_minutes;
 } control_config_t;
 
 typedef enum {
@@ -78,8 +84,8 @@ typedef enum {
 } ctrl_cmd_id_t;
 
 typedef struct {
-    ctrl_cmd_id_t id;     // 控制命令ID
-    control_config_t cfg; // 控制参数载荷
+    ctrl_cmd_id_t id;
+    control_config_t cfg;
 } ctrl_cmd_t;
 
 // ---------------- Storage commands ----------------
@@ -98,26 +104,27 @@ typedef enum {
 } tx_data_type_t;
 
 typedef struct {
-    uint16_t frame_id;   // 帧ID
-    tx_data_type_t type; // 数据类型
+    uint16_t frame_id;
+    tx_data_type_t type;
     union {
-        float f32;       // 浮点数据
-        uint32_t u32;    // 32位无符号
-        uint16_t u16;    // 16位无符号
-        uint8_t u8;      // 8位无符号
-        char text[32];   // 文本
-    } v;                 // 载荷
+        float f32;
+        uint32_t u32;
+        uint16_t u16;
+        uint8_t u8;
+        char text[32];
+    } v;
 } tx_frame_t;
 
 // ---------------- Queues ----------------
-extern QueueHandle_t gCmdQueue;       // Comm -> App
-extern QueueHandle_t gCtrlCmdQueue;   // App -> Control
-extern QueueHandle_t gTxQueue;        // any -> Comm
-extern QueueHandle_t gStorageQueue;   // App -> Storage
-extern QueueHandle_t gSafetyQueue;    // Safety -> App
+extern QueueHandle_t gCmdQueue;
+extern QueueHandle_t gCtrlCmdQueue;
+extern QueueHandle_t gTxQueue;
+extern QueueHandle_t gStorageQueue;
+extern QueueHandle_t gSafetyQueue;
 
 // ---------------- Task entry points ----------------
 void CommTask(void *argument);
+void DebugLogTask(void *argument);
 void AppTask(void *argument);
 void SensorTask(void *argument);
 void ControlTask(void *argument);

@@ -2,14 +2,22 @@
 #include "delay.h"
 
 
-//初始化IIC接口
+/*
+ * AT24CXX_Init
+ * Initialize the I2C interface used by the AT24Cxx driver.
+ * Call once during system startup before any EEPROM access.
+ */
 void AT24CXX_Init(void)
 {
-	IIC_Init();//IIC初始化
+	IIC_Init(); // Initialize bit-banged I2C pins
 }
-//在AT24CXX指定地址读出一个数据
-//ReadAddr:开始读数的地址  
-//返回值  :读到的数据
+/*
+ * AT24CXX_ReadOneByte
+ * Read one byte from the EEPROM at the specified address.
+ * ReadAddr: absolute EEPROM address to read.
+ * return  : the byte value read.
+ * Notes   : Handles device address paging for >24C16 parts.
+ */
 u8 AT24CXX_ReadOneByte(u16 ReadAddr)
 {				  
 	u8 temp=0;	
@@ -17,48 +25,54 @@ u8 AT24CXX_ReadOneByte(u16 ReadAddr)
     IIC_Start();  
 	if(EE_TYPE>AT24C16)
 	{
-		IIC_Send_Byte(0XA0);	   //发送写命令
+		IIC_Send_Byte(0XA0);       // device address + write
 		IIC_Wait_Ack();
-		IIC_Send_Byte(ReadAddr>>8);//发送高地址	    
-	}else IIC_Send_Byte(0XA0+((ReadAddr/256)<<1));   //发送器件地址0XA0,写数据 	   
+		IIC_Send_Byte(ReadAddr>>8); // high address byte	    
+	}else IIC_Send_Byte(0XA0+((ReadAddr/256)<<1)); // device address + page 	   
 	IIC_Wait_Ack(); 
-    IIC_Send_Byte(ReadAddr%256);   //发送低地址
+    IIC_Send_Byte(ReadAddr%256); // low address byte
 	IIC_Wait_Ack();	    
 	IIC_Start();  	 	   
-	IIC_Send_Byte(0XA1);           //进入接收模式			   
+	IIC_Send_Byte(0XA1);         // device address + read			   
 	IIC_Wait_Ack();	 
     temp=IIC_Read_Byte(0);		   
-    IIC_Stop();//产生一个停止条件	  
+    IIC_Stop(); // stop condition	  
 	WP(1);  
 	return temp;
 }
-//在AT24CXX指定地址写入一个数据
-//WriteAddr  :写入数据的目的地址    
-//DataToWrite:要写入的数据
+/*
+ * AT24CXX_WriteOneByte
+ * Write one byte to the EEPROM at the specified address.
+ * WriteAddr  : absolute EEPROM address to write.
+ * DataToWrite: byte value to store.
+ * Notes      : Includes write-cycle delay and handles >24C16 addressing.
+ */
 void AT24CXX_WriteOneByte(u16 WriteAddr,u8 DataToWrite)
 {			
 	WP(0);	
     IIC_Start();  
 	if(EE_TYPE>AT24C16)
 	{
-		IIC_Send_Byte(0XA0);	    //发送写命令
+		IIC_Send_Byte(0XA0);       // device address + write
 		IIC_Wait_Ack();
-		IIC_Send_Byte(WriteAddr>>8);//发送高地址	  
-	}else IIC_Send_Byte(0XA0+((WriteAddr/256)<<1));   //发送器件地址0XA0,写数据 	 
+		IIC_Send_Byte(WriteAddr>>8); // high address byte	  
+	}else IIC_Send_Byte(0XA0+((WriteAddr/256)<<1)); // device address + page 	 
 	IIC_Wait_Ack();	   
-    IIC_Send_Byte(WriteAddr%256);   //发送低地址
+    IIC_Send_Byte(WriteAddr%256); // low address byte
 	IIC_Wait_Ack(); 	 										  		   
-	IIC_Send_Byte(DataToWrite);     //发送字节							   
+	IIC_Send_Byte(DataToWrite);  // data byte							   
 	IIC_Wait_Ack();  		    	   
-    IIC_Stop();//产生一个停止条件 
+    IIC_Stop(); // stop condition 
 	delay_ms(10);	 
 	WP(1);
 }
-//在AT24CXX里面的指定地址开始写入长度为Len的数据
-//该函数用于写入16bit或者32bit的数据.
-//WriteAddr  :开始写入的地址  
-//DataToWrite:数据数组首地址
-//Len        :要写入数据的长度2,4
+/*
+ * AT24CXX_WriteLenByte
+ * Write a multi-byte value (16-bit or 32-bit) starting at WriteAddr.
+ * WriteAddr  : start address.
+ * DataToWrite: value to write.
+ * Len        : number of bytes to write (2 or 4).
+ */
 void AT24CXX_WriteLenByte(u16 WriteAddr,u32 DataToWrite,u8 Len)
 {  	
 	u8 t;
@@ -68,11 +82,13 @@ void AT24CXX_WriteLenByte(u16 WriteAddr,u32 DataToWrite,u8 Len)
 	}												    
 }
 
-//在AT24CXX里面的指定地址开始读出长度为Len的数据
-//该函数用于读出16bit或者32bit的数据.
-//ReadAddr   :开始读出的地址 
-//返回值     :数据
-//Len        :要读出数据的长度2,4
+/*
+ * AT24CXX_ReadLenByte
+ * Read a multi-byte value (16-bit or 32-bit) starting at ReadAddr.
+ * ReadAddr: start address.
+ * return : the value read.
+ * Len    : number of bytes to read (2 or 4).
+ */
 u32 AT24CXX_ReadLenByte(u16 ReadAddr,u8 Len)
 {  	
 	u8 t;
@@ -84,17 +100,19 @@ u32 AT24CXX_ReadLenByte(u16 ReadAddr,u8 Len)
 	}
 	return temp;												    
 }
-//检查AT24CXX是否正常
-//这里用了24XX的最后一个地址(16383)来存储标志字.
-//如果用其他24C系列,这个地址要修改
-//返回1:检测失败
-//返回0:检测成功
+/*
+ * AT24CXX_Check
+ * Verify the EEPROM is working by writing/reading a marker byte.
+ * Uses the last address (16383) as a test location (adjust for other parts).
+ * return 1: check failed
+ * return 0: check passed
+ */
 u8 AT24CXX_Check(void)
 {
 	u8 temp;
-	temp=AT24CXX_ReadOneByte(16383);//避免每次开机都写AT24CXX			   
+	temp=AT24CXX_ReadOneByte(16383); // avoid writing on every boot			   
 	if(temp==0X55)return 0;		   
-	else//排除第一次初始化的情况
+	else // handle first-time initialization
 	{
 		AT24CXX_WriteOneByte(16383,0X55);
 	    temp=AT24CXX_ReadOneByte(16383);	  
@@ -103,10 +121,13 @@ u8 AT24CXX_Check(void)
 	return 1;											  
 }
 
-//在AT24CXX里面的指定地址开始读出指定个数的数据
-//ReadAddr :开始读出的地址 对24c02为0~255
-//pBuffer  :数据数组首地址
-//NumToRead:要读出数据的个数
+/*
+ * AT24CXX_Read
+ * Read a continuous block of bytes starting at ReadAddr.
+ * ReadAddr : start address (for 24C02, 0..255).
+ * pBuffer  : destination buffer.
+ * NumToRead: number of bytes to read.
+ */
 void AT24CXX_Read(u16 ReadAddr,u8 *pBuffer,u16 NumToRead)
 {
 	while(NumToRead)
@@ -115,10 +136,13 @@ void AT24CXX_Read(u16 ReadAddr,u8 *pBuffer,u16 NumToRead)
 		NumToRead--;
 	}
 }  
-//在AT24CXX里面的指定地址开始写入指定个数的数据
-//WriteAddr :开始写入的地址 对24c02为0~255
-//pBuffer   :数据数组首地址
-//NumToWrite:要写入数据的个数
+/*
+ * AT24CXX_Write
+ * Write a continuous block of bytes starting at WriteAddr.
+ * WriteAddr : start address (for 24C02, 0..255).
+ * pBuffer   : source buffer.
+ * NumToWrite: number of bytes to write.
+ */
 void AT24CXX_Write(u16 WriteAddr,u8 *pBuffer,u16 NumToWrite)
 {
 	while(NumToWrite--)
@@ -128,3 +152,7 @@ void AT24CXX_Write(u16 WriteAddr,u8 *pBuffer,u16 NumToWrite)
 		pBuffer++;
 	}
 }
+
+
+
+

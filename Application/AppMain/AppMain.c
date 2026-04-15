@@ -4,7 +4,6 @@
 #include "SYS.h"
 #include "uart_driver.h"
 #include "Uart_Communicate.h"
-#include "Uart_Task.h"
 #include "system_app.h"
 
 // FreeRTOS native API
@@ -39,7 +38,8 @@ QueueHandle_t gStorageQueue = NULL;
 QueueHandle_t gSafetyQueue = NULL;
 
 volatile sensor_data_t gSensorData = {0};
-volatile app_state_t gAppState = APP_STATE_RUN_MODE1;//自定义曲线模式
+volatile app_state_t gAppState = APP_STATE_IDLE;
+volatile uint8_t gTreatmentRunning = 0;
 
 // Task prototypes
 // legacy task prototypes removed
@@ -61,7 +61,9 @@ void AppMain_FreeRTOS_Init(void)
 
     // Create tasks with priorities
     BaseType_t ret;
-    ret = xTaskCreate(CommTask,    "CommTask",    384, NULL, 21, NULL);
+    ret = xTaskCreate(CommTask,    "CommTask",    384, NULL, 26, NULL);
+    configASSERT(ret == pdPASS);
+    ret = xTaskCreate(DebugLogTask,"DebugLogTask",256, NULL, 4,  NULL);
     configASSERT(ret == pdPASS);
     ret = xTaskCreate(AppTask,     "AppTask",     512, NULL, 22, NULL);
     configASSERT(ret == pdPASS);
