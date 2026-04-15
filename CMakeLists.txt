@@ -46,7 +46,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Application sources
     Application/24C02/24cxx.c
-    Application/ads1248/ads1248.c
+    Application/ads1248_v2/ads1248_v2.c
     # Application/apply/apply.c  # excluded: legacy state machine replaced by ControlTask
     Application/AppMain/AppMain.c
     Application/AppMain/mode_curves.c
@@ -82,6 +82,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Application
     Application/24C02
     Application/ads1248
+    Application/ads1248_v2
     Application/apply
     Application/AppMain
     Application/Config

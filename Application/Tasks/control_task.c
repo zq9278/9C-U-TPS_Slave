@@ -30,6 +30,10 @@
 
 /* 调试宏：忽略熔断保护（在位检测仍然生效） */
 #define IGNORE_FUSE_PROTECTION_DEBUG
+/* 调试宏：为了排查温度采样异常，临时强制关闭左右加热输出。
+ * 打开后，加热电源和加热 PWM 都会保持为 0，但压力控制和遥测仍照常运行。
+ */
+#define DISABLE_HEATING_FOR_DEBUG 0
 
 /*
  * 对“在位检测”和“熔断检测”做简单消抖。
@@ -116,6 +120,10 @@ static uint8_t pre_vent_close_done = 0;
 
 /* 当前一次运行中，是否已经执行过启动前预泄压。 */
 static uint8_t pre_r_vent_done = 0;
+/* 暂停标志：暂停时保持当前状态机上下文，但所有输出强制关闭。 */
+static uint8_t control_paused = 0;
+/* 进入暂停的时刻，用于恢复时整体平移时间戳，冻结状态机时间。 */
+static TickType_t pause_enter_tick = 0;
 
 /*
  * ms_since_tick
@@ -384,7 +392,7 @@ static void SendHeaterStatusFrames(void)
     static uint8_t fuse_warned = 0;
     if (!fuse_warned && (!left_fuse || !right_fuse)) {
         fuse_warned = 1;
-        LOG_W("DEBUG: ignore fuse, heaters stay enabled (L_fuse=%u R_fuse=%u)", left_fuse, right_fuse);
+            LOG_W("DEBUG: ignore fuse, heaters stay enabled (L_fuse=%u R_fuse=%u)", left_fuse, right_fuse);
     }
 #endif
 }
@@ -464,6 +472,7 @@ void ControlTask(void *argument)
                 gCfg.running = 0;
                 emergency_stop = 0;
                 pre_r_vent_done = 0;
+                control_paused = 0;
                 ctrl_state = CTRL_STATE_IDLE;
                 apply_idle_outputs();
             } else if (c.id == CTRL_CMD_START) {
@@ -480,6 +489,7 @@ void ControlTask(void *argument)
                 gCfg.running = 1;
                 emergency_stop = 0;
                 pre_r_vent_done = 0;
+                control_paused = 0;
 
                 if (gCfg.press_enable_L) {
                     OTP_Reset(Left);
@@ -492,6 +502,27 @@ void ControlTask(void *argument)
                 pid_heat_R.setpoint = (float)(gCfg.temp_target * 100.0f);
 
                 start_pressure_cycle(1);
+            } else if (c.id == CTRL_CMD_PAUSE) {
+                /* Pause keeps the current state machine position, but all
+                 * outputs are forced off until a resume command arrives.
+                 */
+                control_paused = 1;
+                pause_enter_tick = xTaskGetTickCount();
+                apply_idle_outputs();
+            } else if (c.id == CTRL_CMD_RESUME) {
+                /* Resume freezes time while paused by shifting all timestamps
+                 * forward by the paused duration. This lets rise/hold/pulse
+                 * continue from the same point instead of restarting.
+                 */
+                if (control_paused) {
+                    TickType_t now = xTaskGetTickCount();
+                    TickType_t paused_delta = now - pause_enter_tick;
+                    state_enter_tick += paused_delta;
+                    cycle_start_tick += paused_delta;
+                    pre_vent_end_tick += paused_delta;
+                    inter_vent_end_tick += paused_delta;
+                    control_paused = 0;
+                }
             } else if (c.id == CTRL_CMD_UPDATE_CFG) {
                 /*
                  * UPDATE_CFG：
@@ -521,6 +552,16 @@ void ControlTask(void *argument)
             }
         }
 
+        /* Pause is handled before the normal idle/running split:
+         * the treatment session still exists, but all outputs must remain off
+         * until the host explicitly sends resume or stop.
+         */
+        if (control_paused) {
+            phase = "pause";
+            apply_idle_outputs();
+            goto telemetry;
+        }
+
         /*
          * 2) 空闲 / 保护路径
          *
@@ -545,13 +586,13 @@ void ControlTask(void *argument)
             if (idle_reason != last_idle_reason) {
                 last_idle_reason = idle_reason;
                 if (reason_not_running || reason_emergency || reason_both_disabled) {
-                    LOG_W("控制空闲：%s%s%s(run=%u emg=%u enL=%u enR=%u)",
+                LOG_W("控制空闲：%s%s%s(run=%u emg=%u enL=%u enR=%u)",
                           reason_not_running ? "关闭; " : "",
                           reason_emergency ? "急停; " : "",
                           reason_both_disabled ? "双侧压力禁用; " : "",
                           gCfg.running, emergency_stop, gCfg.press_enable_L, gCfg.press_enable_R);
                 } else {
-                    LOG_W("控制空闲：未知(run=%u emg=%u enL=%u enR=%u)",
+                LOG_W("控制空闲：未知(run=%u emg=%u enL=%u enR=%u)",
                           gCfg.running, emergency_stop, gCfg.press_enable_L, gCfg.press_enable_R);
                 }
             }
@@ -772,9 +813,16 @@ void ControlTask(void *argument)
 
             /*
              * 温控分左右独立执行：
-             * - 该侧使能时，打开加热电源并交给 PID_Heat 控制 PWM
-             * - 该侧禁用时，直接关闭 PWM 和加热电源
+             * - 常规模式下：该侧使能时打开加热电源并交给 PID_Heat 控制 PWM
+             * - 调试模式下：无论状态如何，都强制关闭左右加热，便于排查
+             *   “开始治疗后温度采样是否受加热干扰”这个问题。
              */
+#if DISABLE_HEATING_FOR_DEBUG
+            HeatPWMSet(Left, 0);
+            HeatPower(Left, 0);
+            HeatPWMSet(Right, 0);
+            HeatPower(Right, 0);
+#else
             if (gCfg.press_enable_L) {
                 HeatPower(Left, 1);
                 PID_Heat(Left, &pid_heat_L, (float)(gSensorData.tempL * 100.0f));
@@ -790,6 +838,7 @@ void ControlTask(void *argument)
                 HeatPWMSet(Right, 0);
                 HeatPower(Right, 0);
             }
+#endif
         }
 
 telemetry:

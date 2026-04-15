@@ -15,8 +15,8 @@
 #include <string.h>
 #include "main.h"
 #include "heat.h"
-#include "ads1248.h"
 #include "Pressure_sensor.h"
+
 #include "apply.h"
 #include "ds18b20.h"
 #include "water.h"
@@ -67,7 +67,7 @@ void AppMain_FreeRTOS_Init(void)
     configASSERT(ret == pdPASS);
     ret = xTaskCreate(AppTask,     "AppTask",     512, NULL, 22, NULL);
     configASSERT(ret == pdPASS);
-    ret = xTaskCreate(SensorTask,  "SensorTask",  384, NULL, 24, NULL);
+    ret = xTaskCreate(SensorTask,  "SensorTask",  384, NULL, 27, NULL);
     configASSERT(ret == pdPASS);
     ret = xTaskCreate(ControlTask, "ControlTask", 512, NULL, 25, NULL);
     configASSERT(ret == pdPASS);

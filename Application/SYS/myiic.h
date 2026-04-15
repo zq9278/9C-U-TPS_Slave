@@ -1,27 +1,36 @@
-#ifndef _MYIIC_H
+ï»¿#ifndef _MYIIC_H
 #define _MYIIC_H
 #include "sys.h"
-	
-//IO·½ÏòÉèÖÃ
-#define SDA_IN()  {GPIOA->MODER&=~(GPIO_MODER_MODE0<<(8*2));GPIOA->MODER|=0<<8*2;}	//PA8ÊäÈëÄ£Ê½
-#define SDA_OUT() {GPIOA->MODER&=~(GPIO_MODER_MODE0<<(8*2));GPIOA->MODER|=1<<8*2;} //PA8Êä³öÄ£Ê½
-//IO²Ù×÷
-#define IIC_SCL(n)  (n?HAL_GPIO_WritePin(GPIOB,GPIO_PIN_15,GPIO_PIN_SET):HAL_GPIO_WritePin(GPIOB,GPIO_PIN_15,GPIO_PIN_RESET)) //SCL
-#define IIC_SDA(n)  (n?HAL_GPIO_WritePin(GPIOA,GPIO_PIN_8,GPIO_PIN_SET):HAL_GPIO_WritePin(GPIOA,GPIO_PIN_8,GPIO_PIN_RESET)) //SDA
-#define WP(n)  (n?HAL_GPIO_WritePin(GPIOA,GPIO_PIN_9,GPIO_PIN_SET):HAL_GPIO_WritePin(GPIOA,GPIO_PIN_9,GPIO_PIN_RESET)) //SDA
-#define READ_SDA    HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_8)  //ÊäÈëSDA
 
-//IICËùÓÐ²Ù×÷º¯Êý
-void IIC_Init(void);                //³õÊ¼»¯IICµÄIO¿Ú				 
-void IIC_Start(void);				//·¢ËÍIIC¿ªÊ¼ÐÅºÅ
-void IIC_Stop(void);	  			//·¢ËÍIICÍ£Ö¹ÐÅºÅ
-void IIC_Send_Byte(u8 txd);			//IIC·¢ËÍÒ»¸ö×Ö½Ú
-u8 IIC_Read_Byte(unsigned char ack);//IIC¶ÁÈ¡Ò»¸ö×Ö½Ú
-u8 IIC_Wait_Ack(void); 				//IICµÈ´ýACKÐÅºÅ
-void IIC_Ack(void);					//IIC·¢ËÍACKÐÅºÅ
-void IIC_NAck(void);				//IIC²»·¢ËÍACKÐÅºÅ
+/* EEPROM bit-bang I2C pin mapping.
+ * Use the dedicated EE_SCL / EE_SDA pins from main.h so StorageTask does not
+ * interfere with RTD_START / RTD_RDY used by ADS1248.
+ */
+
+/* IO direction control for EEPROM SDA (PA12). */
+#define SDA_IN()  do { GPIOA->MODER &= ~(GPIO_MODER_MODE0 << (12U * 2U)); } while (0)
+#define SDA_OUT() do { GPIOA->MODER &= ~(GPIO_MODER_MODE0 << (12U * 2U)); \
+                       GPIOA->MODER |=  (1U << (12U * 2U)); } while (0)
+
+/* IO operations on the dedicated EEPROM pins. */
+#define IIC_SCL(n)  ( (n) ? HAL_GPIO_WritePin(EE_SCL_GPIO_Port, EE_SCL_Pin, GPIO_PIN_SET) \
+                           : HAL_GPIO_WritePin(EE_SCL_GPIO_Port, EE_SCL_Pin, GPIO_PIN_RESET) )
+#define IIC_SDA(n)  ( (n) ? HAL_GPIO_WritePin(EE_SDA_GPIO_Port, EE_SDA_Pin, GPIO_PIN_SET) \
+                           : HAL_GPIO_WritePin(EE_SDA_GPIO_Port, EE_SDA_Pin, GPIO_PIN_RESET) )
+#define WP(n)       ( (n) ? HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET) \
+                           : HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET) )
+#define READ_SDA    HAL_GPIO_ReadPin(EE_SDA_GPIO_Port, EE_SDA_Pin)
+
+/* IIC helper functions */
+void IIC_Init(void);
+void IIC_Start(void);
+void IIC_Stop(void);
+void IIC_Send_Byte(u8 txd);
+u8 IIC_Read_Byte(unsigned char ack);
+u8 IIC_Wait_Ack(void);
+void IIC_Ack(void);
+void IIC_NAck(void);
 
 void IIC_Write_One_Byte(u8 daddr,u8 addr,u8 data);
-u8 IIC_Read_One_Byte(u8 daddr,u8 addr);	 
+u8 IIC_Read_One_Byte(u8 daddr,u8 addr);
 #endif
-

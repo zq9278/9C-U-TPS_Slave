@@ -93,6 +93,10 @@ static uint8_t current_mode = 1;
 static uint8_t control_active = 0;
 /** User run request flag (controlled by START/STOP). */
 static uint8_t run_request = 0;
+/** Pause request flag (0=running normally, 1=paused waiting for resume). */
+static uint8_t pause_request = 0;
+/** Track whether ControlTask is currently in pause hold state. */
+static uint8_t control_paused = 0;
 /** Left/right channel enable flags. */
 static uint8_t left_enable = 0;
 static uint8_t right_enable = 0;
@@ -106,6 +110,8 @@ static uint16_t treatment_minutes = 5;
 /** Session end time tracking. */
 static TickType_t session_end_tick = 0;
 static uint8_t session_timer_active = 0;
+/** Remaining countdown ticks captured when treatment is paused. */
+static TickType_t session_remaining_ticks = 0;
 
 static uint8_t storage_slot_for_mode(uint8_t mode)
 {
@@ -167,19 +173,71 @@ static void arm_session_timer(void)
     session_timer_active = 1;
 }
 
+static void freeze_session_timer(void)
+{
+    /* Capture the remaining countdown so pause/resume can continue from the
+     * same remaining treatment time instead of restarting the whole session.
+     */
+    TickType_t now = xTaskGetTickCount();
+    if (session_timer_active && (session_end_tick > now)) {
+        session_remaining_ticks = session_end_tick - now;
+    } else {
+        session_remaining_ticks = 0;
+    }
+    session_timer_active = 0;
+}
+
+static void resume_session_timer(void)
+{
+    /* Restore the frozen countdown when treatment resumes. */
+    if (session_remaining_ticks > 0) {
+        session_end_tick = xTaskGetTickCount() + session_remaining_ticks;
+        session_timer_active = 1;
+    }
+}
+
 static void update_control_state(void)
 {
     /* Decide start/stop/update actions for ControlTask based on app state. */
-    /* Decide whether ControlTask should run based on run_request and enables. */
+    /* Decide whether ControlTask should run based on run_request and enables.
+     * Pause is handled as a separate hold state: the session still exists, but
+     * heating / squeezing outputs are forced off until a resume command arrives.
+     */
     uint8_t should_run = (run_request && (left_enable || right_enable));
     if (should_run) {
+        if (pause_request) {
+            gTreatmentRunning = 0;
+            gAppState = APP_STATE_READY;
+            if (control_active && !control_paused) {
+                control_paused = 1;
+                LOG_W("update_control_state: PAUSE run_req=%u L_en=%u R_en=%u",
+                      run_request, left_enable, right_enable);
+                post_control_cmd(CTRL_CMD_PAUSE, 1);
+            }
+            return;
+        }
+
         gTreatmentRunning = 1;
         gAppState = APP_STATE_RUN_MODE1;
         if (!control_active) {
             control_active = 1;
+            control_paused = 0;
             LOG_I("update_control_state: START should_run=1 run_req=%u L_en=%u R_en=%u", run_request, left_enable, right_enable);
             post_control_cmd(CTRL_CMD_START, 1);
-            arm_session_timer();
+            if (!session_timer_active) {
+                if (session_remaining_ticks > 0) {
+                    resume_session_timer();
+                } else {
+                    arm_session_timer();
+                }
+            }
+        } else if (control_paused) {
+            control_paused = 0;
+            LOG_I("update_control_state: RESUME run_req=%u L_en=%u R_en=%u", run_request, left_enable, right_enable);
+            post_control_cmd(CTRL_CMD_RESUME, 1);
+            if (!session_timer_active) {
+                resume_session_timer();
+            }
         } else {
             LOG_I("update_control_state: UPDATE_CFG should_run=1 run_req=%u L_en=%u R_en=%u", run_request, left_enable, right_enable);
             post_control_cmd(CTRL_CMD_UPDATE_CFG, 1);
@@ -189,13 +247,15 @@ static void update_control_state(void)
         }
     } else {
         gTreatmentRunning = 0;
-        if (control_active) {
+        if (control_active || control_paused) {
             control_active = 0;
+            control_paused = 0;
             LOG_W("update_control_state: STOP should_run=0 run_req=%u L_en=%u R_en=%u", run_request, left_enable, right_enable);
             post_control_cmd(CTRL_CMD_STOP, 0);
         }
         gAppState = APP_STATE_READY;
         session_timer_active = 0;
+        session_remaining_ticks = 0;
     }
 }
 
@@ -224,6 +284,8 @@ void AppTask(void *argument)
     left_enable = 0;
     right_enable = 0;
     run_request = 0;
+    pause_request = 0;
+    control_paused = 0;
     control_active = 0;
     gAppState = APP_STATE_IDLE;
 
@@ -283,6 +345,7 @@ void AppTask(void *argument)
                         left_enable = 1;
                         right_enable = 1;
                     }
+                    pause_request = 0;
                     run_request = 1;
                     //LOG_I("AppTask START: run_request=%u L_en=%u R_en=%u", run_request, left_enable, right_enable);
                     update_control_state();
@@ -290,9 +353,29 @@ void AppTask(void *argument)
 
                 case APP_CMD_STOP:
                     //LOG_I("AppTask STOP: run_request=%u L_en=%u R_en=%u", run_request, left_enable, right_enable);
+                    pause_request = 0;
                     run_request = 0;
                     //LOG_I("AppTask STOP: run_request=%u L_en=%u R_en=%u", run_request, left_enable, right_enable);
                     update_control_state();
+                    break;
+
+                case APP_CMD_PAUSE_RESUME:
+                    /* Host sends 0=pause, 1=resume.
+                     * Pause freezes the countdown and stops control outputs;
+                     * resume continues the same session from the remaining time.
+                     */
+                    if (cmd.v.u8 == 0U) {
+                        if (run_request && !pause_request) {
+                            pause_request = 1;
+                            freeze_session_timer();
+                            update_control_state();
+                        }
+                    } else {
+                        if (run_request && pause_request) {
+                            pause_request = 0;
+                            update_control_state();
+                        }
+                    }
                     break;
 
                 case APP_CMD_READ_PARAM:
@@ -324,6 +407,7 @@ void AppTask(void *argument)
             if (xQueueReceive(gSafetyQueue, &fault, 0) == pdPASS && fault) {
                 /* Safety fault: stop and enter alarm state. */
                 run_request = 0;
+                pause_request = 0;
                 left_enable = 0;
                 right_enable = 0;
                 //LOG_W("AppTask SAFETY fault=%u -> stop, L_en=%u R_en=%u", fault, left_enable, right_enable);
@@ -332,11 +416,13 @@ void AppTask(void *argument)
             }
         }
 
-        if (control_active && session_timer_active) {
+        if (control_active && !control_paused && session_timer_active) {
             TickType_t now = xTaskGetTickCount();
             if ((int32_t)(now - session_end_tick) >= 0) {
                 run_request = 0;
+                pause_request = 0;
                 session_timer_active = 0;
+                session_remaining_ticks = 0;
                 update_control_state();
                 tx_frame_t tx = {0};
                 tx.type = TX_DATA_UINT8;

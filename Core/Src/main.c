@@ -29,7 +29,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "ads1248.h"
 #include "delay.h"
 #include "pid.h"
 #include "water.h"

@@ -1,14 +1,12 @@
 #include "sensor_task.h"
 #include "Pressure_sensor.h"
-#include "ads1248.h"
+#include "ads1248_v2.h"
 #include "LOG.h"
 #include "main.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#include "semphr.h"
 
 #define MEDIAN_WINDOW 3
-
 static float median_filter(const float *buf, uint8_t count)
 {
     float tmp[MEDIAN_WINDOW];
@@ -29,54 +27,58 @@ static float median_filter(const float *buf, uint8_t count)
 
 extern u16 left_pressure, right_pressure;
 
+/* RTD_RDY is configured as EXTI falling in gpio.c. The ADS1248 v2 driver waits
+ * on this semaphore so temperature acquisition follows the same ready-edge
+ * model as the older implementation.
+ */
 SemaphoreHandle_t gRtdDrdySem = NULL;
 
 void SensorTask(void *argument)
 {
     (void)argument;
-    ADS1248_Init();
-    uint8_t RTDChannel = RTD1; // 0:right, 1:left per project mapping
-    bool drop_first_sample = false;
+    uint32_t temp_raw = 0;
+    float temp_c = ADS1248V2_INVALID_TEMP_C;
+    ads1248v2_channel_t temp_channel = ADS1248V2_CHANNEL_HEAT2;
     float press_buf[2][MEDIAN_WINDOW] = {0};
     uint8_t press_count[2] = {0};
     uint8_t press_idx[2] = {0};
 
-    gRtdDrdySem = xSemaphoreCreateBinary();
-    configASSERT(gRtdDrdySem != NULL);
+    if (gRtdDrdySem == NULL) {
+        /* One binary semaphore is enough because RTD_RDY is a single ready
+         * line shared by the ADS1248 temperature converter.
+         */
+        gRtdDrdySem = xSemaphoreCreateBinary();
+    }
+
+    /* New ADS1248 v2 path:
+     * initialize once, then alternate between the two NTC channels using the
+     * driver helper that performs channel select, first-sample discard and
+     * temperature conversion internally.
+     */
+    ADS1248V2_Init();
+    LOG_I("[RTD2] dual-channel scan enabled");
 
     for (;;)
     {
-        if (xSemaphoreTake(gRtdDrdySem, pdMS_TO_TICKS(100)) == pdTRUE)
-        {
-            if (drop_first_sample) {
-                (void)ADS1248_Read();
-                drop_first_sample = false;
+        /* Alternate channels every loop so we return to the normal
+         * left/right temperature acquisition pattern while still using the
+         * new ADS1248 v2 driver.
+         */
+        if (ADS1248V2_ReadTemperatureC(temp_channel, &temp_c, &temp_raw)) {
+            if (temp_channel == ADS1248V2_CHANNEL_HEAT1) {
+                gSensorData.tempL = temp_c;
             } else {
-                u32 raw = ADS1248_Read();
-                u16 temp_code = ADC2Temperature(raw);
-                float temp_c = temp_code / 100.0f;
-                bool bad_code = (raw == 0) || (raw == 0x7FFFFF) || (raw == 0xFFFFFF);
-                bool valid = (!bad_code) &&
-                             (temp_code != ADS1248_TEMP_INVALID) &&
-                             (temp_c > -20.0f) &&
-                             (temp_c < 80.0f);
-
-                if (valid) {
-                    if (RTDChannel == 0) gSensorData.tempR = temp_c;
-                    else gSensorData.tempL = temp_c;
-                } else {
-                    LOG_W("[RTD] invalid ch=%u raw=0x%06lX temp_code=0x%04X temp=%.2f",
-                          (unsigned)RTDChannel,
-                          (unsigned long)raw,
-                          (unsigned)temp_code,
-                          (double)temp_c);
-                }
-
-                RTDChannel ^= 1;
-                ADS1248_ChangeChannel(RTDChannel);
-                drop_first_sample = true;
+                gSensorData.tempR = temp_c;
             }
+        } else {
+            LOG_W("[RTD2] read failed: ch=%u raw=0x%06lX",
+                  (unsigned)temp_channel,
+                  (unsigned long)temp_raw);
         }
+
+        temp_channel = (temp_channel == ADS1248V2_CHANNEL_HEAT1)
+                     ? ADS1248V2_CHANNEL_HEAT2
+                     : ADS1248V2_CHANNEL_HEAT1;
 
         pressure_sensor_read();
         {
@@ -103,9 +105,9 @@ void SensorTask(void *argument)
 
 void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
 {
-    if (GPIO_Pin == RTD_RDY_Pin && gRtdDrdySem != NULL) {
-        BaseType_t hpw = pdFALSE;
-        xSemaphoreGiveFromISR(gRtdDrdySem, &hpw);
-        portYIELD_FROM_ISR(hpw);
+    if ((GPIO_Pin == RTD_RDY_Pin) && (gRtdDrdySem != NULL)) {
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        xSemaphoreGiveFromISR(gRtdDrdySem, &xHigherPriorityTaskWoken);
+        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
     }
 }

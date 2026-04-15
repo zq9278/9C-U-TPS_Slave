@@ -98,7 +98,7 @@ static inline void push_cmd_u16(app_cmd_id_t id, uint16_t v)
 // - heartbeat -> ACK
 // - pressure/temperature -> APP_CMD_SET_PRESSURE_KPA / APP_CMD_SET_TEMP
 // - left/right enable -> APP_CMD_LEFT_ENABLE / APP_CMD_RIGHT_ENABLE
-// - mode/start/stop/save/time -> corresponding app_cmd_t
+// - mode/start/stop/pause-save/time -> corresponding app_cmd_t
 void UartFrame_Dispatch(FrameId_t frame_id, const uint8_t *data_ptr, uint16_t data_len)
 {
     switch (frame_id)
@@ -161,6 +161,10 @@ void UartFrame_Dispatch(FrameId_t frame_id, const uint8_t *data_ptr, uint16_t da
 
         case U8_STOP_TREATMENT:            // Stop treatment
             push_cmd_u8(APP_CMD_STOP, 0);
+            break;
+
+        case U8_PAUSE_RESUME_TREATMENT:    // 0 = pause, 1 = resume
+            push_cmd_u8(APP_CMD_PAUSE_RESUME, handle_uint8_t_data(data_ptr, data_len));
             break;
 
         case U8_SAVE_SETTINGS:             // Save current parameters

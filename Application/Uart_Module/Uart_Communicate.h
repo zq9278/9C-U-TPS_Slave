@@ -23,6 +23,7 @@ typedef enum
     U8_START_TREATMENT             = 0x10C1, // Start treatment
     U8_STOP_TREATMENT              = 0x10C2, // Stop treatment
     U8_SAVE_SETTINGS               = 0x10C3, // Save current parameters
+    U8_PAUSE_RESUME_TREATMENT      = 0x10C4, // 0=pause, 1=resume treatment
 
     // Device -> Host
     U8_HEARTBEAT_ACK               = 0x1100, // Heartbeat ack

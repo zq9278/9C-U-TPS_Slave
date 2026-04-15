@@ -38,6 +38,7 @@ typedef enum {
     APP_CMD_NONE = 0,
     APP_CMD_START,
     APP_CMD_STOP,
+    APP_CMD_PAUSE_RESUME,
     APP_CMD_MODE_SELECT,
     APP_CMD_SET_TEMP,
     APP_CMD_SET_PRESSURE_KPA,
@@ -80,6 +81,8 @@ typedef enum {
     CTRL_CMD_NONE = 0,
     CTRL_CMD_START,
     CTRL_CMD_STOP,
+    CTRL_CMD_PAUSE,
+    CTRL_CMD_RESUME,
     CTRL_CMD_UPDATE_CFG,
 } ctrl_cmd_id_t;
 
