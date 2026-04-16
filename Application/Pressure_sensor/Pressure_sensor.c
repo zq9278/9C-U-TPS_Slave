@@ -66,7 +66,8 @@ static HAL_StatusTypeDef pressure_i2c_read_one(I2C_HandleTypeDef *hi2c,
       uint32_t pressure_raw = ((uint32_t)raw_data[1] << 16) |
                               ((uint32_t)raw_data[2] << 8) |
                               (uint32_t)raw_data[3];
-      if ((pressure_raw == 0U) || (pressure_raw == 0xFFFFFFU)) {
+      //if ((pressure_raw == 0U) || (pressure_raw == 0xFFFFFFU)) {
+      if (pressure_raw == 0xFFFFFFU) {
         I2C_Recover(hi2c);
         continue;
       }

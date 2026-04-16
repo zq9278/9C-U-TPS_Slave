@@ -1,7 +1,6 @@
 #include "storage_task.h"
 #include "config.h"
 #include "LOG.h"
-#include "AppMain/mode_curves.h"
 
 extern SystemSettings_t g_settings;
 
@@ -16,8 +15,11 @@ void StorageTask(void *argument)
             switch (cmd)
             {
                 case STORAGE_CMD_LOAD_ALL:
+                    /* Only persistent settings are restored here.
+                     * Waveform timing is now fixed in software, so there is no
+                     * longer any mode_curves initialization step.
+                     */
                     Config_Init();
-                    ModeCurves_InitFromSettings(&g_settings);
                     Settings_Broadcast();
                     break;
                 case STORAGE_CMD_SAVE_PARAM:

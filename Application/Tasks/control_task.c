@@ -2,6 +2,8 @@
 #include <string.h>
 #include <stdbool.h>
 #include "control_task.h"
+#include "WaveControl/wave_control.h"
+#include "HeaterShieldStatus/heater_shield_status.h"
 #include "pid.h"
 #include "heat.h"
 #include "apply.h"
@@ -28,19 +30,10 @@
  * - 所有保护动作最终都会收敛到关闭对应输出
  */
 
-/* 调试宏：忽略熔断保护（在位检测仍然生效） */
-#define IGNORE_FUSE_PROTECTION_DEBUG
 /* 调试宏：为了排查温度采样异常，临时强制关闭左右加热输出。
  * 打开后，加热电源和加热 PWM 都会保持为 0，但压力控制和遥测仍照常运行。
  */
 #define DISABLE_HEATING_FOR_DEBUG 0
-
-/*
- * 对“在位检测”和“熔断检测”做简单消抖。
- * 控制循环周期约 2ms，当前状态每 100ms 检查一次；
- * 连续 3 次检测一致后，才更新稳定状态。
- */
-#define HEATER_STATUS_DEBOUNCE_COUNT 3U
 
 /* 上报到界面的温度补偿值，控制本身仍使用真实传感器温度。 */
 #define TEMP_DISPLAY_OFFSET_C 0.0f
@@ -77,75 +70,29 @@ static bool temp_value_valid_for_tx(float temp_c)
 }
 
 /*
- * 压力状态机定义。
- *
- * IDLE：
- *   安全空闲态，所有输出关闭
- * PRE_RISE_VENT：
- *   启动治疗前先泄压 1s，确保系统从已知低压状态开始
- * RISE：
- *   目标压力从 0 线性爬升到 Pmax
- * HOLD：
- *   维持在 Pmax
- * PULSE：
- *   在 Pmax 和 0 之间按 on/off 周期切换
- * INTER_CYCLE_VENT：
- *   一个周期完成后的固定泄压阶段
+ * 新波形规则：
+ * - 总治疗时间 = N 个 60 秒循环
+ * - 每个 60 秒循环内固定分为 3 个阶段：
+ *   1) 缓慢上升
+ *   2) 持续保压
+ *   3) 脉动挤压
+ * - 暂停时只冻结“总治疗时间位置”，恢复后继续该时刻的波形
  */
 typedef enum {
     CTRL_STATE_IDLE = 0,
-    CTRL_STATE_PRE_RISE_VENT,
     CTRL_STATE_RISE,
     CTRL_STATE_HOLD,
     CTRL_STATE_PULSE,
-    CTRL_STATE_INTER_CYCLE_VENT,
 } ctrl_state_t;
 
 static ctrl_state_t ctrl_state = CTRL_STATE_IDLE;
 
-/* 当前状态进入时刻。所有“本状态已运行多久”的逻辑都依赖它。 */
-static TickType_t state_enter_tick = 0;
-
-/* 当前压力周期开始时刻。 */
-static TickType_t cycle_start_tick = 0;
-
-/* 预泄压阶段结束时刻。 */
-static TickType_t pre_vent_end_tick = 0;
-
-/* 周期间泄压阶段结束时刻。 */
-static TickType_t inter_vent_end_tick = 0;
-
-/* 标记预泄压阶段是否已经到时并完成收尾。 */
-static uint8_t pre_vent_close_done = 0;
-
-/* 当前一次运行中，是否已经执行过启动前预泄压。 */
-static uint8_t pre_r_vent_done = 0;
+/* 波形锚点：当前治疗从哪个 tick 开始计算总治疗时间位置。 */
+static TickType_t wave_anchor_tick = 0;
 /* 暂停标志：暂停时保持当前状态机上下文，但所有输出强制关闭。 */
 static uint8_t control_paused = 0;
-/* 进入暂停的时刻，用于恢复时整体平移时间戳，冻结状态机时间。 */
-static TickType_t pause_enter_tick = 0;
-
-/*
- * ms_since_tick
- * 返回从给定 tick 到当前时刻经过的毫秒数。
- * 主要用于状态机定时。
- */
-static inline uint32_t ms_since_tick(TickType_t tick)
-{
-    TickType_t now = xTaskGetTickCount();
-    return (uint32_t)((now - tick) * portTICK_PERIOD_MS);
-}
-
-/*
- * enter_state
- * 统一切换状态并刷新状态进入时间。
- * 所有状态跳转都尽量通过这个函数完成，避免遗漏时间戳更新。
- */
-static void enter_state(ctrl_state_t s)
-{
-    ctrl_state = s;
-    state_enter_tick = xTaskGetTickCount();
-}
+/* 暂停时记录已经走过的总治疗时间，用于恢复时继续同一波形位置。 */
+static TickType_t paused_elapsed_ticks = 0;
 
 /*
  * apply_idle_outputs
@@ -175,229 +122,6 @@ static void apply_idle_outputs(void)
 }
 
 /*
- * start_pressure_cycle
- * 启动一个新的压力周期。
- *
- * allow_pre_vent = 1 且本次运行还没做过预泄压时：
- * - 先进入 PRE_RISE_VENT，泄压 1 秒
- *
- * 否则：
- * - 直接进入 RISE
- *
- * 每次启动周期都会刷新：
- * - cycle_start_tick：本周期开始时间
- * - state_enter_tick：当前状态开始时间
- */
-static void start_pressure_cycle(uint8_t allow_pre_vent)
-{
-    cycle_start_tick = xTaskGetTickCount();
-    state_enter_tick = cycle_start_tick;
-
-    if (allow_pre_vent && !pre_r_vent_done) {
-        ctrl_state = CTRL_STATE_PRE_RISE_VENT;
-        pre_vent_end_tick = state_enter_tick + pdMS_TO_TICKS(1000);
-        pre_vent_close_done = 0;
-
-        /* 预泄压期间关闭阀门和气泵，让系统回到低压初始状态。 */
-        VALVE_LEFT(0);
-        VALVE_RIGHT(0);
-        TIM15->CCR1 = 0;
-        gPumpPwmDebug = 0;
-    } else {
-        ctrl_state = CTRL_STATE_RISE;
-    }
-}
-
-/*
- * start_inter_cycle_vent
- * 一个完整周期结束后，进入固定 2 秒的周期间泄压阶段。
- *
- * 该阶段关闭阀门和气泵，不再补压；
- * 到时后重新开始下一轮周期。
- */
-static void start_inter_cycle_vent(void)
-{
-    ctrl_state = CTRL_STATE_INTER_CYCLE_VENT;
-    state_enter_tick = xTaskGetTickCount();
-    inter_vent_end_tick = state_enter_tick + pdMS_TO_TICKS(2000);
-
-    VALVE_LEFT(0);
-    VALVE_RIGHT(0);
-    TIM15->CCR1 = 0;
-    gPumpPwmDebug = 0;
-}
-
-/*
- * SendHeaterStatusFrames
- * 采集并上报加热盾相关状态，同时执行保护动作。
- *
- * 检查内容：
- * - 在位检测：MCU_Heat1_Sense / MCU_Heat2_Sense
- * - 熔断检测：Heat1_Fuse_Detection / Heat2_Fuse_Detection
- *
- * 协议约定：
- * - 高电平 = 正常 / 在位 / 未熔断，发送 1
- * - 低电平 = 不在位 / 熔断，发送 0
- *
- * 安全策略：
- * - 不在位：强制关闭对应侧压力、加热、阀门
- * - 熔断：在非调试模式下，强制关闭对应侧
- */
-static void SendHeaterStatusFrames(void)
-{
-    tx_frame_t tx = {0};
-
-    /* 保存消抖后的稳定状态。默认上电认为两侧都正常。 */
-    static uint8_t right_present_stable = 1;
-    static uint8_t left_present_stable = 1;
-    static uint8_t right_fuse_stable = 1;
-    static uint8_t left_fuse_stable = 1;
-
-    /* 消抖计数器：只有连续多次不同，才更新稳定状态。 */
-    static uint8_t right_present_count = 0;
-    static uint8_t left_present_count = 0;
-    static uint8_t right_fuse_count = 0;
-    static uint8_t left_fuse_count = 0;
-
-    uint8_t right_present_raw =
-        (HAL_GPIO_ReadPin(MCU_Heat1_Sense_GPIO_Port, MCU_Heat1_Sense_Pin) == GPIO_PIN_RESET) ? 0 : 1;
-    uint8_t left_present_raw =
-        (HAL_GPIO_ReadPin(MCU_Heat2_Sense_GPIO_Port, MCU_Heat2_Sense_Pin) == GPIO_PIN_RESET) ? 0 : 1;
-    uint8_t right_fuse_raw =
-        (HAL_GPIO_ReadPin(Heat1_Fuse_Detection_GPIO_Port, Heat1_Fuse_Detection_Pin) == GPIO_PIN_RESET) ? 0 : 1;
-    uint8_t left_fuse_raw =
-        (HAL_GPIO_ReadPin(Heat2_Fuse_Detection_GPIO_Port, Heat2_Fuse_Detection_Pin) == GPIO_PIN_RESET) ? 0 : 1;
-
-    uint8_t right_present;
-    uint8_t left_present;
-    uint8_t right_fuse;
-    uint8_t left_fuse;
-
-    /*
-     * 在位检测消抖：
-     * raw 与 stable 不同时累加计数；
-     * 达到阈值后才真正更新 stable。
-     */
-    if (right_present_raw != right_present_stable) {
-        if (++right_present_count >= HEATER_STATUS_DEBOUNCE_COUNT) {
-            right_present_stable = right_present_raw;
-            right_present_count = 0;
-        }
-    } else {
-        right_present_count = 0;
-    }
-
-    if (left_present_raw != left_present_stable) {
-        if (++left_present_count >= HEATER_STATUS_DEBOUNCE_COUNT) {
-            left_present_stable = left_present_raw;
-            left_present_count = 0;
-        }
-    } else {
-        left_present_count = 0;
-    }
-
-    /* 熔断检测消抖逻辑与在位检测相同。 */
-    if (right_fuse_raw != right_fuse_stable) {
-        if (++right_fuse_count >= HEATER_STATUS_DEBOUNCE_COUNT) {
-            right_fuse_stable = right_fuse_raw;
-            right_fuse_count = 0;
-        }
-    } else {
-        right_fuse_count = 0;
-    }
-
-    if (left_fuse_raw != left_fuse_stable) {
-        if (++left_fuse_count >= HEATER_STATUS_DEBOUNCE_COUNT) {
-            left_fuse_stable = left_fuse_raw;
-            left_fuse_count = 0;
-        }
-    } else {
-        left_fuse_count = 0;
-    }
-
-    right_present = right_present_stable;
-    left_present = left_present_stable;
-    right_fuse = right_fuse_stable;
-    left_fuse = left_fuse_stable;
-
-    /*
-     * 同步到全局传感器聚合结构，便于 Cortex Live Watch / 调试器直接观察。
-     * 这些字段不参与控制闭环，只作为调试可视化状态使用。
-     */
-    gSensorData.heaterPresentL = left_present;
-    gSensorData.heaterPresentR = right_present;
-    gSensorData.heaterFuseL = left_fuse;
-    gSensorData.heaterFuseR = right_fuse;
-
-    /* 将稳定后的状态上报给上位机。 */
-    tx.type = TX_DATA_UINT8;
-
-    tx.frame_id = U8_LEFT_HEATER_PRESENT;
-    tx.v.u8 = left_present;
-    xQueueSend(gTxQueue, &tx, 0);
-
-    tx.frame_id = U8_RIGHT_HEATER_PRESENT;
-    tx.v.u8 = right_present;
-    xQueueSend(gTxQueue, &tx, 0);
-
-    tx.frame_id = U8_LEFT_HEATER_FUSE;
-    tx.v.u8 = left_fuse;
-    xQueueSend(gTxQueue, &tx, 0);
-
-    tx.frame_id = U8_RIGHT_HEATER_FUSE;
-    tx.v.u8 = right_fuse;
-    xQueueSend(gTxQueue, &tx, 0);
-
-    /*
-     * 不在位保护：
-     * 对应侧一旦不在位，立即禁用该侧，并关闭加热 / 阀门输出。
-     */
-    if (!left_present) {
-        gCfg.press_enable_L = 0;
-        HeatPWMSet(Left, 0);
-        HeatPower(Left, 0);
-        VALVE_LEFT(0);
-    }
-
-    if (!right_present) {
-        gCfg.press_enable_R = 0;
-        HeatPWMSet(Right, 0);
-        HeatPower(Right, 0);
-        VALVE_RIGHT(0);
-    }
-
-#ifndef IGNORE_FUSE_PROTECTION_DEBUG
-    /*
-     * 熔断保护：
-     * 与“不在位保护”类似，但来源是熔断检测脚。
-     */
-    if (!left_fuse) {
-        gCfg.press_enable_L = 0;
-        HeatPWMSet(Left, 0);
-        HeatPower(Left, 0);
-        VALVE_LEFT(0);
-    }
-
-    if (!right_fuse) {
-        gCfg.press_enable_R = 0;
-        HeatPWMSet(Right, 0);
-        HeatPower(Right, 0);
-        VALVE_RIGHT(0);
-    }
-#else
-    /*
-     * 调试模式：
-     * 熔断状态仍然会上报，但不会自动关停输出，方便联调。
-     */
-    static uint8_t fuse_warned = 0;
-    if (!fuse_warned && (!left_fuse || !right_fuse)) {
-        fuse_warned = 1;
-            LOG_W("DEBUG: ignore fuse, heaters stay enabled (L_fuse=%u R_fuse=%u)", left_fuse, right_fuse);
-    }
-#endif
-}
-
-/*
  * ControlTask
  * 主控制任务，每 2ms 调度一次。
  *
@@ -414,14 +138,15 @@ void ControlTask(void *argument)
 
     /* 上电默认配置清零，等待外部 START 命令写入有效参数。 */
     memset(&gCfg, 0, sizeof(gCfg));
+    HeaterShieldStatus_Init();
 
     /*
      * PID 参数说明：
      * - 左右温控 PID 独立，输出范围到 1999，对应加热 PWM
      * - 压力 PID 控制公共气泵，统一使用 gSensorData.pressL 作为闭环反馈，输出范围限制到 255
      */
-    PID_Init(&pid_heat_L, 390, 1.8, 200, 100000, 0, 1999, 0, 0);
-    PID_Init(&pid_heat_R, 390, 1.8, 200, 100000, 0, 1999, 0, 0);
+    PID_Init(&pid_heat_L, 3.9, 1.8, 200, 100000, 0, 1999, 0, 0);
+    PID_Init(&pid_heat_R, 3.9, 1.8, 200, 100000, 0, 1999, 0, 0);
     PID_Init(&pid_press, 100, 10, 0, 200, -200, 255, 0, 0);
 
     /* 气泵 PWM 所在定时器必须先启动，否则写 CCR 无效。 */
@@ -445,6 +170,7 @@ void ControlTask(void *argument)
 
     /* 当前阶段给上位机上报一个简写字符。 */
     const char *phase = "idle";
+    const char *last_logged_phase = "idle";
 
     apply_idle_outputs();
     ctrl_state = CTRL_STATE_IDLE;
@@ -457,6 +183,11 @@ void ControlTask(void *argument)
          */
         vTaskDelay(pdMS_TO_TICKS(2));
 
+        /* 熔断脉冲的异步高/低电平切换在这里统一服务，
+         * 这样 Uart_Communicate 不需要再为了 10ms 脉冲阻塞任务。
+         */
+        HeaterShieldStatus_Service();
+
         /* 1) 处理来自 AppTask 的控制命令 */
         ctrl_cmd_t c;
         if (xQueueReceive(gCtrlCmdQueue, &c, 0) == pdPASS)
@@ -466,13 +197,12 @@ void ControlTask(void *argument)
                  * STOP：
                  * - 终止运行
                  * - 清除急停状态
-                 * - 允许下次 START 时重新执行启动前预泄压
                  * - 进入 IDLE 并关闭所有输出
                  */
                 gCfg.running = 0;
                 emergency_stop = 0;
-                pre_r_vent_done = 0;
                 control_paused = 0;
+                paused_elapsed_ticks = 0;
                 ctrl_state = CTRL_STATE_IDLE;
                 apply_idle_outputs();
             } else if (c.id == CTRL_CMD_START) {
@@ -480,16 +210,17 @@ void ControlTask(void *argument)
                  * START：
                  * - 全量接收新配置
                  * - 标记进入运行态
-                 * - 重置启动前状态
+                 * - 从总治疗时间起点开始一个新的 60 秒循环序列
                  * - 对已使能通道执行一次 OTP_Reset
                  * - 更新温控 PID 目标
-                 * - 启动一个新的压力周期
                  */
                 gCfg = c.cfg;
                 gCfg.running = 1;
                 emergency_stop = 0;
-                pre_r_vent_done = 0;
                 control_paused = 0;
+                paused_elapsed_ticks = 0;
+                wave_anchor_tick = xTaskGetTickCount();
+                ctrl_state = CTRL_STATE_RISE;
 
                 if (gCfg.press_enable_L) {
                     OTP_Reset(Left);
@@ -500,39 +231,30 @@ void ControlTask(void *argument)
 
                 pid_heat_L.setpoint = (float)(gCfg.temp_target * 100.0f);
                 pid_heat_R.setpoint = (float)(gCfg.temp_target * 100.0f);
-
-                start_pressure_cycle(1);
             } else if (c.id == CTRL_CMD_PAUSE) {
                 /* Pause keeps the current state machine position, but all
                  * outputs are forced off until a resume command arrives.
                  */
                 control_paused = 1;
-                pause_enter_tick = xTaskGetTickCount();
+                paused_elapsed_ticks = xTaskGetTickCount() - wave_anchor_tick;
                 apply_idle_outputs();
             } else if (c.id == CTRL_CMD_RESUME) {
-                /* Resume freezes time while paused by shifting all timestamps
-                 * forward by the paused duration. This lets rise/hold/pulse
-                 * continue from the same point instead of restarting.
+                /* Resume restores the same total-treatment-time position by
+                 * rebuilding the anchor tick from the paused elapsed ticks.
                  */
                 if (control_paused) {
                     TickType_t now = xTaskGetTickCount();
-                    TickType_t paused_delta = now - pause_enter_tick;
-                    state_enter_tick += paused_delta;
-                    cycle_start_tick += paused_delta;
-                    pre_vent_end_tick += paused_delta;
-                    inter_vent_end_tick += paused_delta;
+                    wave_anchor_tick = now - paused_elapsed_ticks;
                     control_paused = 0;
                 }
             } else if (c.id == CTRL_CMD_UPDATE_CFG) {
                 /*
                  * UPDATE_CFG：
                  * - 用新配置替换旧配置
-                 * - 如果系统当前处于运行态，则从当前时刻重新开始一个周期
-                 *   但不重复执行“启动前预泄压”
                  * - 更新温控目标
                  *
-                 * 这里先对旧配置判断左右使能，再执行 OTP_Reset，
-                 * 保持现有代码行为不变。
+                 * 这里不重启波形时间轴，确保运行中改参数不会把
+                 * “当前治疗已经走到哪个时刻”重置回 0。
                  */
                 if (gCfg.press_enable_L) {
                     OTP_Reset(Left);
@@ -542,10 +264,6 @@ void ControlTask(void *argument)
                 }
 
                 gCfg = c.cfg;
-
-                if (gCfg.running) {
-                    start_pressure_cycle(0);
-                }
 
                 pid_heat_L.setpoint = (float)(gCfg.temp_target * 100.0f);
                 pid_heat_R.setpoint = (float)(gCfg.temp_target * 100.0f);
@@ -604,153 +322,60 @@ void ControlTask(void *argument)
             /* 3) 运行路径：执行压力状态机 */
 
             /*
-             * 将配置里的秒转换成毫秒，便于和 tick 差值对比。
-             * t1: 上升阶段时长
-             * t2: 保压阶段时长
-             * t3: 脉冲阶段总时长
+             * 按总治疗时间位置直接计算当前所处波形阶段。
+             * 一个固定 60 秒循环中，t1/t2/t3 只决定三个阶段的占比；
+             * normalize_wave_stage_ms() 会把这三个时长映射到 60 秒总窗内。
              */
-            uint32_t t1_ms = (uint32_t)(gCfg.t1_rise_s * 1000.0f);
-            uint32_t t2_ms = (uint32_t)(gCfg.t2_hold_s * 1000.0f);
-            uint32_t t3_ms = (uint32_t)(gCfg.t3_pulse_s * 1000.0f);
-
-            /*
-             * 如果当前状态意外落在 IDLE，但系统又是运行态，
-             * 则自动补起一个新的周期，防止控制链路中断。
-             */
-            if (ctrl_state == CTRL_STATE_IDLE) {
-                start_pressure_cycle(1);
-            }
-
             /*
              * 当前统一目标压力。
              * 由于系统不再区分左右压差，控制闭环只维护一个公共压力目标。
              */
             float Pset = 0.0f;
 
-            /* 当前配置中的最大目标压力。 */
-            float Pmax = gCfg.press_target_max;
-
             /* 是否需要驱动气泵。 */
             bool pump_on = false;
 
             /* 当前是否属于“应当补压”的阶段。 */
             bool inflating_phase = false;
+            wave_control_snapshot_t wave_snapshot;
 
-            /* 脉冲阶段当前是否处于 on 相。 */
-            bool on_phase = false;
+            WaveControl_ComputeSnapshot(&gCfg, wave_anchor_tick, &wave_snapshot);
+            phase = WaveControl_PhaseName(wave_snapshot.phase);
+            Pset = wave_snapshot.target_pressure_kpa;
+            inflating_phase = wave_snapshot.inflating_phase;
 
-            switch (ctrl_state) {
-                case CTRL_STATE_PRE_RISE_VENT:
-                    phase = "pre_vent";
+            switch (wave_snapshot.phase) {
+            case WAVE_CONTROL_PHASE_RISE:
+                ctrl_state = CTRL_STATE_RISE;
+                break;
+            case WAVE_CONTROL_PHASE_HOLD:
+                ctrl_state = CTRL_STATE_HOLD;
+                break;
+            case WAVE_CONTROL_PHASE_PULSE_ON:
+            case WAVE_CONTROL_PHASE_PULSE_OFF:
+                ctrl_state = CTRL_STATE_PULSE;
+                break;
+            case WAVE_CONTROL_PHASE_IDLE:
+            case WAVE_CONTROL_PHASE_PAUSE:
+            default:
+                ctrl_state = CTRL_STATE_IDLE;
+                break;
+            }
 
-                    /*
-                     * 预泄压阶段不主动补压。
-                     * 到时后只执行一次状态跳转，并标记本次运行已做过预泄压。
-                     */
-                    if (!pre_vent_close_done &&
-                        (int32_t)(xTaskGetTickCount() - pre_vent_end_tick) >= 0) {
-                        pre_vent_close_done = 1;
-                        pre_r_vent_done = 1;
-                        enter_state(CTRL_STATE_RISE);
-                    }
-                    break;
-
-                case CTRL_STATE_RISE: {
-                    phase = "rise";
-
-                    /*
-                     * 上升阶段：
-                     * - 打开左右阀门
-                     * - 目标压力按时间线性从 0 上升到 Pmax
-                     */
-                    VALVE_LEFT(1);
-                    VALVE_RIGHT(1);
-
-                    uint32_t elapsed = ms_since_tick(state_enter_tick);
-                    float ratio = (t1_ms > 0) ? (float)elapsed / (float)t1_ms : 1.0f;
-                    if (ratio > 1.0f) ratio = 1.0f;
-
-                    Pset = Pmax * ratio;
-                    inflating_phase = true;
-
-                    /*
-                     * 上升阶段结束后：
-                     * - 若存在保压时间，进入 HOLD
-                     * - 否则若存在脉冲时间，进入 PULSE
-                     * - 否则直接进入周期间泄压
-                     */
-                    if (t1_ms == 0 || elapsed >= t1_ms) {
-                        if (t2_ms > 0) {
-                            enter_state(CTRL_STATE_HOLD);
-                        } else if (t3_ms > 0) {
-                            enter_state(CTRL_STATE_PULSE);
-                        } else {
-                            start_inter_cycle_vent();
-                        }
-                    }
-                    break;
-                }
-
-                case CTRL_STATE_HOLD: {
-                    phase = "hold";
-
-                    /* 保压阶段目标恒定为 Pmax。 */
-                    Pset = Pmax;
-                    inflating_phase = true;
-
-                    uint32_t elapsed = ms_since_tick(state_enter_tick);
-                    if (t2_ms == 0 || elapsed >= t2_ms) {
-                        if (t3_ms > 0) {
-                            enter_state(CTRL_STATE_PULSE);
-                        } else {
-                            start_inter_cycle_vent();
-                        }
-                    }
-                    break;
-                }
-
-                case CTRL_STATE_PULSE: {
-                    /*
-                     * 脉冲阶段：
-                     * - 按 pulse_on_ms / pulse_off_ms 周期切换
-                     * - on 相目标为 Pmax
-                     * - off 相目标为 0
-                     */
-                    uint32_t elapsed = ms_since_tick(state_enter_tick);
-                    uint32_t period = (uint32_t)(gCfg.pulse_on_ms + gCfg.pulse_off_ms);
-
-                    on_phase = (period > 0 && gCfg.pulse_on_ms > 0) ?
-                               ((elapsed % period) < (uint32_t)gCfg.pulse_on_ms) : false;
-
-                    phase = on_phase ? "pulse_on" : "pulse_off";
-                    Pset = on_phase ? Pmax : 0.0f;
-                    inflating_phase = on_phase;
-
-                    if (t3_ms == 0 || elapsed >= t3_ms) {
-                        start_inter_cycle_vent();
-                    }
-                    break;
-                }
-
-                case CTRL_STATE_INTER_CYCLE_VENT:
-                    phase = "vent";
-
-                    /*
-                     * 周期间泄压阶段不保压、不补压；
-                     * 到时后直接开启下一周期。
-                     */
-                    VALVE_LEFT(0);
-                    VALVE_RIGHT(0);
-                    TIM15->CCR1 = 0;
-                    gPumpPwmDebug = 0;
-
-                    if ((int32_t)(xTaskGetTickCount() - inter_vent_end_tick) >= 0) {
-                        start_pressure_cycle(0);
-                    }
-                    break;
-
-                default:
-                    break;
+            /* 调试日志：只在阶段变化时打印一次当前 60 秒循环的分段结果。
+             * 这样可以直接看到这轮实际生效的是不是 60 秒，以及 t1/t2/t3
+             * 被归一化后各占多少毫秒。
+             */
+            if (strcmp(phase, last_logged_phase) != 0) {
+                // LOG_I("波形阶段: phase=%s cycle_ms=%lu elapsed_ms=%lu rise_ms=%lu hold_ms=%lu pulse_ms=%lu Pmax=%.2f",
+                //       phase,
+                //       (unsigned long)WAVE_CONTROL_CYCLE_MS,
+                //       (unsigned long)wave_snapshot.cycle_elapsed_ms,
+                //       (unsigned long)wave_snapshot.rise_ms,
+                //       (unsigned long)wave_snapshot.hold_ms,
+                //       (unsigned long)wave_snapshot.pulse_ms,
+                //       (double)Pmax);
+                last_logged_phase = phase;
             }
 
             /*
@@ -926,7 +551,7 @@ telemetry:
          */
         if (++heater_status_div >= 10) {
             heater_status_div = 0;
-            SendHeaterStatusFrames();
+            HeaterShieldStatus_Process(&gCfg);
         }
 
     }

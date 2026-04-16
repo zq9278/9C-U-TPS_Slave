@@ -49,7 +49,6 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Application/ads1248_v2/ads1248_v2.c
     # Application/apply/apply.c  # excluded: legacy state machine replaced by ControlTask
     Application/AppMain/AppMain.c
-    Application/AppMain/mode_curves.c
     Application/Config/config.c
     Application/Tasks/comm_task.c
     Application/Tasks/debug_log_task.c
@@ -62,6 +61,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Application/delay/delay.c
     Application/ds18b20/ds18b20.c
     Application/heat/heat.c
+    Application/HeaterShieldStatus/heater_shield_status.c
     Application/pid/pid.c
     Application/Pressure_sensor/Pressure_sensor.c
     Application/SYS/led.c
@@ -73,6 +73,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Application/Uart_Module/uart_driver.c
     #Application/Uart_Module/Uart_Task.c
     Application/USER_TIM/USER_TIM.c
+    Application/WaveControl/wave_control.c
     Application/water/water.c
 )
 
@@ -90,11 +91,13 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Application/delay
     Application/ds18b20
     Application/heat
+    Application/HeaterShieldStatus
     Application/pid
     Application/Pressure_sensor
     Application/SYS
     Application/Uart_Module
     Application/USER_TIM
+    Application/WaveControl
     Application/water
 )
 

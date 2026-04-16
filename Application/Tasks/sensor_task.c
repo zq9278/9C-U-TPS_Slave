@@ -7,6 +7,8 @@
 #include "task.h"
 
 #define MEDIAN_WINDOW 3
+#define PRESS_SAMPLE_PERIOD_MS 10U
+
 static float median_filter(const float *buf, uint8_t count)
 {
     float tmp[MEDIAN_WINDOW];
@@ -42,6 +44,7 @@ void SensorTask(void *argument)
     float press_buf[2][MEDIAN_WINDOW] = {0};
     uint8_t press_count[2] = {0};
     uint8_t press_idx[2] = {0};
+    TickType_t next_press_sample_tick = 0;
 
     if (gRtdDrdySem == NULL) {
         /* One binary semaphore is enough because RTD_RDY is a single ready
@@ -80,21 +83,29 @@ void SensorTask(void *argument)
                      ? ADS1248V2_CHANNEL_HEAT2
                      : ADS1248V2_CHANNEL_HEAT1;
 
-        pressure_sensor_read();
-        {
-            float pressL_kpa = left_pressure / 1000.0f;
-            float pressR_kpa = right_pressure / 1000.0f;
+        /* Pressure sensors do not need the same 2 ms polling rate as the task
+         * loop. The driver itself may wait 10 ms for a fresh conversion, so
+         * limit pressure sampling to a fixed 10 ms cadence to avoid
+         * over-polling the device and repeatedly interrupting conversions.
+         */
+        if ((int32_t)(xTaskGetTickCount() - next_press_sample_tick) >= 0) {
+            next_press_sample_tick = xTaskGetTickCount() + pdMS_TO_TICKS(PRESS_SAMPLE_PERIOD_MS);
+            pressure_sensor_read();
+            {
+                float pressL_kpa = left_pressure / 1000.0f;
+                float pressR_kpa = right_pressure / 1000.0f;
 
-            press_buf[1][press_idx[1]] = pressL_kpa;
-            press_idx[1] = (press_idx[1] + 1) % MEDIAN_WINDOW;
-            if (press_count[1] < MEDIAN_WINDOW) press_count[1]++;
+                press_buf[1][press_idx[1]] = pressL_kpa;
+                press_idx[1] = (press_idx[1] + 1) % MEDIAN_WINDOW;
+                if (press_count[1] < MEDIAN_WINDOW) press_count[1]++;
 
-            press_buf[0][press_idx[0]] = pressR_kpa;
-            press_idx[0] = (press_idx[0] + 1) % MEDIAN_WINDOW;
-            if (press_count[0] < MEDIAN_WINDOW) press_count[0]++;
+                press_buf[0][press_idx[0]] = pressR_kpa;
+                press_idx[0] = (press_idx[0] + 1) % MEDIAN_WINDOW;
+                if (press_count[0] < MEDIAN_WINDOW) press_count[0]++;
 
-            gSensorData.pressL = median_filter(press_buf[1], press_count[1]) * 7.50062f;
-            gSensorData.pressR = median_filter(press_buf[0], press_count[0]) * 7.50062f;
+                gSensorData.pressL = median_filter(press_buf[1], press_count[1]) * 7.50062f;
+                gSensorData.pressR = median_filter(press_buf[0], press_count[0]) * 7.50062f;
+            }
         }
 
         vTaskDelay(pdMS_TO_TICKS(2));

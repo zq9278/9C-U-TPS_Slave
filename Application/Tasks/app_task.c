@@ -18,7 +18,7 @@
 #include "LOG.h"
 #include "config.h"
 #include "Uart_Communicate.h"
-#include "AppMain/mode_curves.h"
+#include "wave_control.h"
 
 extern SystemSettings_t g_settings;
 
@@ -28,7 +28,7 @@ extern SystemSettings_t g_settings;
  * - 输出任务状态、优先级、栈高水位以及系统堆剩余量
  */
 #define RTOS_TASK_STATS_LOG_ENABLE    0
-#define RTOS_TASK_STATS_LOG_PERIOD_MS 1000U
+#define RTOS_TASK_STATS_LOG_PERIOD_MS 2000U
 #define RTOS_TASK_STATS_MAX_COUNT     16U
 
 #if RTOS_TASK_STATS_LOG_ENABLE
@@ -87,7 +87,7 @@ static void log_freertos_task_stats(void)
 }
 #endif
 
-/** Current mode index (1..4), maps to different pressure curves. */
+/** Current mode index is kept only for host/UI compatibility. */
 static uint8_t current_mode = 1;
 /** Control task actual running state (1=started, 0=stopped). */
 static uint8_t control_active = 0;
@@ -103,8 +103,8 @@ static uint8_t right_enable = 0;
 /** Target temperature (C). */
 static float   target_temp_c = 38.0f;
 #define TEMP_CONTROL_COMP_SUB_C  (2.0f)
-/** Active mode curve (includes stored target pressure). */
-static ModeCurve_t gCurveRT;
+/** Current pressure target used by the fixed 60-second waveform. */
+static float current_pressure_target_kpa = 25.0f;
 /** Treatment duration in minutes (default 5). */
 static uint16_t treatment_minutes = 5;
 /** Session end time tracking. */
@@ -112,6 +112,14 @@ static TickType_t session_end_tick = 0;
 static uint8_t session_timer_active = 0;
 /** Remaining countdown ticks captured when treatment is paused. */
 static TickType_t session_remaining_ticks = 0;
+
+/* Waveform timing rule:
+ * - one treatment cycle is always 60 seconds (WAVE_CONTROL_CYCLE_MS)
+ * - total treatment time is an integer multiple of that 60-second cycle
+ * The host currently sends U16_TREAT_TIME_MIN; the existing field name is kept
+ * for protocol compatibility, but here it is treated as "number of 60s cycles".
+ * Wave shape constants (rise/hold/pulse) are defined in wave_control.h.
+ */
 
 static uint8_t storage_slot_for_mode(uint8_t mode)
 {
@@ -129,12 +137,16 @@ static void fill_control_cfg(control_config_t *cfg, uint8_t running)
     cfg->mode            = current_mode;
     cfg->running         = running;
     cfg->temp_target     = control_temp_c;
-    cfg->press_target_max= gCurveRT.target_kpa;
-    cfg->t1_rise_s       = gCurveRT.t1_rise_s;
-    cfg->t2_hold_s       = gCurveRT.t2_hold_s;
-    cfg->t3_pulse_s      = gCurveRT.t3_pulse_s;
-    cfg->pulse_on_ms     = gCurveRT.pulse_on_ms;
-    cfg->pulse_off_ms    = gCurveRT.pulse_off_ms;
+    /* Fixed waveform configuration:
+     * t1/t2/t3 are now purely internal software parameters and no longer come
+     * from mode_curves.c.
+     */
+    cfg->press_target_max= current_pressure_target_kpa;
+    cfg->t1_rise_s       = WAVE_CONTROL_RISE_S;
+    cfg->t2_hold_s       = WAVE_CONTROL_HOLD_S;
+    cfg->t3_pulse_s      = WAVE_CONTROL_PULSE_S;
+    cfg->pulse_on_ms     = 0.0f;
+    cfg->pulse_off_ms    = 0.0f;
     cfg->squeeze_mode    = 0;
     cfg->press_enable_L  = left_enable;
     cfg->press_enable_R  = right_enable;
@@ -157,15 +169,18 @@ static void post_control_cmd(ctrl_cmd_id_t id, uint8_t running)
 
 static uint32_t curve_cycle_duration_ms(void)
 {
-    /* Compute total cycle time (ms) from the current mode curve. */
-    float total_s = gCurveRT.t1_rise_s + gCurveRT.t2_hold_s + gCurveRT.t3_pulse_s;
-    if (total_s <= 0.0f) total_s = 60.0f;
-    return (uint32_t)(total_s * 1000.0f);
+    /* One waveform cycle is fixed to 60 seconds. The internal rise / hold /
+     * pulse durations only define how that 60-second window is split.
+     */
+    return WAVE_CONTROL_CYCLE_MS;
 }
 
 static void arm_session_timer(void)
 {
-    /* Start/refresh the session end timer based on treatment minutes. */
+    /* Start/refresh the session end timer.
+     * treatment_minutes is preserved as the protocol field name, but it now
+     * means "number of 60-second waveform cycles".
+     */
     uint32_t minutes = (treatment_minutes == 0) ? 1U : (uint32_t)treatment_minutes;
     TickType_t now = xTaskGetTickCount();
     uint32_t total_ms = curve_cycle_duration_ms() * minutes;
@@ -259,16 +274,17 @@ static void update_control_state(void)
     }
 }
 
-static void load_mode_curve(uint8_t mode)
+static void load_pressure_target_for_mode(uint8_t mode)
 {
-    /* Load the selected curve and apply stored pressure target. */
-    /* Load selected mode curve and apply stored target pressure. */
+    /* Mode select is still accepted from the host, but it only selects which
+     * stored target pressure slot to use. Waveform timing no longer comes from
+     * mode_curves.c.
+     */
     if (mode < 1) mode = 1;
     if (mode > 4) mode = 4;
     current_mode = mode;
-    gCurveRT = gModeCurves[current_mode - 1];
     float stored = g_settings.mode[storage_slot_for_mode(current_mode)].target_kpa;
-    if (stored > 0.0f) gCurveRT.target_kpa = stored;
+    current_pressure_target_kpa = (stored > 0.0f) ? stored : 25.0f;
 }
 
 void AppTask(void *argument)
@@ -279,7 +295,7 @@ void AppTask(void *argument)
     uint32_t save_due_tick = 0;
 
     /* Power-on init: restore mode/temp/pressure from persisted settings. */
-    load_mode_curve((g_settings.mode_select >= 1 && g_settings.mode_select <= 4) ? g_settings.mode_select : 1);
+    load_pressure_target_for_mode((g_settings.mode_select >= 1 && g_settings.mode_select <= 4) ? g_settings.mode_select : 1);
     target_temp_c = g_settings.left_temp_c;
     left_enable = 0;
     right_enable = 0;
@@ -296,9 +312,11 @@ void AppTask(void *argument)
             switch (cmd.id)
             {
                 case APP_CMD_MODE_SELECT:
-                    /* Switch mode, load curve, and update control state. */
+                    /* Switch mode and load the corresponding stored pressure
+                     * target. Waveform timing itself stays fixed in software.
+                     */
                     g_settings.mode_select = cmd.v.u8;
-                    load_mode_curve(cmd.v.u8);
+                    load_pressure_target_for_mode(cmd.v.u8);
                     update_control_state();
                     break;
 
@@ -313,7 +331,7 @@ void AppTask(void *argument)
 
                 case APP_CMD_SET_PRESSURE_KPA:
                     /* Host pressure setpoint stored internally. */
-                    gCurveRT.target_kpa = cmd.v.f32;
+                    current_pressure_target_kpa = cmd.v.f32;
                     g_settings.mode[storage_slot_for_mode(current_mode)].target_kpa = cmd.v.f32;
                     save_due_tick = xTaskGetTickCount() + pdMS_TO_TICKS(3000);
                     update_control_state();
@@ -332,6 +350,9 @@ void AppTask(void *argument)
                     break;
 
                 case APP_CMD_SET_TREATMENT_TIME:
+                    /* The host value is treated as the number of 60-second
+                     * cycles. 0 is coerced to one cycle.
+                     */
                     treatment_minutes = (cmd.v.u16 == 0) ? 1 : cmd.v.u16;
                     if (control_active) {
                         arm_session_timer();
@@ -410,7 +431,7 @@ void AppTask(void *argument)
                 pause_request = 0;
                 left_enable = 0;
                 right_enable = 0;
-                //LOG_W("AppTask SAFETY fault=%u -> stop, L_en=%u R_en=%u", fault, left_enable, right_enable);
+                LOG_W("AppTask SAFETY fault=%u -> stop, L_en=%u R_en=%u", fault, left_enable, right_enable);
                 update_control_state();
                 gAppState = APP_STATE_ALARM;
             }
@@ -424,6 +445,8 @@ void AppTask(void *argument)
                 session_timer_active = 0;
                 session_remaining_ticks = 0;
                 update_control_state();
+
+                /* 倒计时结束后，下位机主动通知上位机治疗已结束。 */
                 tx_frame_t tx = {0};
                 tx.type = TX_DATA_UINT8;
                 tx.frame_id = U8_STOP_TREATMENT;
