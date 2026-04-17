@@ -255,3 +255,4 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c)
 }
 
 /* USER CODE END 1 */
+

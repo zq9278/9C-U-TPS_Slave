@@ -173,36 +173,6 @@ void DMA1_Ch4_7_DMAMUX1_OVR_IRQHandler(void)
 }
 
 /**
-  * @brief This function handles I2C1 interrupt.
-  */
-void I2C1_IRQHandler(void)
-{
-  /* USER CODE BEGIN I2C1_IRQn 0 */
-
-  /* USER CODE END I2C1_IRQn 0 */
-  HAL_I2C_EV_IRQHandler(&hi2c1);
-  HAL_I2C_ER_IRQHandler(&hi2c1);
-  /* USER CODE BEGIN I2C1_IRQn 1 */
-
-  /* USER CODE END I2C1_IRQn 1 */
-}
-
-/**
-  * @brief This function handles I2C2 interrupt.
-  */
-void I2C2_IRQHandler(void)
-{
-  /* USER CODE BEGIN I2C2_IRQn 0 */
-
-  /* USER CODE END I2C2_IRQn 0 */
-  HAL_I2C_EV_IRQHandler(&hi2c2);
-  HAL_I2C_ER_IRQHandler(&hi2c2);
-  /* USER CODE BEGIN I2C2_IRQn 1 */
-
-  /* USER CODE END I2C2_IRQn 1 */
-}
-
-/**
   * @brief This function handles TIM6 global interrupt.
   */
 void TIM6_IRQHandler(void)

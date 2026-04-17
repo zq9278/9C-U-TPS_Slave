@@ -49,9 +49,9 @@ typedef struct {
  * 内部波形三段时长（单位：秒），由软件固定，不开放给上位机设置。
  * ControlTask 会将三者按占比归一化到 WAVE_CONTROL_CYCLE_MS 窗口内。
  */
-#define WAVE_CONTROL_RISE_S   20.0f
-#define WAVE_CONTROL_HOLD_S   20.0f
-#define WAVE_CONTROL_PULSE_S  20.0f
+#define WAVE_CONTROL_RISE_S   1.0f
+#define WAVE_CONTROL_HOLD_S   58.0f
+#define WAVE_CONTROL_PULSE_S  1.0f
 
 void WaveControl_NormalizeStageMs(uint32_t *rise_ms, uint32_t *hold_ms, uint32_t *pulse_ms);
 void WaveControl_ComputeSnapshot(const control_config_t *cfg,

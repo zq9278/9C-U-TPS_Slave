@@ -2,12 +2,13 @@
 #define _APPLY_H
 #include <sys.h>	  
 
-
-
-#define AirPump1(n)  (n?HAL_GPIO_WritePin(AirPump1_GPIO_Port,AirPump1_Pin,GPIO_PIN_SET):HAL_GPIO_WritePin(AirPump1_GPIO_Port,AirPump1_Pin,GPIO_PIN_RESET)) 
-#define AirPump2(n)  (n?HAL_GPIO_WritePin(AirPump2_GPIO_Port,AirPump2_Pin,GPIO_PIN_SET):HAL_GPIO_WritePin(AirPump2_GPIO_Port,AirPump2_Pin,GPIO_PIN_RESET)) 
-#define VALVE_LEFT(n)  (n?HAL_GPIO_WritePin(AirValve1_GPIO_Port,AirValve1_Pin,GPIO_PIN_SET):HAL_GPIO_WritePin(AirValve1_GPIO_Port,AirValve1_Pin,GPIO_PIN_RESET)) 
-#define VALVE_RIGHT(n)  (n?HAL_GPIO_WritePin(AirValve2_GPIO_Port,AirValve2_Pin,GPIO_PIN_SET):HAL_GPIO_WritePin(AirValve2_GPIO_Port,AirValve2_Pin,GPIO_PIN_RESET)) 
+/*
+ * 电磁阀 / 波形阀控制接口。
+ * 这里改成普通函数，避免宏里再嵌套三元表达式时出现展开歧义。
+ */
+void VALVE_LEFT(uint8_t enabled);
+void VALVE_RIGHT(uint8_t enabled);
+void VALVE(uint8_t enabled);
 
 typedef enum {
     EYE_NONE = 0,

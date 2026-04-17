@@ -47,7 +47,6 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Application sources
     Application/24C02/24cxx.c
     Application/ads1248_v2/ads1248_v2.c
-    # Application/apply/apply.c  # excluded: legacy state machine replaced by ControlTask
     Application/AppMain/AppMain.c
     Application/Config/config.c
     Application/Tasks/comm_task.c
@@ -73,6 +72,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Application/Uart_Module/uart_driver.c
     #Application/Uart_Module/Uart_Task.c
     Application/USER_TIM/USER_TIM.c
+    Application/ValveControl/valve_control.c
     Application/WaveControl/wave_control.c
     Application/water/water.c
 )
@@ -97,6 +97,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Application/SYS
     Application/Uart_Module
     Application/USER_TIM
+    Application/ValveControl
     Application/WaveControl
     Application/water
 )

@@ -60,7 +60,7 @@ void MX_GPIO_Init(void)
                           |OLED_SCL_Pin|WaterValve1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, AirValve1_Pin|AirValve2_Pin|GPIO_PIN_3|OTP1_RESET_Pin
+  HAL_GPIO_WritePin(GPIOA, AirValve1_Pin|AirValve2_Pin|AirPump2_Pin|OTP1_RESET_Pin
                           |EE_SCL_Pin|EE_SDA_Pin|OLED_SDA_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
@@ -87,14 +87,21 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : AirValve1_Pin AirValve2_Pin PA3 OTP1_RESET_Pin
-                           EE_SCL_Pin EE_SDA_Pin OLED_SDA_Pin */
-  GPIO_InitStruct.Pin = AirValve1_Pin|AirValve2_Pin|GPIO_PIN_3|OTP1_RESET_Pin
-                          |EE_SCL_Pin|EE_SDA_Pin|OLED_SDA_Pin;
+  /*Configure GPIO pins : AirValve1_Pin AirValve2_Pin OTP1_RESET_Pin EE_SCL_Pin
+                           EE_SDA_Pin OLED_SDA_Pin */
+  GPIO_InitStruct.Pin = AirValve1_Pin|AirValve2_Pin|OTP1_RESET_Pin|EE_SCL_Pin
+                          |EE_SDA_Pin|OLED_SDA_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : AirPump2_Pin */
+  GPIO_InitStruct.Pin = AirPump2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(AirPump2_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : OTP2_RESET_Pin */
   GPIO_InitStruct.Pin = OTP2_RESET_Pin;

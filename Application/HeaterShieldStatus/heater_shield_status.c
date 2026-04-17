@@ -178,14 +178,13 @@ void HeaterShieldStatus_Process(control_config_t *cfg)
         cfg->press_enable_L = 0;
         HeatPWMSet(Left, 0);
         HeatPower(Left, 0);
-        VALVE_LEFT(0);
+        /* 当前应用层阀门控制已经统一成公共 VALVE 宏。 */
     }
 
     if (!s_right_present_stable) {
         cfg->press_enable_R = 0;
         HeatPWMSet(Right, 0);
         HeatPower(Right, 0);
-        VALVE_RIGHT(0);
     }
 
 #if HEATER_SHIELD_IGNORE_FUSE_PROTECTION_DEBUG
@@ -209,14 +208,12 @@ void HeaterShieldStatus_Process(control_config_t *cfg)
         cfg->press_enable_L = 0;
         HeatPWMSet(Left, 0);
         HeatPower(Left, 0);
-        VALVE_LEFT(0);
     }
 
     if (!s_right_fuse_stable) {
         cfg->press_enable_R = 0;
         HeatPWMSet(Right, 0);
         HeatPower(Right, 0);
-        VALVE_RIGHT(0);
     }
 #endif
 }

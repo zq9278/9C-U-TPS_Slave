@@ -79,6 +79,8 @@ void Error_Handler(void);
 #define AirValve2_GPIO_Port GPIOA
 #define AirPump1_Pin GPIO_PIN_2
 #define AirPump1_GPIO_Port GPIOA
+#define AirPump2_Pin GPIO_PIN_3
+#define AirPump2_GPIO_Port GPIOA
 #define Heat1_PWM_Pin GPIO_PIN_4
 #define Heat1_PWM_GPIO_Port GPIOA
 #define Heat1_NTC1_V_Pin GPIO_PIN_5

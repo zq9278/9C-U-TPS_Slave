@@ -18,6 +18,34 @@
 #include "FreeRTOS.h"
 #include "timers.h"
 
+/*
+ * 底层 GPIO 输出统一改成普通函数实现：
+ * - VALVE_LEFT / VALVE_RIGHT 负责治疗通道路由
+ * - VALVE 负责波形阀开关
+ *
+ * 这样调用端即使传的是复杂表达式，也不会再因为宏展开导致 GPIO 不动作。
+ */
+void VALVE_LEFT(uint8_t enabled)
+{
+    HAL_GPIO_WritePin(AirValve1_GPIO_Port,
+                      AirValve1_Pin,
+                      enabled ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
+
+void VALVE_RIGHT(uint8_t enabled)
+{
+    HAL_GPIO_WritePin(AirValve2_GPIO_Port,
+                      AirValve2_Pin,
+                      enabled ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
+
+void VALVE(uint8_t enabled)
+{
+    HAL_GPIO_WritePin(AirPump2_GPIO_Port,
+                      AirPump2_Pin,
+                      enabled ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
+
 // ---------------- Defaults and legacy globals ----------------
 
 #define DefultTemperature 3400
@@ -686,4 +714,3 @@ void FrameDispatcher(const ProtocolFrame_t *frame)
         vPortFree(frame->payload); // 兼容旧版释放策略
     }
 }
-

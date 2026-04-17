@@ -4,9 +4,9 @@
 #include "control_task.h"
 #include "WaveControl/wave_control.h"
 #include "HeaterShieldStatus/heater_shield_status.h"
+#include "ValveControl/valve_control.h"
 #include "pid.h"
 #include "heat.h"
-#include "apply.h"
 #include "tim.h"
 #include "LOG.h"
 #include "main.h"
@@ -101,7 +101,8 @@ static TickType_t paused_elapsed_ticks = 0;
  * 执行动作：
  * - 左右加热 PWM = 0
  * - 左右加热电源关闭
- * - 左右阀门关闭
+ * - 左右治疗通道阀恢复默认态
+ * - 波形阀关闭
  * - 气泵 PWM = 0
  *
  * 这个函数只负责“输出层”，不负责修改上层配置。
@@ -114,8 +115,8 @@ static void apply_idle_outputs(void)
     HeatPWMSet(Right, 0);
     HeatPower(Right, 0);
 
-    VALVE_LEFT(0);
-    VALVE_RIGHT(0);
+    /* 阀门恢复到统一封装的空闲态。 */
+    ValveControl_SetIdle();
 
     TIM15->CCR1 = 0;
     gPumpPwmDebug = 0;
@@ -147,7 +148,7 @@ void ControlTask(void *argument)
      */
     PID_Init(&pid_heat_L, 3.9, 1.8, 200, 100000, 0, 1999, 0, 0);
     PID_Init(&pid_heat_R, 3.9, 1.8, 200, 100000, 0, 1999, 0, 0);
-    PID_Init(&pid_press, 100, 10, 0, 200, -200, 255, 0, 0);
+    PID_Init(&pid_press, 50, 10, 0, 200, -200, 255, 0, 0);
 
     /* 气泵 PWM 所在定时器必须先启动，否则写 CCR 无效。 */
     HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1);
@@ -385,14 +386,13 @@ void ControlTask(void *argument)
 
             if (inflating_phase) {
                 /*
-                 * 需要补压的阶段，阀门状态跟随左右使能。
-                 * 使能哪侧，就打开哪侧阀门。
+                 * 需要补压的阶段：
+                 * - 先根据单双眼配置选择治疗通道
+                 * - 再用公共波形阀 VALVE(1) 打开当前这拍挤压
                  */
-                uint8_t left_valve_state = gCfg.press_enable_L;
-                uint8_t right_valve_state = gCfg.press_enable_R;
+                ValveControl_ApplyTreatmentRoute(gCfg.press_enable_L, gCfg.press_enable_R);
+                ValveControl_SetWave(1);
 
-                VALVE_LEFT(left_valve_state);
-                VALVE_RIGHT(right_valve_state);
 
                 /*
                  * 只要当前处于补压阶段且至少有一侧开启，就驱动公共气泵。
@@ -408,11 +408,11 @@ void ControlTask(void *argument)
                  *
                  * 这里注释里写“泄压”，但从代码动作看，本质是关闭充气通路。
                  * 实际泄压效果取决于外部气路设计。
-                 */
+                */
                 TIM15->CCR1 = 0;
                 gPumpPwmDebug = 0;
-                VALVE_LEFT(0);
-                VALVE_RIGHT(0);
+                ValveControl_ApplyTreatmentRoute(gCfg.press_enable_L, gCfg.press_enable_R);
+                ValveControl_SetWave(0);
             }
 
             /*
