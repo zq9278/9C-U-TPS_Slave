@@ -148,7 +148,19 @@ void ControlTask(void *argument)
      */
     PID_Init(&pid_heat_L, 3.9, 1.8, 200, 100000, 0, 1999, 0, 0);
     PID_Init(&pid_heat_R, 3.9, 1.8, 200, 100000, 0, 1999, 0, 0);
-    PID_Init(&pid_press, 50, 10, 0, 200, -200, 255, 0, 0);
+    /*
+     * 保持原来的压力 PID 上电初值不变。
+     * 这样本次重构只调整代码归属，不改变系统刚启动时的实际控制行为。
+     */
+    PID_Init(&pid_press,
+             50.0f,
+             10.0f,
+             0.0f,
+             200,
+             -200,
+             255,
+             0,
+             0);
 
     /* 气泵 PWM 所在定时器必须先启动，否则写 CCR 无效。 */
     HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1);
@@ -172,6 +184,7 @@ void ControlTask(void *argument)
     /* 当前阶段给上位机上报一个简写字符。 */
     const char *phase = "idle";
     const char *last_logged_phase = "idle";
+    wave_control_phase_t last_wave_pressure_phase = WAVE_CONTROL_PHASE_IDLE;
 
     apply_idle_outputs();
     ctrl_state = CTRL_STATE_IDLE;
@@ -331,21 +344,17 @@ void ControlTask(void *argument)
              * 当前统一目标压力。
              * 由于系统不再区分左右压差，控制闭环只维护一个公共压力目标。
              */
-            float Pset = 0.0f;
+            wave_control_pressure_plan_t pressure_plan;
+            uint16_t pump_pwm = 0U;
 
-            /* 是否需要驱动气泵。 */
-            bool pump_on = false;
+            /*
+             * 当前压力控制所需的阶段、目标压力、波形阀动作统一由 WaveControl 给出，
+             * ControlTask 这里只负责把计划翻译成硬件执行。
+             */
+            WaveControl_BuildPressurePlan(&gCfg, wave_anchor_tick, &pressure_plan);
+            phase = WaveControl_PhaseName(pressure_plan.snapshot.phase);
 
-            /* 当前是否属于“应当补压”的阶段。 */
-            bool inflating_phase = false;
-            wave_control_snapshot_t wave_snapshot;
-
-            WaveControl_ComputeSnapshot(&gCfg, wave_anchor_tick, &wave_snapshot);
-            phase = WaveControl_PhaseName(wave_snapshot.phase);
-            Pset = wave_snapshot.target_pressure_kpa;
-            inflating_phase = wave_snapshot.inflating_phase;
-
-            switch (wave_snapshot.phase) {
+            switch (pressure_plan.snapshot.phase) {
             case WAVE_CONTROL_PHASE_RISE:
                 ctrl_state = CTRL_STATE_RISE;
                 break;
@@ -363,6 +372,15 @@ void ControlTask(void *argument)
                 break;
             }
 
+            /*
+             * 压力 PID 的阶段切换也统一交给 WaveControl。
+             * 只有波形阶段真正变化时，才重载一遍 PID 参数，避免积分串段。
+             */
+            if (pressure_plan.snapshot.phase != last_wave_pressure_phase) {
+                WaveControl_ApplyPressurePidProfile(&pid_press, pressure_plan.snapshot.phase);
+                last_wave_pressure_phase = pressure_plan.snapshot.phase;
+            }
+
             /* 调试日志：只在阶段变化时打印一次当前 60 秒循环的分段结果。
              * 这样可以直接看到这轮实际生效的是不是 60 秒，以及 t1/t2/t3
              * 被归一化后各占多少毫秒。
@@ -371,10 +389,10 @@ void ControlTask(void *argument)
                 // LOG_I("波形阶段: phase=%s cycle_ms=%lu elapsed_ms=%lu rise_ms=%lu hold_ms=%lu pulse_ms=%lu Pmax=%.2f",
                 //       phase,
                 //       (unsigned long)WAVE_CONTROL_CYCLE_MS,
-                //       (unsigned long)wave_snapshot.cycle_elapsed_ms,
-                //       (unsigned long)wave_snapshot.rise_ms,
-                //       (unsigned long)wave_snapshot.hold_ms,
-                //       (unsigned long)wave_snapshot.pulse_ms,
+                //       (unsigned long)pressure_plan.snapshot.cycle_elapsed_ms,
+                //       (unsigned long)pressure_plan.snapshot.rise_ms,
+                //       (unsigned long)pressure_plan.snapshot.hold_ms,
+                //       (unsigned long)pressure_plan.snapshot.pulse_ms,
                 //       (double)Pmax);
                 last_logged_phase = phase;
             }
@@ -384,7 +402,7 @@ void ControlTask(void *argument)
              * 因此这里不再区分左右目标压力，只保留一个公共目标。
              */
 
-            if (inflating_phase) {
+            if (pressure_plan.open_wave_valve) {
                 /*
                  * 需要补压的阶段：
                  * - 先根据单双眼配置选择治疗通道
@@ -392,14 +410,6 @@ void ControlTask(void *argument)
                  */
                 ValveControl_ApplyTreatmentRoute(gCfg.press_enable_L, gCfg.press_enable_R);
                 ValveControl_SetWave(1);
-
-
-                /*
-                 * 只要当前处于补压阶段且至少有一侧开启，就驱动公共气泵。
-                 * 压力闭环统一使用 gSensorData.pressL 作为反馈值；
-                 * gSensorData.pressR 保留给上报和调试观察，不参与控制。
-                 */
-                pump_on = (gCfg.press_enable_L || gCfg.press_enable_R);
             } else {
                 /*
                  * 当前不是补压阶段：
@@ -425,16 +435,13 @@ void ControlTask(void *argument)
              * 输出上限 255：
              * 对应当前硬件 PWM 范围上限。
              */
-            if (pump_on) {
-                pid_press.setpoint = Pset;
-                int32_t u = PID_Compute(&pid_press, gSensorData.pressL);
-
-                //if (u < 20) u = 20;
-                if (u > 255) u = 255;
-
-                TIM15->CCR1 = (uint16_t)u;
-                gPumpPwmDebug = (uint16_t)u;
-            }
+            pump_pwm = WaveControl_ComputePumpPwm(&pid_press,
+                                                  pressure_plan.snapshot.target_pressure_kpa,
+                                                  gSensorData.pressL,
+                                                  pressure_plan.pump_enabled &&
+                                                      (gCfg.press_enable_L || gCfg.press_enable_R));
+            TIM15->CCR1 = pump_pwm;
+            gPumpPwmDebug = pump_pwm;
 
             /*
              * 温控分左右独立执行：

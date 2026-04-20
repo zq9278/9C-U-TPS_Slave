@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include "FreeRTOS.h"
 #include "task.h"
+#include "pid.h"
 #include "system_app.h"
 
 /*
@@ -38,6 +39,17 @@ typedef struct {
     uint32_t pulse_ms;
 } wave_control_snapshot_t;
 
+/*
+ * 压力控制计划：
+ * 把当前波形阶段对应的控压动作整理成一份统一结果，
+ * 供 ControlTask 直接执行，避免在任务里再分散写一套阶段判断。
+ */
+typedef struct {
+    wave_control_snapshot_t snapshot;
+    bool open_wave_valve;
+    bool pump_enabled;
+} wave_control_pressure_plan_t;
+
 /* 一个完整波形循环固定 60 秒。 */
 #define WAVE_CONTROL_CYCLE_MS 60000U
 /* 脉动挤压频率：改这里即可切换成 2 秒一次或 3 秒一次。 */
@@ -49,6 +61,11 @@ typedef struct {
  * 内部波形三段时长（单位：秒），由软件固定，不开放给上位机设置。
  * ControlTask 会将三者按占比归一化到 WAVE_CONTROL_CYCLE_MS 窗口内。
  */
+/*
+ * 保持重构前的默认波形比例不变。
+ * 本次修改的目标只是把压力控制逻辑归拢到 WaveControl，
+ * 不在这里顺带修改原有治疗节拍。
+ */
 #define WAVE_CONTROL_RISE_S   1.0f
 #define WAVE_CONTROL_HOLD_S   58.0f
 #define WAVE_CONTROL_PULSE_S  1.0f
@@ -57,6 +74,14 @@ void WaveControl_NormalizeStageMs(uint32_t *rise_ms, uint32_t *hold_ms, uint32_t
 void WaveControl_ComputeSnapshot(const control_config_t *cfg,
                                  TickType_t wave_anchor_tick,
                                  wave_control_snapshot_t *snapshot);
+void WaveControl_BuildPressurePlan(const control_config_t *cfg,
+                                   TickType_t wave_anchor_tick,
+                                   wave_control_pressure_plan_t *plan);
+void WaveControl_ApplyPressurePidProfile(PID_TypeDef *pid, wave_control_phase_t phase);
+uint16_t WaveControl_ComputePumpPwm(PID_TypeDef *pid,
+                                    float target_pressure_kpa,
+                                    float feedback_pressure_kpa,
+                                    bool pump_enabled);
 const char *WaveControl_PhaseName(wave_control_phase_t phase);
 
 #endif /* WAVE_CONTROL_H */
