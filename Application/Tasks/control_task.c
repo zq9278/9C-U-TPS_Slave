@@ -184,7 +184,9 @@ void ControlTask(void *argument)
     /* 当前阶段给上位机上报一个简写字符。 */
     const char *phase = "idle";
     const char *last_logged_phase = "idle";
-    wave_control_phase_t last_wave_pressure_phase = WAVE_CONTROL_PHASE_IDLE;
+    wave_control_pid_stage_t last_pressure_pid_stage = WAVE_CONTROL_PID_STAGE_RISE;
+    bool pressure_pid_profile_loaded = false;
+    uint32_t last_pressure_pid_version = WaveControl_GetPressurePidVersion();
 
     apply_idle_outputs();
     ctrl_state = CTRL_STATE_IDLE;
@@ -376,9 +378,14 @@ void ControlTask(void *argument)
              * 压力 PID 的阶段切换也统一交给 WaveControl。
              * 只有波形阶段真正变化时，才重载一遍 PID 参数，避免积分串段。
              */
-            if (pressure_plan.snapshot.phase != last_wave_pressure_phase) {
-                WaveControl_ApplyPressurePidProfile(&pid_press, pressure_plan.snapshot.phase);
-                last_wave_pressure_phase = pressure_plan.snapshot.phase;
+            uint32_t pressure_pid_version = WaveControl_GetPressurePidVersion();
+            if ((!pressure_pid_profile_loaded) ||
+                (pressure_plan.pid_stage != last_pressure_pid_stage) ||
+                (pressure_pid_version != last_pressure_pid_version)) {
+                WaveControl_ApplyPressurePidProfile(&pid_press, pressure_plan.pid_stage);
+                last_pressure_pid_stage = pressure_plan.pid_stage;
+                last_pressure_pid_version = pressure_pid_version;
+                pressure_pid_profile_loaded = true;
             }
 
             /* 调试日志：只在阶段变化时打印一次当前 60 秒循环的分段结果。

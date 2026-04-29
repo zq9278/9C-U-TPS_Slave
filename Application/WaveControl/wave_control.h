@@ -22,6 +22,17 @@ typedef enum {
 } wave_control_phase_t;
 
 /*
+ * 压力 PID 只按三段治疗阶段切换：
+ * RISE / HOLD / PULSE。
+ * PULSE_ON 和 PULSE_OFF 都属于同一个 PULSE PID 阶段，避免脉动开关时反复清积分。
+ */
+typedef enum {
+    WAVE_CONTROL_PID_STAGE_RISE = 0,
+    WAVE_CONTROL_PID_STAGE_HOLD,
+    WAVE_CONTROL_PID_STAGE_PULSE,
+} wave_control_pid_stage_t;
+
+/*
  * 波形计算结果：
  * - phase：当前阶段
  * - target_pressure_kpa：当前统一目标压力
@@ -46,6 +57,7 @@ typedef struct {
  */
 typedef struct {
     wave_control_snapshot_t snapshot;
+    wave_control_pid_stage_t pid_stage;
     bool open_wave_valve;
     bool pump_enabled;
 } wave_control_pressure_plan_t;
@@ -66,9 +78,9 @@ typedef struct {
  * 本次修改的目标只是把压力控制逻辑归拢到 WaveControl，
  * 不在这里顺带修改原有治疗节拍。
  */
-#define WAVE_CONTROL_RISE_S   1.0f
-#define WAVE_CONTROL_HOLD_S   58.0f
-#define WAVE_CONTROL_PULSE_S  1.0f
+#define WAVE_CONTROL_RISE_S   2.0f
+#define WAVE_CONTROL_HOLD_S   2.0f
+#define WAVE_CONTROL_PULSE_S  56.0f
 
 void WaveControl_NormalizeStageMs(uint32_t *rise_ms, uint32_t *hold_ms, uint32_t *pulse_ms);
 void WaveControl_ComputeSnapshot(const control_config_t *cfg,
@@ -77,7 +89,16 @@ void WaveControl_ComputeSnapshot(const control_config_t *cfg,
 void WaveControl_BuildPressurePlan(const control_config_t *cfg,
                                    TickType_t wave_anchor_tick,
                                    wave_control_pressure_plan_t *plan);
-void WaveControl_ApplyPressurePidProfile(PID_TypeDef *pid, wave_control_phase_t phase);
+void WaveControl_ApplyPressurePidProfile(PID_TypeDef *pid, wave_control_pid_stage_t stage);
+void WaveControl_SetPressurePidGains(wave_control_pid_stage_t stage,
+                                     float kp,
+                                     float ki,
+                                     float kd);
+void WaveControl_GetPressurePidGains(wave_control_pid_stage_t stage,
+                                     float *kp,
+                                     float *ki,
+                                     float *kd);
+uint32_t WaveControl_GetPressurePidVersion(void);
 uint16_t WaveControl_ComputePumpPwm(PID_TypeDef *pid,
                                     float target_pressure_kpa,
                                     float feedback_pressure_kpa,

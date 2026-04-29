@@ -60,7 +60,7 @@ void rk3576_uart_port_Init(UartPort_t *port)
 void debug_uart_port_Init(UartPort_t *port)
 {
     port->tx_queue = xQueueCreate(LOG_QUEUE_LEN, sizeof(LogMessage_t));
-    port->rx_queue = xQueueCreate(UART_RX_QUEUE_SIZE, sizeof(AsciiCmdMessage_t));
+    port->rx_queue = xQueueCreate(UART_RX_QUEUE_SIZE, sizeof(UartRxMessage_t));
     port->dma_rx_buf = uart1_dma_rx_buf;
     port->parser = parse_debug_uart_port_stream;
     port->crc    = crc16_modbus;

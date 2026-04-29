@@ -45,6 +45,8 @@
 
 /* USER CODE BEGIN Includes */
 /* Section where include file can be added */
+/* 运行时统计里用到 HAL_GetTick() 作为计数源。 */
+#include "stm32g0xx_hal.h"
 /* USER CODE END Includes */
 
 /* Ensure definitions are only used by the compiler, and not by the assembler. */
@@ -115,6 +117,19 @@ standard names. */
 
 /* USER CODE BEGIN Defines */
 /* Section where parameter definitions can be added (for instance, to override default ones in FreeRTOS.h) */
+/* 让 RTOS 视图能拿到任务列表、栈水位和格式化统计信息。 */
+#define configUSE_TRACE_FACILITY             1
+#define configUSE_STATS_FORMATTING_FUNCTIONS 1
+#define configRECORD_STACK_HIGH_ADDRESS      1
+
+/*
+ * 运行时占比统计：
+ * STM32G0(M0+) 没有 DWT 计数器，这里用 HAL_GetTick() 作为简化计数源。
+ * 精度是 1ms，足够用于 RTOS Views 的相对占比观察。
+ */
+#define configGENERATE_RUN_TIME_STATS        1
+#define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS() do { } while (0)
+#define portGET_RUN_TIME_COUNTER_VALUE()     HAL_GetTick()
 /* USER CODE END Defines */
 
 #endif /* FREERTOS_CONFIG_H */

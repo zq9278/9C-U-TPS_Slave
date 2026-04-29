@@ -9,44 +9,75 @@
  * 现在这三组参数集中放在 WaveControl 内部统一维护，
  * 后续调压时只需要改这一个文件。
  */
-#define WAVE_PRESS_PID_RISE_KP   80.0f
-#define WAVE_PRESS_PID_RISE_KI     0.0f
-#define WAVE_PRESS_PID_RISE_KD     0.0f
+static float s_press_pid_rise_kp = 80.0f;
+static float s_press_pid_rise_ki = 0.0f;
+static float s_press_pid_rise_kd = 0.0f;
 
-#define WAVE_PRESS_PID_HOLD_KP   140.0f
-#define WAVE_PRESS_PID_HOLD_KI     8.0f
-#define WAVE_PRESS_PID_HOLD_KD     0.0f
+static float s_press_pid_hold_kp = 140.0f;
+static float s_press_pid_hold_ki = 8.0f;
+static float s_press_pid_hold_kd = 0.0f;
 
-#define WAVE_PRESS_PID_PULSE_KP  220.0f
-#define WAVE_PRESS_PID_PULSE_KI    0.0f
-#define WAVE_PRESS_PID_PULSE_KD    0.0f
+static float s_press_pid_pulse_kp = 220.0f;
+static float s_press_pid_pulse_ki = 0.0f;
+static float s_press_pid_pulse_kd = 0.0f;
+static uint32_t s_press_pid_version = 0U;
 
-static void WaveControl_GetPressurePidGains(wave_control_phase_t phase,
-                                            float *kp,
-                                            float *ki,
-                                            float *kd)
+void WaveControl_GetPressurePidGains(wave_control_pid_stage_t stage,
+                                     float *kp,
+                                     float *ki,
+                                     float *kd)
 {
-    switch (phase) {
-    case WAVE_CONTROL_PHASE_RISE:
-        *kp = WAVE_PRESS_PID_RISE_KP;
-        *ki = WAVE_PRESS_PID_RISE_KI;
-        *kd = WAVE_PRESS_PID_RISE_KD;
+    switch (stage) {
+    case WAVE_CONTROL_PID_STAGE_RISE:
+        *kp = s_press_pid_rise_kp;
+        *ki = s_press_pid_rise_ki;
+        *kd = s_press_pid_rise_kd;
         break;
-    case WAVE_CONTROL_PHASE_HOLD:
-        *kp = WAVE_PRESS_PID_HOLD_KP;
-        *ki = WAVE_PRESS_PID_HOLD_KI;
-        *kd = WAVE_PRESS_PID_HOLD_KD;
+    case WAVE_CONTROL_PID_STAGE_HOLD:
+        *kp = s_press_pid_hold_kp;
+        *ki = s_press_pid_hold_ki;
+        *kd = s_press_pid_hold_kd;
         break;
-    case WAVE_CONTROL_PHASE_PULSE_ON:
-    case WAVE_CONTROL_PHASE_PULSE_OFF:
-    case WAVE_CONTROL_PHASE_IDLE:
-    case WAVE_CONTROL_PHASE_PAUSE:
+    case WAVE_CONTROL_PID_STAGE_PULSE:
     default:
-        *kp = WAVE_PRESS_PID_PULSE_KP;
-        *ki = WAVE_PRESS_PID_PULSE_KI;
-        *kd = WAVE_PRESS_PID_PULSE_KD;
+        *kp = s_press_pid_pulse_kp;
+        *ki = s_press_pid_pulse_ki;
+        *kd = s_press_pid_pulse_kd;
         break;
     }
+}
+
+void WaveControl_SetPressurePidGains(wave_control_pid_stage_t stage,
+                                     float kp,
+                                     float ki,
+                                     float kd)
+{
+    switch (stage) {
+    case WAVE_CONTROL_PID_STAGE_RISE:
+        s_press_pid_rise_kp = kp;
+        s_press_pid_rise_ki = ki;
+        s_press_pid_rise_kd = kd;
+        break;
+    case WAVE_CONTROL_PID_STAGE_HOLD:
+        s_press_pid_hold_kp = kp;
+        s_press_pid_hold_ki = ki;
+        s_press_pid_hold_kd = kd;
+        break;
+    case WAVE_CONTROL_PID_STAGE_PULSE:
+    default:
+        s_press_pid_pulse_kp = kp;
+        s_press_pid_pulse_ki = ki;
+        s_press_pid_pulse_kd = kd;
+        break;
+    }
+
+    /* ControlTask uses this version to reload the active PID on the next loop. */
+    s_press_pid_version++;
+}
+
+uint32_t WaveControl_GetPressurePidVersion(void)
+{
+    return s_press_pid_version;
 }
 
 /*
@@ -156,19 +187,39 @@ void WaveControl_BuildPressurePlan(const control_config_t *cfg,
      */
     plan->open_wave_valve = plan->snapshot.inflating_phase;
     plan->pump_enabled = plan->snapshot.inflating_phase;
+
+    /*
+     * PID 参数只按 rise / hold / pulse 三段切换。
+     * 脉动阶段内部的 on/off 只改变阀和泵，不重新清 PID 历史量。
+     */
+    switch (plan->snapshot.phase) {
+    case WAVE_CONTROL_PHASE_RISE:
+        plan->pid_stage = WAVE_CONTROL_PID_STAGE_RISE;
+        break;
+    case WAVE_CONTROL_PHASE_HOLD:
+        plan->pid_stage = WAVE_CONTROL_PID_STAGE_HOLD;
+        break;
+    case WAVE_CONTROL_PHASE_PULSE_ON:
+    case WAVE_CONTROL_PHASE_PULSE_OFF:
+    case WAVE_CONTROL_PHASE_IDLE:
+    case WAVE_CONTROL_PHASE_PAUSE:
+    default:
+        plan->pid_stage = WAVE_CONTROL_PID_STAGE_PULSE;
+        break;
+    }
 }
 
 /*
  * 切换到对应阶段的压力 PID 参数，并清掉历史项。
  * 这样 rise / hold / pulse 三段可以完全独立调参，不会串积分。
  */
-void WaveControl_ApplyPressurePidProfile(PID_TypeDef *pid, wave_control_phase_t phase)
+void WaveControl_ApplyPressurePidProfile(PID_TypeDef *pid, wave_control_pid_stage_t stage)
 {
     float kp = 0.0f;
     float ki = 0.0f;
     float kd = 0.0f;
 
-    WaveControl_GetPressurePidGains(phase, &kp, &ki, &kd);
+    WaveControl_GetPressurePidGains(stage, &kp, &ki, &kd);
 
     pid->Kp = kp;
     pid->Ki = ki;
