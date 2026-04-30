@@ -93,7 +93,6 @@ static void handle_debug_ascii_command(const uint8_t *data, uint16_t length)
 
 void DebugLogTask(void *argument)
 {
-    LogMessage_t log_msg;
     UartRxMessage_t rx_msg;
 
     (void)argument;
@@ -104,11 +103,6 @@ void DebugLogTask(void *argument)
             handle_debug_ascii_command(rx_msg.data, rx_msg.length);
         }
 
-        if (xQueueReceive(debug_uart_port.tx_queue, &log_msg, pdMS_TO_TICKS(20)) == pdPASS) {
-            HAL_UART_Transmit(debug_uart_port.huart,
-                              (uint8_t *)log_msg.buf,
-                              (uint16_t)log_msg.len,
-                              100);
-        }
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }

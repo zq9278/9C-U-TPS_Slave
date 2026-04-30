@@ -9,6 +9,10 @@
 #include "semphr.h"
 #include "queue.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
     LOG_LEVEL_INFO,
     LOG_LEVEL_WARN,
@@ -16,7 +20,7 @@ typedef enum {
 } log_level_t;
 
 #define LOG_BUF_LEN   200
-#define LOG_QUEUE_LEN 5
+#define LOG_QUEUE_LEN 8
 
 typedef struct {
     char   buf[LOG_BUF_LEN];
@@ -35,5 +39,9 @@ void LOG_Raw(const uint8_t *data, size_t len);
 #define LOG_I(fmt, ...) LOG("[I] " fmt "\r\n", ##__VA_ARGS__)
 #define LOG_W(fmt, ...) LOG("[W] " fmt "\r\n", ##__VA_ARGS__)
 #define LOG_E(fmt, ...) LOG("[E] " fmt "\r\n", ##__VA_ARGS__)
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

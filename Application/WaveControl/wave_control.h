@@ -8,6 +8,10 @@
 #include "pid.h"
 #include "system_app.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * 固定 60 秒循环的波形阶段定义。
  * ControlTask 只关心当前属于哪个阶段，以及该阶段对应的目标压力。
@@ -104,5 +108,9 @@ uint16_t WaveControl_ComputePumpPwm(PID_TypeDef *pid,
                                     float feedback_pressure_kpa,
                                     bool pump_enabled);
 const char *WaveControl_PhaseName(wave_control_phase_t phase);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* WAVE_CONTROL_H */

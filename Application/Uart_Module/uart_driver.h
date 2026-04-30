@@ -9,11 +9,15 @@
 #include "stm32g0xx_hal.h"
 #include "LOG.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Queues and buffers */
-#define UART_TX_QUEUE_LENGTH     8
+#define UART_TX_QUEUE_LENGTH     4
 #define UART_TX_MSG_MAX_LEN      50
 #define UART_RX_DMA_BUFFER_SIZE  100
-#define UART_RX_QUEUE_SIZE       10
+#define UART_RX_QUEUE_SIZE       6
 
 /* Frame markers */
 #define FRAME_HEADER_1  0xAA
@@ -80,6 +84,9 @@ typedef struct __attribute__((packed)) {
     uint8_t mist;
 } ConfigData_t;
 
+extern UartPort_t rk3576_uart_port;
+extern UartPort_t debug_uart_port;
+
 /* API */
 void rk3576_uart_port_Init(UartPort_t *port);
 void debug_uart_port_Init(UartPort_t *port);
@@ -93,5 +100,8 @@ uint16_t crc16_modbus(const uint8_t *buf, uint16_t len);
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart);
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart);
 
-#endif // UART_DRIVER_H
+#ifdef __cplusplus
+}
+#endif
 
+#endif // UART_DRIVER_H

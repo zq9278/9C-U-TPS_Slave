@@ -7,6 +7,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Frame ID plan */
 typedef enum
 {
@@ -46,5 +50,9 @@ float handle_float_data(const uint8_t *data_ptr, uint16_t data_len);
 
 /* Frame dispatch */
 void UartFrame_Dispatch(FrameId_t frame_id, const uint8_t *data_ptr, uint16_t data_len);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ELECTRICAL_MUSCLE_QUBEMX_UART_COMMUNICATE_H

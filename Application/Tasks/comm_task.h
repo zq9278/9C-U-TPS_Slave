@@ -3,7 +3,14 @@
 
 #include "system_app.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void CommTask(void *argument);
 
-#endif // COMM_TASK_H
+#ifdef __cplusplus
+}
+#endif
 
+#endif // COMM_TASK_H

@@ -58,7 +58,7 @@
  * 0 = 不输出 PID 调试数据
  * 1 = 按 DEBUG_PID_TX_POINTS_PER_SEC 周期输出当前选中 PID 的调试数据
  */
-#define DEBUG_PID_ENABLE 0
+#define DEBUG_PID_ENABLE 1
 
 /* PID 调试输出格式：
  * TEXT = 通过 LOG 文本输出，方便串口助手直接看
@@ -143,6 +143,7 @@ static debug_pid_source_t debug_pid_get_source(void)
     return src;
 }
 
+#if DEBUG_PID_FORMAT == DEBUG_PID_FORMAT_TEXT
 static int32_t debug_pid_float_to_milli(float value)
 {
     if (value >= 0.0f) {
@@ -214,6 +215,7 @@ static void debug_pid_send_text(const debug_pid_source_t *src)
 
     LOG_Raw((const uint8_t *)line, pos);
 }
+#endif
 
 static void debug_pid_send(void)
 {
@@ -350,7 +352,9 @@ void ControlTask(void *argument)
      */
     TickType_t next_press_tx_tick = 0;
     TickType_t next_temp_tx_tick = 0;
+#if DEBUG_PID_ENABLE
     TickType_t next_debug_pid_tx_tick = 0;
+#endif
     float last_tx_temp_l = 0.0f;
     float last_tx_temp_r = 0.0f;
     bool last_tx_temp_l_valid = false;
@@ -742,7 +746,9 @@ telemetry:
         } else {
             next_press_tx_tick = xTaskGetTickCount() + pdMS_TO_TICKS(PRESS_TX_PERIOD_MS);
             next_temp_tx_tick = xTaskGetTickCount() + pdMS_TO_TICKS(TEMP_TX_PERIOD_MS);
+#if DEBUG_PID_ENABLE
             next_debug_pid_tx_tick = xTaskGetTickCount() + pdMS_TO_TICKS(DEBUG_PID_TX_PERIOD_MS);
+#endif
         }
 
         /*

@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Pressure profile per mode
 typedef struct __attribute__((packed)) {
     float    target_kpa;          // Target pressure (kPa)
@@ -43,5 +47,8 @@ void Settings_Defaults(SystemSettings_t *s);
 void Settings_Broadcast(void);
 
 
-#endif // APP_CONFIG_H
+#ifdef __cplusplus
+}
+#endif
 
+#endif // APP_CONFIG_H

@@ -31,11 +31,10 @@ extern UartPort_t rk3576_uart_port;
 extern UartPort_t debug_uart_port;
 
 // Queues and shared state
-QueueHandle_t gCmdQueue = NULL;
+QueueHandle_t gAppEventQueue = NULL;
 QueueHandle_t gCtrlCmdQueue = NULL;
 QueueHandle_t gTxQueue = NULL;
 QueueHandle_t gStorageQueue = NULL;
-QueueHandle_t gSafetyQueue = NULL;
 
 volatile sensor_data_t gSensorData = {0};
 volatile app_state_t gAppState = APP_STATE_IDLE;
@@ -51,13 +50,12 @@ void AppMain_FreeRTOS_Init(void)
    
 
     // Create queues
-    gCmdQueue      = xQueueCreate(16, sizeof(app_cmd_t));
+    gAppEventQueue = xQueueCreate(16, sizeof(app_event_t));
     gCtrlCmdQueue  = xQueueCreate(8, sizeof(ctrl_cmd_t));
     gTxQueue       = xQueueCreate(16, sizeof(tx_frame_t));
     gStorageQueue  = xQueueCreate(4, sizeof(storage_cmd_t));
-    gSafetyQueue   = xQueueCreate(8, sizeof(uint8_t));
 
-    configASSERT(gCmdQueue && gCtrlCmdQueue && gTxQueue && gStorageQueue && gSafetyQueue);
+    configASSERT(gAppEventQueue && gCtrlCmdQueue && gTxQueue && gStorageQueue);
 
     // Create tasks with priorities
     BaseType_t ret;

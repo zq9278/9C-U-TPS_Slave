@@ -11,6 +11,9 @@
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 
 # Define the build type
@@ -28,8 +31,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
 project(${CMAKE_PROJECT_NAME})
 message("Build type: " ${CMAKE_BUILD_TYPE})
 
-# Enable CMake support for ASM and C languages
-enable_language(C ASM)
+# Enable CMake support for ASM, C and C++ languages
+enable_language(C CXX ASM)
 
 # Create an executable object type
 add_executable(${CMAKE_PROJECT_NAME})
@@ -49,10 +52,12 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Application/ads1248_v2/ads1248_v2.c
     Application/AppMain/AppMain.c
     Application/AppMain/rtos_debug_hooks.c
+    Application/AppMain/TreatmentApp.cpp
+    Application/Services/AppServices.cpp
     Application/Config/config.c
-    Application/Tasks/comm_task.c
+    Application/Tasks/comm_task.cpp
     Application/Tasks/debug_log_task.c
-    Application/Tasks/app_task.c
+    Application/Tasks/app_task.cpp
     Application/Tasks/sensor_task.c
     Application/Tasks/control_task.c
     Application/Tasks/storage_task.c
@@ -68,9 +73,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Application/SYS/myiic.c
     Application/SYS/sys.c
     Application/SYS/myuart.c
-    Application/Uart_Module/Uart_Communicate.c
+    Application/Uart_Module/Uart_Communicate.cpp
     Application/Uart_Module/LOG.c
-    Application/Uart_Module/uart_driver.c
+    Application/Uart_Module/uart_driver.cpp
     #Application/Uart_Module/Uart_Task.c
     Application/USER_TIM/USER_TIM.c
     Application/ValveControl/valve_control.c
@@ -87,6 +92,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Application/ads1248_v2
     Application/apply
     Application/AppMain
+    Application/Services
     Application/Config
     Application/Tasks
     Application/delay
@@ -121,6 +127,9 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 # Force-include typedefs to map legacy u8/u16/u32/s16 to stdint types
 target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
     $<$<COMPILE_LANGUAGE:C>:-include ${CMAKE_SOURCE_DIR}/Application/SYS/types_compat.h>
+    $<$<COMPILE_LANGUAGE:CXX>:-include ${CMAKE_SOURCE_DIR}/Application/SYS/types_compat.h>
+    $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>
+    $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>
 )
 # 启用 printf 的浮点格式支持（newlib-nano 默认禁用）
 target_link_options(${CMAKE_PROJECT_NAME} PRIVATE

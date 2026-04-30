@@ -56,7 +56,7 @@ float PID_Compute(PID_TypeDef *pid, float measured_value)
     else if (pid->integral < pid->integral_min) pid->integral = pid->integral_min;
 
     // 微锟街ｏ拷锟斤拷锟节诧拷锟斤拷值锟戒化锟斤拷+ 锟斤拷通锟剿诧拷
-    float derivative = measured_value - pid->previous_measured_value;
+//    float derivative = measured_value - pid->previous_measured_value;
 //    pid->derivative_filtered = (DERIVATIVE_FILTER_ALPHA_NUM * pid->derivative_filtered +
 //                                (DERIVATIVE_FILTER_ALPHA_DEN - DERIVATIVE_FILTER_ALPHA_NUM) * derivative)
 //                               / DERIVATIVE_FILTER_ALPHA_DEN;

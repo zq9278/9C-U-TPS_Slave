@@ -13,12 +13,27 @@ extern UART_HandleTypeDef huart3; // business
 
 // Ports
 UartPort_t rk3576_uart_port = {
-    .huart = &huart3,
-    .name  = "UART3",
+    &huart3,
+    nullptr,
+    nullptr,
+    nullptr,
+    "UART3",
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
 };
+
 UartPort_t debug_uart_port = {
-    .huart = &huart1,
-    .name  = "UART1",
+    &huart1,
+    nullptr,
+    nullptr,
+    nullptr,
+    "UART1",
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
 };
 
 // DMA RX buffers

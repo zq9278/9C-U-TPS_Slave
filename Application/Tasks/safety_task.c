@@ -15,7 +15,10 @@ void SafetyTask(void *argument)
         if (gSensorData.tempL > TEMP_MAX_C || gSensorData.tempR > TEMP_MAX_C) fault = 1;
         if (gSensorData.pressL > PRESS_MAX_KPA || gSensorData.pressR > PRESS_MAX_KPA) fault = 1;
         if (fault) {
-            xQueueSend(gSafetyQueue, &fault, 0);
+            app_event_t event = {0};
+            event.id = APP_EVT_SAFETY_FAULT;
+            event.v.safety_fault = fault;
+            xQueueSend(gAppEventQueue, &event, 0);
         }
     }
 }

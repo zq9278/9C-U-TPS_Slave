@@ -6,6 +6,10 @@
 #include "FreeRTOS.h"
 #include "queue.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ---------------- Sensor data ----------------
 typedef struct {
     float tempL;     // left eye temperature
@@ -59,6 +63,20 @@ typedef struct {
         uint8_t  u8;
     } v;
 } app_cmd_t;
+
+typedef enum {
+    APP_EVT_NONE = 0,
+    APP_EVT_HOST_COMMAND,
+    APP_EVT_SAFETY_FAULT,
+} app_event_id_t;
+
+typedef struct {
+    app_event_id_t id;
+    union {
+        app_cmd_t host_cmd;
+        uint8_t safety_fault;
+    } v;
+} app_event_t;
 
 // ---------------- Control config (App -> Control) ----------------
 typedef struct {
@@ -119,11 +137,10 @@ typedef struct {
 } tx_frame_t;
 
 // ---------------- Queues ----------------
-extern QueueHandle_t gCmdQueue;
+extern QueueHandle_t gAppEventQueue;
 extern QueueHandle_t gCtrlCmdQueue;
 extern QueueHandle_t gTxQueue;
 extern QueueHandle_t gStorageQueue;
-extern QueueHandle_t gSafetyQueue;
 
 // ---------------- Task entry points ----------------
 void CommTask(void *argument);
@@ -134,5 +151,9 @@ void ControlTask(void *argument);
 void StorageTask(void *argument);
 void IoTask(void *argument);
 void SafetyTask(void *argument);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // SYSTEM_APP_H
