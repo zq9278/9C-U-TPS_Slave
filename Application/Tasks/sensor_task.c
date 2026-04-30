@@ -107,7 +107,6 @@ void SensorTask(void *argument)
                 gSensorData.pressR = median_filter(press_buf[0], press_count[0]) * 7.50062f;
             }
         }
-
         vTaskDelay(pdMS_TO_TICKS(2));
 
         gSensorData.tick = xTaskGetTickCount();

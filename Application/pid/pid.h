@@ -16,6 +16,13 @@ typedef struct {
     float setpoint;       // �趨ֵ
     float previous_measured_value ;
     float derivative_filtered ;
+    struct {
+        float p;
+        float i;
+        float d;
+        float error;
+        float output;
+    } debug;
 } PID_TypeDef;
 
 // ��ʼ��PID������

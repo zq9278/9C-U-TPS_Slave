@@ -19,13 +19,16 @@ void CommTask(void *argument)
 
     for(;;)
     {
-        // RX path: parse incoming business port data
-        if (xQueueReceive(rk3576_uart_port.rx_queue, &rx_msg, 0) == pdPASS) {
-            parse_rk3576_uart_port_stream(rx_msg.data, rx_msg.length);
+        uint8_t tx_budget = 4;
+
+        // RX path: drain incoming business port data first, so commands are not delayed by telemetry TX.
+        while (xQueueReceive(rk3576_uart_port.rx_queue, &rx_msg, 0) == pdPASS) {
+            rk3576_uart_port.parser(rx_msg.data, rx_msg.length);
         }
 
-        // TX path: drain all frames enqueued by other tasks
-        while (xQueueReceive(gTxQueue, &tx, 0) == pdPASS) {
+        // TX path: send only a few frames per loop to avoid starving RX when telemetry is busy.
+        while ((tx_budget > 0U) && (xQueueReceive(gTxQueue, &tx, 0) == pdPASS)) {
+            tx_budget--;
             //LOG_I("comm send: type=%u frame_id=0x%04X", tx.type, tx.frame_id);
             switch (tx.type) {
                 case TX_DATA_FLOAT:

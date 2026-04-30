@@ -1,5 +1,6 @@
 ﻿#include "Uart_Communicate.h"
 #include <string.h>
+#include <stdio.h>
 #include <stdbool.h>
 #include "control_task.h"
 #include "WaveControl/wave_control.h"
@@ -9,6 +10,7 @@
 #include "heat.h"
 #include "tim.h"
 #include "LOG.h"
+#include "uart_driver.h"
 #include "main.h"
 
 #include "FreeRTOS.h"
@@ -52,6 +54,34 @@
 #define TEMP_VALID_MIN_C (-20.0f)
 #define TEMP_VALID_MAX_C (80.0f)
 
+/* PID 调试输出总开关：
+ * 0 = 不输出 PID 调试数据
+ * 1 = 按 DEBUG_PID_TX_POINTS_PER_SEC 周期输出当前选中 PID 的调试数据
+ */
+#define DEBUG_PID_ENABLE 0
+
+/* PID 调试输出格式：
+ * TEXT = 通过 LOG 文本输出，方便串口助手直接看
+ * HEX  = 通过二进制帧输出，方便 Qt 工具解析曲线
+ */
+#define DEBUG_PID_FORMAT_TEXT 0
+#define DEBUG_PID_FORMAT_HEX  1
+#define DEBUG_PID_FORMAT DEBUG_PID_FORMAT_HEX
+
+/* 当前只调一个 PID，选择要观察的 PID：
+ * PRESSURE = 压力 PID，反馈值为 gSensorData.pressL
+ * HEAT_L   = 左眼温控 PID，反馈值为 gSensorData.tempL * 100
+ * HEAT_R   = 右眼温控 PID，反馈值为 gSensorData.tempR * 100
+ */
+#define DEBUG_PID_TARGET_PRESSURE 0
+#define DEBUG_PID_TARGET_HEAT_L   1
+#define DEBUG_PID_TARGET_HEAT_R   2
+#define DEBUG_PID_TARGET DEBUG_PID_TARGET_PRESSURE
+
+/* PID 调试输出频率，单位：每秒点数。5U 表示 5 点/秒。 */
+#define DEBUG_PID_TX_POINTS_PER_SEC 5U
+#define DEBUG_PID_TX_PERIOD_MS (1000U / DEBUG_PID_TX_POINTS_PER_SEC)
+
 static PID_TypeDef pid_press;
 static PID_TypeDef pid_heat_L, pid_heat_R;
 
@@ -68,6 +98,153 @@ static bool temp_value_valid_for_tx(float temp_c)
 {
     return (temp_c > TEMP_VALID_MIN_C) && (temp_c < TEMP_VALID_MAX_C);
 }
+
+#if DEBUG_PID_ENABLE
+typedef struct {
+    const char *name;
+    const PID_TypeDef *pid;
+    float feedback;
+} debug_pid_source_t;
+
+typedef struct __attribute__((packed)) {
+    uint8_t magic[2];
+    uint8_t version;
+    uint8_t target;
+    uint32_t tick_ms;
+    float p;
+    float i;
+    float d;
+    float error;
+    float output;
+    float setpoint;
+    float feedback;
+    uint16_t crc;
+    uint8_t tail[2];
+} debug_pid_frame_t;
+
+static debug_pid_source_t debug_pid_get_source(void)
+{
+    debug_pid_source_t src;
+
+#if DEBUG_PID_TARGET == DEBUG_PID_TARGET_HEAT_L
+    src.name = "heat_l";
+    src.pid = &pid_heat_L;
+    src.feedback = gSensorData.tempL * 100.0f;
+#elif DEBUG_PID_TARGET == DEBUG_PID_TARGET_HEAT_R
+    src.name = "heat_r";
+    src.pid = &pid_heat_R;
+    src.feedback = gSensorData.tempR * 100.0f;
+#else
+    src.name = "pressure";
+    src.pid = &pid_press;
+    src.feedback = gSensorData.pressL;
+#endif
+
+    return src;
+}
+
+static int32_t debug_pid_float_to_milli(float value)
+{
+    if (value >= 0.0f) {
+        return (int32_t)((value * 1000.0f) + 0.5f);
+    }
+    return (int32_t)((value * 1000.0f) - 0.5f);
+}
+
+static size_t debug_pid_append_scaled(char *buf,
+                                      size_t pos,
+                                      size_t size,
+                                      const char *name,
+                                      float value)
+{
+    int32_t milli = debug_pid_float_to_milli(value);
+    uint32_t abs_milli;
+
+    if (pos >= size) {
+        return pos;
+    }
+
+    if (milli < 0) {
+        abs_milli = (uint32_t)(-milli);
+        pos += (size_t)snprintf(buf + pos,
+                                size - pos,
+                                " %s=-%lu.%03lu",
+                                name,
+                                (unsigned long)(abs_milli / 1000U),
+                                (unsigned long)(abs_milli % 1000U));
+    } else {
+        abs_milli = (uint32_t)milli;
+        pos += (size_t)snprintf(buf + pos,
+                                size - pos,
+                                " %s=%lu.%03lu",
+                                name,
+                                (unsigned long)(abs_milli / 1000U),
+                                (unsigned long)(abs_milli % 1000U));
+    }
+
+    return pos;
+}
+
+static void debug_pid_send_text(const debug_pid_source_t *src)
+{
+    char line[LOG_BUF_LEN];
+    size_t pos;
+
+    pos = (size_t)snprintf(line,
+                           sizeof(line),
+                           "PIDDBG target=%s t=%lu",
+                           src->name,
+                           (unsigned long)(xTaskGetTickCount() * portTICK_PERIOD_MS));
+    pos = debug_pid_append_scaled(line, pos, sizeof(line), "p", src->pid->debug.p);
+    pos = debug_pid_append_scaled(line, pos, sizeof(line), "i", src->pid->debug.i);
+    pos = debug_pid_append_scaled(line, pos, sizeof(line), "d", src->pid->debug.d);
+    pos = debug_pid_append_scaled(line, pos, sizeof(line), "err", src->pid->debug.error);
+    pos = debug_pid_append_scaled(line, pos, sizeof(line), "out", src->pid->debug.output);
+    pos = debug_pid_append_scaled(line, pos, sizeof(line), "sp", src->pid->setpoint);
+    pos = debug_pid_append_scaled(line, pos, sizeof(line), "fb", src->feedback);
+
+    if (pos < (sizeof(line) - 2U)) {
+        line[pos++] = '\r';
+        line[pos++] = '\n';
+    } else {
+        line[sizeof(line) - 2U] = '\r';
+        line[sizeof(line) - 1U] = '\n';
+        pos = sizeof(line);
+    }
+
+    LOG_Raw((const uint8_t *)line, pos);
+}
+
+static void debug_pid_send(void)
+{
+    debug_pid_source_t src = debug_pid_get_source();
+
+#if DEBUG_PID_FORMAT == DEBUG_PID_FORMAT_HEX
+    debug_pid_frame_t frame;
+
+    memset(&frame, 0, sizeof(frame));
+    frame.magic[0] = 0xC5U;
+    frame.magic[1] = 0x5CU;
+    frame.version = 1U;
+    frame.target = (uint8_t)DEBUG_PID_TARGET;
+    frame.tick_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    frame.p = src.pid->debug.p;
+    frame.i = src.pid->debug.i;
+    frame.d = src.pid->debug.d;
+    frame.error = src.pid->debug.error;
+    frame.output = src.pid->debug.output;
+    frame.setpoint = src.pid->setpoint;
+    frame.feedback = src.feedback;
+    frame.crc = crc16_modbus(((const uint8_t *)&frame) + 2U,
+                             (uint16_t)(sizeof(debug_pid_frame_t) - 6U));
+    frame.tail[0] = FRAME_TAIL_1;
+    frame.tail[1] = FRAME_TAIL_2;
+    LOG_Raw((const uint8_t *)&frame, sizeof(frame));
+#else
+    debug_pid_send_text(&src);
+#endif
+}
+#endif
 
 /*
  * 新波形规则：
@@ -173,6 +350,7 @@ void ControlTask(void *argument)
      */
     TickType_t next_press_tx_tick = 0;
     TickType_t next_temp_tx_tick = 0;
+    TickType_t next_debug_pid_tx_tick = 0;
     float last_tx_temp_l = 0.0f;
     float last_tx_temp_r = 0.0f;
     bool last_tx_temp_l_valid = false;
@@ -554,9 +732,17 @@ telemetry:
                 (void)heat_pwm_L;
                 (void)heat_pwm_R;
             }
+
+#if DEBUG_PID_ENABLE
+            if ((int32_t)(now - next_debug_pid_tx_tick) >= 0) {
+                next_debug_pid_tx_tick = now + pdMS_TO_TICKS(DEBUG_PID_TX_PERIOD_MS);
+                debug_pid_send();
+            }
+#endif
         } else {
             next_press_tx_tick = xTaskGetTickCount() + pdMS_TO_TICKS(PRESS_TX_PERIOD_MS);
             next_temp_tx_tick = xTaskGetTickCount() + pdMS_TO_TICKS(TEMP_TX_PERIOD_MS);
+            next_debug_pid_tx_tick = xTaskGetTickCount() + pdMS_TO_TICKS(DEBUG_PID_TX_PERIOD_MS);
         }
 
         /*

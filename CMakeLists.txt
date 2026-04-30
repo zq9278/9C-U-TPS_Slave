@@ -48,6 +48,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Application/24C02/24cxx.c
     Application/ads1248_v2/ads1248_v2.c
     Application/AppMain/AppMain.c
+    Application/AppMain/rtos_debug_hooks.c
     Application/Config/config.c
     Application/Tasks/comm_task.c
     Application/Tasks/debug_log_task.c

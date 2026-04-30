@@ -77,6 +77,11 @@ void rk3576_uart_port_RxCallback(UartPort_t *port, uint16_t size)
 {
     __HAL_UART_CLEAR_IDLEFLAG(port->huart);
     UartRxMessage_t msg;
+
+    if (size > UART_RX_DMA_BUFFER_SIZE) {
+        size = UART_RX_DMA_BUFFER_SIZE;
+    }
+
     memcpy(msg.data, port->dma_rx_buf, size);
     msg.length = size;
     restart_rx_dma(port);
@@ -89,6 +94,9 @@ void debug_uart_port_RxCallback(UartPort_t *port, uint16_t size)
 {
     __HAL_UART_CLEAR_IDLEFLAG(port->huart);
     UartRxMessage_t msg;
+    if (size > UART_RX_DMA_BUFFER_SIZE) {
+        size = UART_RX_DMA_BUFFER_SIZE;
+    }
     memcpy(msg.data, port->dma_rx_buf, size);
     msg.length = size;
     restart_rx_dma(port);

@@ -15,15 +15,10 @@
         "enabled": true,
         "samplesPerSecond": 4
       },
-      // 显式启用 FreeRTOS 解析，避免 RTOS Views 自动检测失败。
       "rtos": "FreeRTOS",
       "device": "STM32G070RBTx",
       "interface": "swd",
-       "runToEntryPoint": "main", // 保留原配置；当前改为烧录后自动继续运行
-      // "postLaunchCommands": [
-      //   "monitor reset",
-      //   "continue"
-      // ]
+      "runToEntryPoint": "main"
     },
     {
       "name": "Flash/Debug (ST-Link, Built-in)",
@@ -45,11 +40,9 @@
         "enabled": true,
         "samplesPerSecond": 4
       },
-      // 显式启用 FreeRTOS 解析，避免 RTOS Views 自动检测失败。
       "rtos": "FreeRTOS",
       "device": "STM32G070RBTx",
       "interface": "swd",
-      // "runToEntryPoint": "main", // 保留原配置；当前改为烧录后自动继续运行
       "postLaunchCommands": [
         "monitor reset",
         "continue"
@@ -78,11 +71,9 @@
         "enabled": true,
         "samplesPerSecond": 4
       },
-      // 显式启用 FreeRTOS 解析，避免 RTOS Views 自动检测失败。
       "rtos": "FreeRTOS",
       "device": "STM32G070RBTx",
       "interface": "swd",
-      // "runToEntryPoint": "main", // 保留原配置；当前改为烧录后自动继续运行
       "postLaunchCommands": [
         "monitor reset",
         "continue"

@@ -228,6 +228,11 @@ void WaveControl_ApplyPressurePidProfile(PID_TypeDef *pid, wave_control_pid_stag
     pid->previous_error = 0.0f;
     pid->previous_measured_value = 0.0f;
     pid->derivative_filtered = 0.0f;
+    pid->debug.p = 0.0f;
+    pid->debug.i = 0.0f;
+    pid->debug.d = 0.0f;
+    pid->debug.error = 0.0f;
+    pid->debug.output = 0.0f;
 }
 
 /*

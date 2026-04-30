@@ -33,6 +33,11 @@ void PID_Init(PID_TypeDef *pid, float Kp, float Ki, float Kd,
     pid->integral = 0;
     pid->derivative_filtered = 0;
     pid->previous_measured_value = 0;
+    pid->debug.p = 0;
+    pid->debug.i = 0;
+    pid->debug.d = 0;
+    pid->debug.error = 0;
+    pid->debug.output = 0;
 
     pid->integral_max = integral_max;
     pid->integral_min = integral_min;
@@ -67,6 +72,12 @@ float PID_Compute(PID_TypeDef *pid, float measured_value)
     // 锟斤拷锟斤拷薹锟?
     if (output > pid->output_max) output = pid->output_max;
     else if (output < pid->output_min) output = pid->output_min;
+
+    pid->debug.p = gPidP;
+    pid->debug.i = gPidI;
+    pid->debug.d = gPidD;
+    pid->debug.error = error;
+    pid->debug.output = output;
 
     // 锟斤拷锟斤拷锟斤拷锟斤拷锟斤拷锟窖★拷锟?
     //LOG("%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n", gPidP, gPidI, gPidD,error, pid->integral,pid->setpoint, measured_value, output);

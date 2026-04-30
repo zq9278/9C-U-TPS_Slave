@@ -46,7 +46,7 @@ volatile uint8_t gTreatmentRunning = 0;
 
 void AppMain_FreeRTOS_Init(void)
 {
-    // Init UART ports (Comm on USART2, Debug on USART1)
+    // Init UART ports (business on USART3, debug on USART1)
    
    
 
@@ -63,7 +63,7 @@ void AppMain_FreeRTOS_Init(void)
     BaseType_t ret;
     ret = xTaskCreate(CommTask,    "CommTask",    384, NULL, 26, NULL);
     configASSERT(ret == pdPASS);
-    ret = xTaskCreate(DebugLogTask,"DebugLogTask",256, NULL, 4,  NULL);
+    ret = xTaskCreate(DebugLogTask,"DebugLogTask",512, NULL, 4,  NULL);
     configASSERT(ret == pdPASS);
     ret = xTaskCreate(AppTask,     "AppTask",     512, NULL, 22, NULL);
     configASSERT(ret == pdPASS);

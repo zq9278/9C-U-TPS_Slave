@@ -29,6 +29,8 @@ extern SemaphoreHandle_t logSemaphore;
 void LOG_Init(void);
 void LOG(const char *format, ...);
 void LOG_ISR(const char *format, ...);
+void LOG_Try(const char *format, ...);
+void LOG_Raw(const uint8_t *data, size_t len);
 
 #define LOG_I(fmt, ...) LOG("[I] " fmt "\r\n", ##__VA_ARGS__)
 #define LOG_W(fmt, ...) LOG("[W] " fmt "\r\n", ##__VA_ARGS__)
