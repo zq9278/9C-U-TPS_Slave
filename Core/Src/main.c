@@ -29,15 +29,10 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "delay.h"
-#include "pid.h"
-#include "water.h"
-#include "heat.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-PID_TypeDef RightHeat,LeftHeat;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -114,12 +109,8 @@ int main(void)
   MX_TIM15_Init();
   MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
-	delay_init(64);
-	HAL_Delay(100);
-	Fan1(1);
+	//HAL_Delay(100);
 	
-	
-	// HAL_UART_Receive_IT(&huart3, (uint8_t *)&uart_rx_byte, 1);  // 锟斤拷始锟斤拷锟秸碉拷1锟街斤拷
   /* USER CODE END 2 */
 
   /* Call init function for freertos objects (in cmsis_os2.c) */

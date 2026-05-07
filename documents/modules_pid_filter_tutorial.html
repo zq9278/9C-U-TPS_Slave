@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PID 与目标窗口滤波模块使用教程</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --paper: #ffffff;
+      --ink: #1f2933;
+      --muted: #5f6b7a;
+      --line: #d9dee7;
+      --accent: #1463ff;
+      --accent-soft: #e9f0ff;
+      --code-bg: #111827;
+      --code-ink: #e5edf7;
+      --warn-bg: #fff7e6;
+      --warn-line: #f0b429;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      line-height: 1.65;
+    }
+
+    header {
+      background: var(--paper);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .wrap {
+      max-width: 1060px;
+      margin: 0 auto;
+      padding: 28px 24px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+      line-height: 1.25;
+    }
+
+    h2 {
+      margin-top: 36px;
+      padding-top: 6px;
+      font-size: 23px;
+      border-top: 1px solid var(--line);
+    }
+
+    h3 {
+      margin-top: 26px;
+      font-size: 18px;
+    }
+
+    p {
+      margin: 10px 0;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    nav {
+      position: sticky;
+      top: 16px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    nav a {
+      display: block;
+      padding: 7px 8px;
+      color: var(--ink);
+      text-decoration: none;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    nav a:hover {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    main {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 26px 30px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 22px;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      border: 1px solid var(--line);
+      padding: 9px 10px;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f1f4f8;
+      text-align: left;
+    }
+
+    code {
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 0.95em;
+    }
+
+    pre {
+      overflow-x: auto;
+      background: var(--code-bg);
+      color: var(--code-ink);
+      border-radius: 8px;
+      padding: 16px;
+      line-height: 1.5;
+    }
+
+    pre code {
+      font-size: 13px;
+    }
+
+    .note,
+    .warn {
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin: 14px 0;
+    }
+
+    .note {
+      background: var(--accent-soft);
+      border: 1px solid #b7ccff;
+    }
+
+    .warn {
+      background: var(--warn-bg);
+      border: 1px solid var(--warn-line);
+    }
+
+    .path {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 860px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      nav {
+        position: static;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>PID 与目标窗口滤波模块使用教程</h1>
+      <p class="subtitle">适用于 <code>Modules/Pid</code> 与 <code>Modules/Filter</code>，接口风格为纯 C，使用结构体句柄模拟对象。</p>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav>
+      <a href="#overview">1. 模块定位</a>
+      <a href="#pid-files">2. PID 文件与接口</a>
+      <a href="#pid-config">3. PID 参数说明</a>
+      <a href="#pid-example">4. PID 使用示例</a>
+      <a href="#filter-files">5. 滤波模块接口</a>
+      <a href="#filter-example">6. 滤波使用示例</a>
+      <a href="#integration">7. 在控制任务中集成</a>
+      <a href="#tips">8. 调参建议</a>
+    </nav>
+
+    <main>
+      <section id="overview">
+        <h2>1. 模块定位</h2>
+        <p>这两个模块放在 <code>Modules</code> 层，目标是让压力控制、温控、传感器采样等不同业务都能复用同一套基础算法。</p>
+        <table>
+          <thead>
+            <tr>
+              <th>模块</th>
+              <th>路径</th>
+              <th>用途</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>PID 控制器</td>
+              <td><code>Modules/Pid/pid_controller.h/.c</code></td>
+              <td>支持多个 PID 实例，各自保存积分、上一拍误差、上一拍测量值、微分滤波状态。</td>
+            </tr>
+            <tr>
+              <td>目标窗口滤波器</td>
+              <td><code>Modules/Filter/target_window_filter.h/.c</code></td>
+              <td>在一个采样窗口中选择最接近目标值的样本，适合剔除瞬态毛刺或寻找稳定段代表值。</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="note">
+          设计方式是“面向对象思维，C 语言实现”：每个对象都是一个结构体实例，函数第一个参数传入该实例指针。
+        </div>
+      </section>
+
+      <section id="pid-files">
+        <h2>2. PID 文件与接口</h2>
+        <p class="path">头文件：<code>Modules/Pid/pid_controller.h</code></p>
+        <p class="path">源文件：<code>Modules/Pid/pid_controller.c</code></p>
+        <h3>核心结构体</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>结构体</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>PidControllerConfig</code></td>
+              <td>初始化配置，包括 <code>kp/ki/kd</code>、设定值、输出限幅、积分限幅、默认周期、微分滤波系数。</td>
+            </tr>
+            <tr>
+              <td><code>PidController</code></td>
+              <td>PID 实例，保存当前配置、积分、上一拍测量值、上一拍误差、调试输出。</td>
+            </tr>
+            <tr>
+              <td><code>PidControllerDebug</code></td>
+              <td>调试快照，可用于串口输出曲线：<code>p/i/d/error/integral/output/dt_s</code>。</td>
+            </tr>
+          </tbody>
+        </table>
+        <h3>常用函数</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>函数</th>
+              <th>用途</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>PidController_Init()</code></td>
+              <td>用配置初始化一个 PID 实例。</td>
+            </tr>
+            <tr>
+              <td><code>PidController_Reset()</code></td>
+              <td>保留配置，清空积分、微分滤波和上一拍状态。</td>
+            </tr>
+            <tr>
+              <td><code>PidController_ComputeDt()</code></td>
+              <td>按指定 <code>dt_s</code> 计算一次 PID 输出。</td>
+            </tr>
+            <tr>
+              <td><code>PidController_Compute()</code></td>
+              <td>使用配置里的 <code>default_dt_s</code> 计算一次 PID 输出。</td>
+            </tr>
+            <tr>
+              <td><code>PidController_SetSetpoint()</code></td>
+              <td>运行中修改目标值。</td>
+            </tr>
+            <tr>
+              <td><code>PidController_SetGains()</code></td>
+              <td>运行中修改 <code>kp/ki/kd</code>。</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="pid-config">
+        <h2>3. PID 参数说明</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>字段</th>
+              <th>说明</th>
+              <th>建议</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>kp</code></td>
+              <td>比例系数，按当前误差直接产生输出。</td>
+              <td>先调它，让系统有基本响应。</td>
+            </tr>
+            <tr>
+              <td><code>ki</code></td>
+              <td>积分系数，积分项使用 <code>error * dt_s</code>。</td>
+              <td>用于消除稳态误差，过大会导致慢性超调。</td>
+            </tr>
+            <tr>
+              <td><code>kd</code></td>
+              <td>微分系数，微分项会除以 <code>dt_s</code>。</td>
+              <td>需要配合滤波，传感器噪声大时谨慎使用。</td>
+            </tr>
+            <tr>
+              <td><code>default_dt_s</code></td>
+              <td>默认控制周期，单位秒。</td>
+              <td>2ms 周期写 <code>0.002f</code>，10ms 周期写 <code>0.010f</code>。</td>
+            </tr>
+            <tr>
+              <td><code>derivative_filter_alpha</code></td>
+              <td>微分一阶低通系数，范围 <code>0.0 .. 0.999</code>。</td>
+              <td><code>0</code> 不滤波，越接近 <code>1</code> 越平滑但滞后越大。</td>
+            </tr>
+            <tr>
+              <td><code>derivative_mode</code></td>
+              <td>选择对测量值微分或对误差微分。</td>
+              <td>控制执行器时推荐 <code>PID_CONTROLLER_DERIVATIVE_ON_MEASUREMENT</code>。</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="warn">
+          本模块的 <code>kp/ki/kd</code> 是直接参与计算的浮点系数，没有沿用旧 <code>Application/pid</code> 中“除以 1000”的历史缩放。迁移旧参数时需要重新换算或重新调参。
+        </div>
+      </section>
+
+      <section id="pid-example">
+        <h2>4. PID 使用示例</h2>
+        <h3>压力 PID</h3>
+        <pre><code class="language-c">#include "pid_controller.h"
+
+static PidController g_press_pid;
+
+void PressurePid_Init(void)
+{
+    PidControllerConfig cfg;
+
+    cfg.kp = 0.05f;
+    cfg.ki = 0.01f;
+    cfg.kd = 0.0f;
+    cfg.setpoint = 25.0f;
+    cfg.output_min = 0.0f;
+    cfg.output_max = 255.0f;
+    cfg.integral_min = -200.0f;
+    cfg.integral_max = 200.0f;
+    cfg.default_dt_s = 0.002f;
+    cfg.derivative_filter_alpha = 0.8f;
+    cfg.derivative_mode = PID_CONTROLLER_DERIVATIVE_ON_MEASUREMENT;
+
+    PidController_Init(&g_press_pid, &cfg);
+}
+
+uint16_t PressurePid_Run(float pressure_kpa)
+{
+    float output = PidController_ComputeDt(&g_press_pid, pressure_kpa, 0.002f);
+    return (uint16_t)output;
+}</code></pre>
+
+        <h3>左右温控各自一个实例</h3>
+        <pre><code class="language-c">static PidController g_heat_l_pid;
+static PidController g_heat_r_pid;
+
+void HeatPid_Init(float target_c)
+{
+    PidControllerConfig cfg;
+
+    cfg.kp = 3.9f;
+    cfg.ki = 1.8f;
+    cfg.kd = 0.2f;
+    cfg.setpoint = target_c;
+    cfg.output_min = 0.0f;
+    cfg.output_max = 1999.0f;
+    cfg.integral_min = 0.0f;
+    cfg.integral_max = 100000.0f;
+    cfg.default_dt_s = 0.010f;
+    cfg.derivative_filter_alpha = 0.7f;
+    cfg.derivative_mode = PID_CONTROLLER_DERIVATIVE_ON_MEASUREMENT;
+
+    PidController_Init(&g_heat_l_pid, &cfg);
+    PidController_Init(&g_heat_r_pid, &cfg);
+}</code></pre>
+      </section>
+
+      <section id="filter-files">
+        <h2>5. 滤波模块接口</h2>
+        <p class="path">头文件：<code>Modules/Filter/target_window_filter.h</code></p>
+        <p class="path">源文件：<code>Modules/Filter/target_window_filter.c</code></p>
+        <p>目标窗口滤波器的规则很简单：在一段窗口内不断输入采样值，模块保存“与目标值差值绝对值最小”的那个样本。窗口结束时输出这个最佳样本。</p>
+        <table>
+          <thead>
+            <tr>
+              <th>配置项</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>target</code></td>
+              <td>目标值，滤波器会选择窗口内最接近它的采样值。</td>
+            </tr>
+            <tr>
+              <td><code>sample_count_limit</code></td>
+              <td>样本数量窗口。为 <code>0</code> 时不按数量结束。</td>
+            </tr>
+            <tr>
+              <td><code>period_ms</code></td>
+              <td>时间窗口。为 <code>0</code> 时不按时间结束。</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="filter-example">
+        <h2>6. 滤波使用示例</h2>
+        <h3>100ms 内取最接近目标压力的样本</h3>
+        <pre><code class="language-c">#include "target_window_filter.h"
+
+static TargetWindowFilter g_press_filter;
+
+void PressureFilter_Init(float target_kpa)
+{
+    TargetWindowFilterConfig cfg;
+
+    cfg.target = target_kpa;
+    cfg.sample_count_limit = 0;
+    cfg.period_ms = 100;
+
+    TargetWindowFilter_Init(&g_press_filter, &cfg);
+}
+
+uint8_t PressureFilter_Push(float sample_kpa, uint32_t now_ms, float *filtered_kpa)
+{
+    return TargetWindowFilter_Push(&g_press_filter, sample_kpa, now_ms, filtered_kpa);
+}</code></pre>
+
+        <h3>10 个样本内取最接近温控目标的样本</h3>
+        <pre><code class="language-c">static TargetWindowFilter g_temp_l_filter;
+
+void TempFilter_Init(float target_c)
+{
+    TargetWindowFilterConfig cfg;
+
+    cfg.target = target_c;
+    cfg.sample_count_limit = 10;
+    cfg.period_ms = 0;
+
+    TargetWindowFilter_Init(&g_temp_l_filter, &cfg);
+}</code></pre>
+      </section>
+
+      <section id="integration">
+        <h2>7. 在控制任务中集成</h2>
+        <p>典型集成方式是在任务初始化阶段创建实例，在固定周期循环里喂数据。</p>
+        <pre><code class="language-c">void ControlTask_InitModules(void)
+{
+    PressurePid_Init();
+    PressureFilter_Init(25.0f);
+}
+
+void ControlTask_Loop(void)
+{
+    float filtered_pressure;
+    uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+
+    if (TargetWindowFilter_Push(&g_press_filter,
+                                gSensorData.pressL,
+                                now_ms,
+                                &filtered_pressure))
+    {
+        float pwm = PidController_ComputeDt(&g_press_pid, filtered_pressure, 0.002f);
+        TreatmentActuators_SetPumpPwm((uint16_t)pwm);
+    }
+}</code></pre>
+        <div class="note">
+          如果控制闭环每一拍都必须输出，可以直接用最新测量值跑 PID；目标窗口滤波更适合用于“观测值稳定代表值”“参数学习”“显示值筛选”等场景。
+        </div>
+      </section>
+
+      <section id="tips">
+        <h2>8. 调参建议</h2>
+        <ul>
+          <li>先只打开 <code>kp</code>，确认方向正确：测量值低于目标时输出应该增加。</li>
+          <li>再逐步增加 <code>ki</code>，观察稳态误差是否减小。</li>
+          <li>最后再考虑 <code>kd</code>，并配合 <code>derivative_filter_alpha</code> 抑制噪声。</li>
+          <li>每个 PID 实例都要设置合适的 <code>output_min/output_max</code>，避免输出越过执行器能力。</li>
+          <li>运行中切换治疗目标时，只调用 <code>PidController_SetSetpoint()</code>；如果是重新开始一段治疗，建议同时调用 <code>PidController_Reset()</code> 清掉历史积分。</li>
+          <li>目标窗口滤波的窗口不要太长，否则会引入明显响应延迟。</li>
+        </ul>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

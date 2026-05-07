@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>热脉动固件新架构说明</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --paper: #ffffff;
+      --ink: #17202a;
+      --muted: #5f6f82;
+      --line: #d9e0ea;
+      --head: #eef3fb;
+      --accent: #1769e0;
+      --accent-soft: #eaf2ff;
+      --good: #157347;
+      --warn: #9a6700;
+      --warn-bg: #fff8e6;
+      --code-bg: #111827;
+      --code-ink: #e6edf7;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      line-height: 1.68;
+    }
+
+    header {
+      background: var(--paper);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 24px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 32px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 36px 0 14px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 24px 0 10px;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 10px 0;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    nav {
+      position: sticky;
+      top: 14px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    nav strong {
+      display: block;
+      margin: 4px 8px 10px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    nav a {
+      display: block;
+      padding: 7px 8px;
+      color: var(--ink);
+      text-decoration: none;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    nav a:hover {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    main {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 28px 34px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 22px;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      border: 1px solid var(--line);
+      padding: 9px 10px;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--head);
+      text-align: left;
+    }
+
+    code {
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 0.95em;
+    }
+
+    pre {
+      overflow-x: auto;
+      background: var(--code-bg);
+      color: var(--code-ink);
+      border-radius: 8px;
+      padding: 16px;
+      line-height: 1.5;
+      margin: 14px 0 22px;
+    }
+
+    pre code {
+      font-size: 13px;
+    }
+
+    .note,
+    .warn,
+    .ok {
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin: 14px 0;
+    }
+
+    .note {
+      background: var(--accent-soft);
+      border: 1px solid #bed4ff;
+    }
+
+    .warn {
+      background: var(--warn-bg);
+      border: 1px solid #f0c36d;
+      color: #563b00;
+    }
+
+    .ok {
+      background: #eaf7ef;
+      border: 1px solid #b8dfc4;
+      color: #0f5132;
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 7px;
+      margin: 0 4px 4px 0;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #f7f9fc;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .flow {
+      display: grid;
+      gap: 8px;
+      margin: 14px 0 22px;
+    }
+
+    .flow div {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+      padding: 10px 12px;
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 14px;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 900px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      nav {
+        position: static;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>热脉动固件新架构说明</h1>
+      <p class="subtitle">说明对象：基于现有业务逻辑重构后的 <code>UserDrivers</code>、<code>Modules</code> 与 FreeRTOS 任务调用关系。</p>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav>
+      <strong>目录</strong>
+      <a href="#goal">1. 重构目标</a>
+      <a href="#old-flow">2. 原有业务识别</a>
+      <a href="#new-layers">3. 新分层结构</a>
+      <a href="#tasks">4. FreeRTOS 任务架构</a>
+      <a href="#drivers">5. UserDrivers 接入</a>
+      <a href="#modules">6. Modules 说明</a>
+      <a href="#heat-pulse">7. 热脉动控制流程</a>
+      <a href="#sensor-flow">8. 传感器数据流</a>
+      <a href="#command-flow">9. 命令与遥测流</a>
+      <a href="#pid">10. PID 与调参</a>
+      <a href="#files">11. 文件清单</a>
+      <a href="#migration">12. 迁移状态</a>
+      <a href="#verify">13. 验证结果</a>
+    </nav>
+
+    <main>
+      <section id="goal">
+        <h2>1. 重构目标</h2>
+        <p>这次重构不是简单移动文件，而是把原来集中在任务里的业务逻辑拆成可复用模块，让 FreeRTOS 任务只负责调度和队列交互。</p>
+        <p>新的目标架构遵循下面几条原则：</p>
+        <ul>
+          <li><strong>驱动下沉</strong>：硬件器件访问统一走 <code>UserDrivers</code>，再由 <code>BSP</code> 适配 HAL。</li>
+          <li><strong>模块承载业务</strong>：热脉动控制、传感器采样、PID 算法放在 <code>Modules</code>。</li>
+          <li><strong>任务变薄</strong>：任务不直接写复杂业务，只调用模块接口。</li>
+          <li><strong>C 风格对象化</strong>：用结构体实例保存状态，用函数第一个参数传入实例指针。</li>
+          <li><strong>保留协议兼容</strong>：上位机命令和遥测帧 ID 继续沿用原协议。</li>
+        </ul>
+        <div class="note">
+          本文档说明的是当前第一版可编译架构。它已经完成主链路迁移，但仍保留部分旧文件用于兼容或后续清理。
+        </div>
+      </section>
+
+      <section id="old-flow">
+        <h2>2. 原有业务识别</h2>
+        <p>原程序的热脉动核心逻辑可以识别为三条主线：</p>
+        <table>
+          <thead>
+            <tr>
+              <th>业务线</th>
+              <th>原位置</th>
+              <th>识别出的职责</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>治疗业务状态</td>
+              <td><code>Application/AppMain/TreatmentApp.cpp</code></td>
+              <td>处理开始、停止、暂停、恢复、左右眼使能、温度目标、压力目标和治疗倒计时。</td>
+            </tr>
+            <tr>
+              <td>传感器采集</td>
+              <td><code>Application/Tasks/sensor_task.c</code></td>
+              <td>轮询 ADS1248 温度、压力传感器，并写入 <code>gSensorData</code>。</td>
+            </tr>
+            <tr>
+              <td>热脉动控制</td>
+              <td><code>Application/Tasks/control_task.c</code></td>
+              <td>处理控制命令、压力波形、压力 PID、左右温控 PID、执行器输出、遥测和加热盾状态。</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>原来的主要问题是 <code>ControlTask</code> 承载太多：状态机、PID、执行器、遥测和调试输出混在同一个任务文件里。新架构把它拆成 <code>HeatPulseController</code> 和薄任务 runner。</p>
+      </section>
+
+      <section id="new-layers">
+        <h2>3. 新分层结构</h2>
+        <div class="flow">
+          <div>Core / HAL: CubeMX 生成外设初始化，提供 I2C/SPI/GPIO/TIM/UART HAL handle</div>
+          <div>BSP: 对 HAL 进行总线和引脚抽象，例如 BspI2c、BspSpi、BspGpio、BspPwm</div>
+          <div>UserDrivers: 具体器件驱动，例如 ADS1248、压力传感器、24C02、DS18B20</div>
+          <div>Modules: 业务可复用模块，例如 Sensors、HeatPulse、Pid、Filter</div>
+          <div>Application Tasks: FreeRTOS runner，负责队列、周期调度、遥测发送</div>
+          <div>Protocol / App: 上位机协议和治疗业务状态机</div>
+        </div>
+        <p>依赖方向应尽量保持单向：</p>
+        <pre><code>Application/Tasks -> Modules -> UserDrivers -> BSP -> HAL</code></pre>
+        <p>这样做的好处是：驱动可以独立替换，控制算法可以独立测试，任务代码不会继续膨胀。</p>
+      </section>
+
+      <section id="tasks">
+        <h2>4. FreeRTOS 任务架构</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>任务</th>
+              <th>当前职责</th>
+              <th>新调用方式</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>SensorTask</code></td>
+              <td>采集温度和压力，更新 <code>gSensorData</code>。</td>
+              <td>调用 <code>TreatmentSensors_Init()</code> 和 <code>TreatmentSensors_Poll()</code>。</td>
+            </tr>
+            <tr>
+              <td><code>ControlTask</code></td>
+              <td>处理控制命令、运行热脉动控制、发送遥测、服务加热盾。</td>
+              <td>调用 <code>HeatPulseController_HandleCommand()</code> 和 <code>HeatPulseController_Run()</code>。</td>
+            </tr>
+            <tr>
+              <td><code>AppTask</code></td>
+              <td>治疗业务状态机，产生 <code>ctrl_cmd_t</code>。</td>
+              <td>保持原有职责，输出控制命令给 <code>ControlTask</code>。</td>
+            </tr>
+            <tr>
+              <td><code>CommTask</code></td>
+              <td>业务串口收发、协议 TX/RX 队列处理。</td>
+              <td>保持原有通信 runner。</td>
+            </tr>
+            <tr>
+              <td><code>DebugLogTask</code></td>
+              <td>处理调试串口 ASCII PID 调参命令。</td>
+              <td>调参入口改为 <code>HeatPulseController_SetPressurePidGains()</code>。</td>
+            </tr>
+            <tr>
+              <td><code>StorageTask</code></td>
+              <td>加载和保存设置。</td>
+              <td>旧 <code>AT24CXX_*</code> API 已桥接到新 <code>UserEeprom24cxx</code>。</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="ok">
+          任务调度结构保留了原工程的稳定性，重构主要发生在任务内部调用的模块边界。
+        </div>
+      </section>
+
+      <section id="drivers">
+        <h2>5. UserDrivers 接入</h2>
+        <p>新驱动集中在 <code>UserDrivers</code> 下，板级实例由 <code>UserDrivers/user_drivers_board.c</code> 统一绑定。</p>
+        <table>
+          <thead>
+            <tr>
+              <th>器件</th>
+              <th>新驱动</th>
+              <th>底层资源</th>
+              <th>全局实例</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>ADS1248 温度采集</td>
+              <td><code>UserDrivers/Ads1248</code></td>
+              <td><code>SPI2</code>、<code>RTD_CS PB12</code>、<code>RTD_START PB15</code>、<code>RTD_RDY PA8</code></td>
+              <td><code>gUserAds1248</code></td>
+            </tr>
+            <tr>
+              <td>压力传感器</td>
+              <td><code>UserDrivers/PressureSensor</code></td>
+              <td><code>I2C1 PA9/PA10</code>，地址 <code>0x78</code></td>
+              <td><code>gUserPressureSensor</code></td>
+            </tr>
+            <tr>
+              <td>24C02 EEPROM</td>
+              <td><code>UserDrivers/Eeprom24cxx</code></td>
+              <td>软件 I2C：<code>EE_SCL PA11</code>、<code>EE_SDA PA12</code></td>
+              <td><code>gUserEeprom24c02</code></td>
+            </tr>
+            <tr>
+              <td>DS18B20</td>
+              <td><code>UserDrivers/Ds18b20</code></td>
+              <td>单总线：<code>TS1 PB5</code></td>
+              <td><code>gUserDs18b20</code></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="warn">
+          EEPROM 旧代码里的 <code>WP</code> 曾使用 <code>PA9</code>，但该引脚也是 <code>I2C1_SCL</code>。新板级绑定没有继续使用这个写保护脚，避免和压力传感器 I2C 时钟冲突。
+        </div>
+      </section>
+
+      <section id="modules">
+        <h2>6. Modules 说明</h2>
+        <h3><code>Modules/Sensors</code></h3>
+        <p>传感器模块负责把底层器件驱动读数整理成系统统一的 <code>sensor_data_t</code>。</p>
+        <ul>
+          <li>交替读取 ADS1248 的左右温度通道。</li>
+          <li>每 10ms 读取压力传感器。</li>
+          <li>保留原逻辑中的 3 点中值滤波。</li>
+          <li>写入 <code>gSensorData.tempL/tempR/pressL/pressR/tick</code>。</li>
+        </ul>
+
+        <h3><code>Modules/HeatPulse</code></h3>
+        <p>热脉动控制模块是本次重构的主模块，负责从控制配置和传感器快照计算执行器输出。</p>
+        <ul>
+          <li>处理 <code>CTRL_CMD_START/STOP/PAUSE/RESUME/UPDATE_CFG</code>。</li>
+          <li>维护波形锚点 <code>wave_anchor_tick</code> 和暂停恢复位置。</li>
+          <li>计算 60 秒周期内的 <code>rise/hold/pulse_on/pulse_off</code> 阶段。</li>
+          <li>运行压力 PID，输出气泵 PWM。</li>
+          <li>运行左右温控 PID，输出加热 PWM。</li>
+          <li>调用 <code>TreatmentActuators</code> 实际驱动泵、阀、加热 PWM。</li>
+        </ul>
+
+        <h3><code>Modules/Pid</code></h3>
+        <p>新的 PID 是可多实例复用模块，每个 <code>PidController</code> 独立保存积分、微分滤波和调试项。</p>
+
+        <h3><code>Modules/Filter</code></h3>
+        <p>目标窗口滤波模块用于在一段时间或一批样本里选择最接近目标值的样本。目前已作为通用工具加入构建，后续可用于显示值、稳定段筛选或自动调参辅助。</p>
+      </section>
+
+      <section id="heat-pulse">
+        <h2>7. 热脉动控制流程</h2>
+        <p>热脉动的核心节奏仍然沿用原业务：一个周期 60 秒，分为上升、保压和脉动挤压三段。</p>
+        <table>
+          <thead>
+            <tr>
+              <th>阶段</th>
+              <th>默认时长</th>
+              <th>压力目标</th>
+              <th>执行器动作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>rise</code></td>
+              <td>2 秒</td>
+              <td>从 0 线性上升到目标压力。</td>
+              <td>打开波形阀，压力 PID 控制气泵补压。</td>
+            </tr>
+            <tr>
+              <td><code>hold</code></td>
+              <td>2 秒</td>
+              <td>保持目标压力。</td>
+              <td>打开波形阀，压力 PID 控制气泵维持压力。</td>
+            </tr>
+            <tr>
+              <td><code>pulse_on</code></td>
+              <td>脉冲高压半周期</td>
+              <td>目标压力。</td>
+              <td>打开波形阀，气泵参与补压。</td>
+            </tr>
+            <tr>
+              <td><code>pulse_off</code></td>
+              <td>脉冲低压半周期</td>
+              <td>0 kPa。</td>
+              <td>关闭波形阀，气泵 PWM 置 0。</td>
+            </tr>
+            <tr>
+              <td><code>pause</code></td>
+              <td>由上位机控制</td>
+              <td>冻结治疗时间位置。</td>
+              <td>所有输出进入安全空闲态。</td>
+            </tr>
+          </tbody>
+        </table>
+        <pre><code>ControlTask loop:
+  receive ctrl_cmd_t
+  HeatPulseController_HandleCommand()
+  HeatPulseController_Run(sensor, now, dt)
+  service telemetry
+  service heater shield status</code></pre>
+      </section>
+
+      <section id="sensor-flow">
+        <h2>8. 传感器数据流</h2>
+        <p>传感器链路现在从任务中抽到了 <code>TreatmentSensors</code> 模块：</p>
+        <pre><code>SensorTask
+  -> TreatmentSensors_Init()
+      -> UserDrivers_BoardInit()
+      -> UserAds1248_Init()
+  -> loop:
+      -> UserAds1248_ReadTemperatureC()
+      -> UserPressureSensor_Read()
+      -> 3-point median pressure filter
+      -> gSensorData</code></pre>
+        <table>
+          <thead>
+            <tr>
+              <th>数据</th>
+              <th>来源</th>
+              <th>写入字段</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>左温度</td>
+              <td>ADS1248 <code>USER_ADS1248_CHANNEL_HEAT1</code></td>
+              <td><code>gSensorData.tempL</code></td>
+            </tr>
+            <tr>
+              <td>右温度</td>
+              <td>ADS1248 <code>USER_ADS1248_CHANNEL_HEAT2</code></td>
+              <td><code>gSensorData.tempR</code></td>
+            </tr>
+            <tr>
+              <td>左压力</td>
+              <td>I2C1 压力传感器</td>
+              <td><code>gSensorData.pressL</code></td>
+            </tr>
+            <tr>
+              <td>右压力</td>
+              <td>当前镜像左压力，保留右路扩展位</td>
+              <td><code>gSensorData.pressR</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="command-flow">
+        <h2>9. 命令与遥测流</h2>
+        <h3>命令流</h3>
+        <pre><code>USART3 RX
+  -> uart_driver parser
+  -> HostProtocol dispatch
+  -> gAppEventQueue
+  -> AppTask / TreatmentApp
+  -> gCtrlCmdQueue
+  -> ControlTask
+  -> HeatPulseController</code></pre>
+        <p><code>TreatmentApp</code> 仍然负责业务层判断：开始、停止、暂停、左右眼使能、目标温度、目标压力和治疗倒计时。</p>
+
+        <h3>遥测流</h3>
+        <pre><code>HeatPulseController_Run()
+  -> HeatPulseRuntime
+  -> ControlTask service_telemetry()
+  -> gTxQueue
+  -> CommTask
+  -> USART3 TX</code></pre>
+        <table>
+          <thead>
+            <tr>
+              <th>遥测</th>
+              <th>帧 ID</th>
+              <th>节拍</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>左压力</td>
+              <td><code>0x1101</code></td>
+              <td>100 点/秒</td>
+            </tr>
+            <tr>
+              <td>左温度</td>
+              <td><code>0x1103</code></td>
+              <td>50 点/秒</td>
+            </tr>
+            <tr>
+              <td>右温度</td>
+              <td><code>0x1104</code></td>
+              <td>50 点/秒</td>
+            </tr>
+            <tr>
+              <td>当前阶段</td>
+              <td><code>0x110B</code></td>
+              <td>跟随温度节拍</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="pid">
+        <h2>10. PID 与调参</h2>
+        <p>新 PID 使用 <code>PidController</code>，每个控制环一个实例：</p>
+        <ul>
+          <li><code>pressure_pid</code>：压力闭环，输出范围 0 到 255。</li>
+          <li><code>heat_left_pid</code>：左温控闭环，输出范围 0 到 1999。</li>
+          <li><code>heat_right_pid</code>：右温控闭环，输出范围 0 到 1999。</li>
+        </ul>
+        <p>压力 PID 仍然按阶段分三组参数：</p>
+        <table>
+          <thead>
+            <tr>
+              <th>阶段</th>
+              <th>默认参数</th>
+              <th>调试命令</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>RISE</code></td>
+              <td><code>Kp=80 Ki=0 Kd=0</code> 兼容旧调参口径</td>
+              <td><code>R kp ki kd</code></td>
+            </tr>
+            <tr>
+              <td><code>HOLD</code></td>
+              <td><code>Kp=140 Ki=8 Kd=0</code> 兼容旧调参口径</td>
+              <td><code>H kp ki kd</code></td>
+            </tr>
+            <tr>
+              <td><code>PULSE</code></td>
+              <td><code>Kp=220 Ki=0 Kd=0</code> 兼容旧调参口径</td>
+              <td><code>P kp ki kd</code></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="note">
+          新 PID 内部使用真实 <code>dt_s</code> 参与积分和微分。为了兼容旧 PID 调参工具，<code>DebugLogTask</code> 会把旧口径参数换算成新 PID 内部参数。
+        </div>
+        <p>PID 调试二进制帧仍通过调试串口输出，版本号已改为 <code>2</code>，曲线字段仍包含 <code>p/i/d/error/output/setpoint/feedback</code>。</p>
+      </section>
+
+      <section id="files">
+        <h2>11. 文件清单</h2>
+        <h3>新增或主用文件</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>文件</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>Modules/HeatPulse/heat_pulse_controller.h/.c</code></td>
+              <td>热脉动控制主模块。</td>
+            </tr>
+            <tr>
+              <td><code>Modules/Sensors/treatment_sensors.h/.c</code></td>
+              <td>治疗传感器采样模块。</td>
+            </tr>
+            <tr>
+              <td><code>Modules/Pid/pid_controller.h/.c</code></td>
+              <td>新的多实例 PID 模块。</td>
+            </tr>
+            <tr>
+              <td><code>Modules/Filter/target_window_filter.h/.c</code></td>
+              <td>目标窗口滤波模块。</td>
+            </tr>
+            <tr>
+              <td><code>UserDrivers/user_drivers_board.h/.c</code></td>
+              <td>板级驱动实例绑定。</td>
+            </tr>
+            <tr>
+              <td><code>Application/Tasks/control_task.c</code></td>
+              <td>控制 runner，调用热脉动模块。</td>
+            </tr>
+            <tr>
+              <td><code>Application/Tasks/sensor_task.c</code></td>
+              <td>传感器 runner，调用传感器模块。</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>兼容保留文件</h3>
+        <p>以下文件还在项目中，但主链路已经不依赖或只通过兼容 API 使用：</p>
+        <span class="tag">Application/ads1248_v2</span>
+        <span class="tag">Application/Pressure_sensor</span>
+        <span class="tag">Application/ds18b20</span>
+        <span class="tag">Application/SYS/myiic</span>
+        <span class="tag">Application/heat</span>
+        <span class="tag">Application/WaveControl</span>
+        <p class="small">后续确认硬件运行稳定后，可以继续清理这些旧路径，进一步降低 Flash 占用和维护成本。</p>
+      </section>
+
+      <section id="migration">
+        <h2>12. 迁移状态</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>项目</th>
+              <th>状态</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>ADS1248 采温</td>
+              <td>已迁移</td>
+              <td><code>SensorTask</code> 现在通过 <code>TreatmentSensors</code> 调用 <code>UserAds1248</code>。</td>
+            </tr>
+            <tr>
+              <td>压力采样</td>
+              <td>已迁移</td>
+              <td>通过 <code>UserPressureSensor</code> 读取，右路仍按旧逻辑镜像左路。</td>
+            </tr>
+            <tr>
+              <td>EEPROM</td>
+              <td>已桥接</td>
+              <td>旧 <code>AT24CXX_*</code> API 继续存在，底层改用 <code>UserEeprom24cxx</code>。</td>
+            </tr>
+            <tr>
+              <td>压力波形</td>
+              <td>已迁移</td>
+              <td>由 <code>HeatPulseController</code> 内部计算。</td>
+            </tr>
+            <tr>
+              <td>温控 PID</td>
+              <td>已迁移</td>
+              <td>左右温控各自使用一个 <code>PidController</code> 实例。</td>
+            </tr>
+            <tr>
+              <td>压力 PID 调参</td>
+              <td>已迁移</td>
+              <td>调试串口 ASCII 命令接入新热脉动模块。</td>
+            </tr>
+            <tr>
+              <td>安全任务</td>
+              <td>保留原状</td>
+              <td>仍通过 <code>APP_EVT_SAFETY_FAULT</code> 通知业务层停止。</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="verify">
+        <h2>13. 验证结果</h2>
+        <p>当前构建命令：</p>
+        <pre><code>cmake --build --preset Debug</code></pre>
+        <p>构建结果已通过，当前资源占用：</p>
+        <table>
+          <thead>
+            <tr>
+              <th>区域</th>
+              <th>已用</th>
+              <th>总量</th>
+              <th>占用率</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>RAM</td>
+              <td>32568 B</td>
+              <td>36 KB</td>
+              <td>88.35%</td>
+            </tr>
+            <tr>
+              <td>FLASH</td>
+              <td>129544 B</td>
+              <td>128 KB</td>
+              <td>98.83%</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="warn">
+          Flash 已经接近上限。下一阶段建议优先清理未编译但仍保留的旧业务文件，或者把 Debug/PID 曲线输出做成可编译开关。
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

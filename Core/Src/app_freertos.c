@@ -25,7 +25,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "AppMain.h"
+#include "App/System/app_main.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
