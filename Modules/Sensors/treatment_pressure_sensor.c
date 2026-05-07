@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <string.h>
+#define MODULE_LOG_ENABLED MODULE_LOG_SENSOR_PRESS_ENABLE
 #include "Modules/Log/module_log.h"
 #include "UserDrivers/user_drivers_board.h"
 

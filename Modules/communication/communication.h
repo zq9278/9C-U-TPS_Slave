@@ -3,12 +3,18 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include "Modules/communication/ascii_processor.h"
 #include "Modules/communication/Protocol/protocol_common.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef enum
+{
+    COMM_CHANNEL_UART1 = 0,
+    COMM_CHANNEL_UART3 = 1,
+    COMM_CHANNEL_COUNT
+} CommunicationChannel;
 
 typedef enum
 {
@@ -22,15 +28,15 @@ typedef ProtocolFrameView CommunicationFrameView;
 typedef void (*CommunicationProtocolFrameCallback)(void *context,
                                                    CommunicationInterfaceId interface_id,
                                                    const CommunicationFrameView *frame);
-typedef void (*CommunicationAsciiCommandCallback)(void *context,
-                                                  CommunicationChannel channel,
-                                                  const char *line,
-                                                  size_t length);
+typedef void (*CommunicationLogRxCallback)(void *context,
+                                           CommunicationChannel channel,
+                                           const uint8_t *data,
+                                           size_t length);
 
 typedef struct
 {
     CommunicationProtocolFrameCallback on_protocol_frame;
-    CommunicationAsciiCommandCallback on_ascii_command;
+    CommunicationLogRxCallback on_log_rx;
     void *context;
 } CommunicationCallbacks;
 

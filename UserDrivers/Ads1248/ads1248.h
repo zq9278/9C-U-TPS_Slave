@@ -52,7 +52,6 @@ void UserAds1248_InitDevice(UserAds1248 *dev,
 void UserAds1248_SetDrdySemaphore(UserAds1248 *dev, SemaphoreHandle_t drdy_sem);
 void UserAds1248_Reset(UserAds1248 *dev);
 uint8_t UserAds1248_Init(UserAds1248 *dev);
-uint8_t UserAds1248_InitSingleChannel(UserAds1248 *dev, UserAds1248Channel channel);
 uint8_t UserAds1248_SelectChannel(UserAds1248 *dev, UserAds1248Channel channel);
 uint8_t UserAds1248_WaitDrdy(UserAds1248 *dev, uint32_t timeout_ms);
 uint8_t UserAds1248_ReadRaw(UserAds1248 *dev, uint32_t *raw_out);
@@ -67,16 +66,6 @@ uint8_t UserAds1248_ReadTemperatureC(UserAds1248 *dev,
                                      UserAds1248Channel channel,
                                      float *temp_c_out,
                                      uint32_t *raw_out);
-/*
- * Single-channel mode API:
- * lock ADS1248 to one channel first, then keep reading the same channel.
- * If current channel differs, the helper will re-init to the requested
- * single channel once and then read the conversion result.
- */
-uint8_t UserAds1248_ReadSingleChannelTemperatureC(UserAds1248 *dev,
-                                                  UserAds1248Channel channel,
-                                                  float *temp_c_out,
-                                                  uint32_t *raw_out);
 
 #ifdef __cplusplus
 }

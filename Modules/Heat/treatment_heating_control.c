@@ -142,11 +142,13 @@ void TreatmentHeatingControl_ApplyOutputs(TreatmentAppController *controller,
                                               sensor->tempL * 100.0f,
                                               dt_s);
         runtime->heat_left_pwm = TreatmentHeatingControl_ClampPwm(heat_output, 1999U);
+        controller->heat_left_pid.debug.mapped_output = (float)runtime->heat_left_pwm;
         TreatmentActuators_SetHeaterPwm(TREATMENT_SIDE_LEFT, runtime->heat_left_pwm);
     }
     else
     {
         TreatmentActuators_SetHeaterPwm(TREATMENT_SIDE_LEFT, 0U);
+        controller->heat_left_pid.debug.mapped_output = 0.0f;
         TreatmentActuators_SetHeaterPower(TREATMENT_SIDE_LEFT, 0U);
     }
 
@@ -157,11 +159,13 @@ void TreatmentHeatingControl_ApplyOutputs(TreatmentAppController *controller,
                                               sensor->tempR * 100.0f,
                                               dt_s);
         runtime->heat_right_pwm = TreatmentHeatingControl_ClampPwm(heat_output, 1999U);
+        controller->heat_right_pid.debug.mapped_output = (float)runtime->heat_right_pwm;
         TreatmentActuators_SetHeaterPwm(TREATMENT_SIDE_RIGHT, runtime->heat_right_pwm);
     }
     else
     {
         TreatmentActuators_SetHeaterPwm(TREATMENT_SIDE_RIGHT, 0U);
+        controller->heat_right_pid.debug.mapped_output = 0.0f;
         TreatmentActuators_SetHeaterPower(TREATMENT_SIDE_RIGHT, 0U);
     }
 }

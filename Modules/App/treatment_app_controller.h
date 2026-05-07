@@ -13,9 +13,9 @@ extern "C" {
 #define TREATMENT_CYCLE_MS 60000U
 #define TREATMENT_DEFAULT_PULSE_PERIOD_MS 2000U
 #define TREATMENT_DEFAULT_PULSE_ON_MS (TREATMENT_DEFAULT_PULSE_PERIOD_MS / 2U)
-#define TREATMENT_DEFAULT_RISE_S 2.0f
-#define TREATMENT_DEFAULT_HOLD_S 2.0f
-#define TREATMENT_DEFAULT_PULSE_S 56.0f
+#define TREATMENT_DEFAULT_RISE_S 15.0f
+#define TREATMENT_DEFAULT_HOLD_S 15.0f
+#define TREATMENT_DEFAULT_PULSE_S 30.0f
 
 typedef enum
 {
@@ -62,11 +62,16 @@ typedef struct
     uint32_t active_heat_right_profile_version;
     TickType_t wave_anchor_tick;
     TickType_t paused_elapsed_ticks;
+    TickType_t pressure_vent_start_tick;
+    uint32_t last_pressure_cycle_elapsed_ms;
     uint8_t paused;
     uint8_t pause_log_emitted;
     uint8_t pressure_profile_loaded;
+    uint8_t pressure_cycle_seen;
+    uint8_t pressure_cycle_venting;
     uint8_t emergency_stop;
     uint8_t pid_debug_stream_enabled;
+    TreatmentPhase last_pressure_phase;
 } TreatmentAppController;
 
 void TreatmentAppController_Init(TreatmentAppController *controller);

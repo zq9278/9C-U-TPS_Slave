@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <string.h>
+#define MODULE_LOG_ENABLED MODULE_LOG_APP_CONTROLLER_ENABLE
 #include "Modules/Heat/treatment_heating_control.h"
 #include "Modules/Log/module_log.h"
 #include "Modules/Pressure/treatment_pressure_control.h"

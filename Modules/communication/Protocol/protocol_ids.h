@@ -31,7 +31,7 @@ typedef enum
  *
  * 2. STM32 -> RK3576
  *    These are replies / telemetry / status frames sent from STM32 to RK3576.
- *    The current project uses the 0x1100 ~ 0x110B group for this direction.
+ *    The current project uses the 0x1100 ~ 0x110C group for this direction.
  *
  * 3. Compatibility quirk
  *    The current protocol also reuses some 0x100x IDs for device-to-host
@@ -66,7 +66,8 @@ typedef enum
     PROTOCOL_ID_U8_RIGHT_HEATER_PRESENT = 0x1108,
     PROTOCOL_ID_U8_LEFT_HEATER_FUSE = 0x1109,
     PROTOCOL_ID_U8_RIGHT_HEATER_FUSE = 0x110A,
-    PROTOCOL_ID_U8_MODE_CURVES = 0x110B
+    PROTOCOL_ID_U8_MODE_CURVES = 0x110B,
+    PROTOCOL_ID_U8_STOP_REASON = 0x110C
 } ProtocolFrameId;
 
 static inline uint8_t Protocol_IsRk3576ToStm32Command(uint16_t frame_id)
@@ -114,6 +115,7 @@ static inline uint8_t Protocol_IsStm32ToRk3576Status(uint16_t frame_id)
     case PROTOCOL_ID_U8_LEFT_HEATER_FUSE:
     case PROTOCOL_ID_U8_RIGHT_HEATER_FUSE:
     case PROTOCOL_ID_U8_MODE_CURVES:
+    case PROTOCOL_ID_U8_STOP_REASON:
         return 1U;
 
     default:

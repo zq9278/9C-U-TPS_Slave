@@ -24,6 +24,8 @@ extern "C" {
  */
 void ValveControl_ApplyTreatmentRoute(uint8_t enable_left, uint8_t enable_right);
 
+void ValveControl_SetVentAll(void);
+
 /*
  * 控制波形阀开关：
  * - 1 = 打开当前波形挤压

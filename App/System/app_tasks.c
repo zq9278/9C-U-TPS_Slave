@@ -2,12 +2,13 @@
 
 #include <stddef.h>
 #include <string.h>
+#define MODULE_LOG_ENABLED MODULE_LOG_APP_TASK_ENABLE
 #include "App/System/system_app.h"
 #include "Modules/Log/module_log.h"
 #include "Modules/communication/communication.h"
+#include "Modules/communication/Protocol/pid_debug_protocol.h"
 #include "Modules/communication/Protocol/rk3576_protocol.h"
 #include "Modules/EyeShield/eye_shield_status.h"
-#include "Modules/Pid/pid_debug_protocol.h"
 #include "treatment_app_controller.h"
 #include "Modules/Sensors/treatment_pressure_sensor.h"
 #include "Modules/Sensors/treatment_temperature_sensor.h"
@@ -58,13 +59,20 @@ static void SafetyTask(void *argument);
 static void OnProtocolFrame(void *context,
                             CommunicationInterfaceId interface_id,
                             const CommunicationFrameView *frame);
-static void OnAsciiCommand(void *context,
-                           CommunicationChannel channel,
-                           const char *line,
-                           size_t length);
-static void send_sensor_mode(temp_acquire_mode_t mode);
+static void OnLogRx(void *context,
+                    CommunicationChannel channel,
+                    const uint8_t *data,
+                    size_t length);
+static void send_sensor_mode(temp_acquire_mode_t mode, uint8_t suppress_rtd_fail_log);
 static temp_acquire_mode_t resolve_temperature_mode(const control_config_t *cfg);
+static uint8_t resolve_temperature_log_suppress(const control_config_t *cfg);
 static void request_app_stop(void);
+static void set_pending_stop_reason(stop_reason_t reason);
+static uint8_t consume_pending_stop_reason(stop_reason_t *reason);
+
+static PidDebugRxParser s_pid_debug_rx_parser;
+static volatile stop_reason_t s_pending_stop_reason = STOP_REASON_NONE;
+static volatile uint8_t s_pending_stop_reason_valid = 0U;
 
 static void enqueue_tx_u8(uint16_t frame_id, uint8_t value)
 {
@@ -144,7 +152,7 @@ static void apply_mode_profile(control_config_t *cfg, uint8_t mode)
     }
 }
 
-static void send_sensor_mode(temp_acquire_mode_t mode)
+static void send_sensor_mode(temp_acquire_mode_t mode, uint8_t suppress_rtd_fail_log)
 {
     sensor_cmd_t cmd;
 
@@ -154,6 +162,7 @@ static void send_sensor_mode(temp_acquire_mode_t mode)
     }
 
     cmd.mode = mode;
+    cmd.suppress_rtd_fail_log = suppress_rtd_fail_log;
     (void)xQueueOverwrite(gSensorCmdQueue, &cmd);
 }
 
@@ -184,15 +193,23 @@ static temp_acquire_mode_t resolve_temperature_mode(const control_config_t *cfg)
     {
         return TEMP_ACQUIRE_MODE_DUAL_SCAN;
     }
-    if (left_enabled != 0U)
+    if ((left_enabled != 0U) || (right_enabled != 0U))
     {
-        return TEMP_ACQUIRE_MODE_LEFT_FIXED;
-    }
-    if (right_enabled != 0U)
-    {
-        return TEMP_ACQUIRE_MODE_RIGHT_FIXED;
+        return TEMP_ACQUIRE_MODE_DUAL_SCAN;
     }
     return TEMP_ACQUIRE_MODE_IDLE;
+}
+
+static uint8_t resolve_temperature_log_suppress(const control_config_t *cfg)
+{
+    const uint8_t left_enabled = (uint8_t)((cfg != NULL) &&
+                                           (cfg->press_enable_L != 0U) &&
+                                           (gSensorData.heaterPresentL != 0U));
+    const uint8_t right_enabled = (uint8_t)((cfg != NULL) &&
+                                            (cfg->press_enable_R != 0U) &&
+                                            (gSensorData.heaterPresentR != 0U));
+
+    return (uint8_t)(((left_enabled != 0U) ^ (right_enabled != 0U)) ? 1U : 0U);
 }
 
 static void request_app_stop(void)
@@ -210,6 +227,26 @@ static void request_app_stop(void)
     {
         LOG_E("app queue full stop request");
     }
+}
+
+static void set_pending_stop_reason(stop_reason_t reason)
+{
+    s_pending_stop_reason = reason;
+    s_pending_stop_reason_valid = 1U;
+}
+
+static uint8_t consume_pending_stop_reason(stop_reason_t *reason)
+{
+    uint8_t valid = s_pending_stop_reason_valid;
+
+    if (reason != NULL)
+    {
+        *reason = s_pending_stop_reason;
+    }
+
+    s_pending_stop_reason = STOP_REASON_NONE;
+    s_pending_stop_reason_valid = 0U;
+    return valid;
 }
 
 static void OnProtocolFrame(void *context,
@@ -233,15 +270,6 @@ static void OnProtocolFrame(void *context,
         return;
     }
 
-    if (frame->frame_id == PROTOCOL_ID_U8_START_TREATMENT)
-    {
-        LOG_I("rx start frame");
-    }
-    else if (frame->frame_id == PROTOCOL_ID_U8_STOP_TREATMENT)
-    {
-        LOG_I("rx stop frame");
-    }
-
     if (xQueueSend(gAppCommandQueue, &cmd, 0U) != pdTRUE)
     {
         LOG_E("app queue full frame=0x%04X cmd=%u",
@@ -250,25 +278,27 @@ static void OnProtocolFrame(void *context,
     }
 }
 
-static void OnAsciiCommand(void *context,
-                           CommunicationChannel channel,
-                           const char *line,
-                           size_t length)
+static void OnLogRx(void *context,
+                    CommunicationChannel channel,
+                    const uint8_t *data,
+                    size_t length)
 {
     PidDebugCommand cmd;
+    size_t index;
     (void)context;
 
-    if ((channel != COMM_CHANNEL_UART1) || (line == NULL))
+    if ((channel != COMM_CHANNEL_UART1) || (data == NULL) || (length == 0U))
     {
         return;
     }
 
-    if (PidDebugProtocol_ParseCommand(line, length, &cmd) == 0U)
+    for (index = 0U; index < length; ++index)
     {
-        return;
+        if (PidDebugProtocol_ProcessRxByte(&s_pid_debug_rx_parser, data[index], &cmd) != 0U)
+        {
+            send_pid_ctrl_command(&cmd);
+        }
     }
-
-    send_pid_ctrl_command(&cmd);
 }
 
 static void AppTask(void *argument)
@@ -279,7 +309,7 @@ static void AppTask(void *argument)
 
     (void)argument;
     config_defaults(&cfg);
-    send_sensor_mode(TEMP_ACQUIRE_MODE_IDLE);
+    send_sensor_mode(TEMP_ACQUIRE_MODE_IDLE, 0U);
     send_ctrl_command(CTRL_CMD_UPDATE_CFG, &cfg);
 
     for (;;)
@@ -308,7 +338,8 @@ static void AppTask(void *argument)
             cfg.press_enable_L = (cmd.v.u8 != 0U) ? 1U : 0U;
             if (cfg.running != 0U)
             {
-                send_sensor_mode(resolve_temperature_mode(&cfg));
+                send_sensor_mode(resolve_temperature_mode(&cfg),
+                                 resolve_temperature_log_suppress(&cfg));
             }
             send_ctrl_command(CTRL_CMD_UPDATE_CFG, &cfg);
             break;
@@ -316,15 +347,16 @@ static void AppTask(void *argument)
             cfg.press_enable_R = (cmd.v.u8 != 0U) ? 1U : 0U;
             if (cfg.running != 0U)
             {
-                send_sensor_mode(resolve_temperature_mode(&cfg));
+                send_sensor_mode(resolve_temperature_mode(&cfg),
+                                 resolve_temperature_log_suppress(&cfg));
             }
             send_ctrl_command(CTRL_CMD_UPDATE_CFG, &cfg);
             break;
         case APP_CMD_LEFT_HEATER_FUSE_BLOW:
-            EyeShieldStatus_RequestFuseBlow(1U, 0U);
+            //EyeShieldStatus_RequestFuseBlow(1U, 0U);
             break;
         case APP_CMD_RIGHT_HEATER_FUSE_BLOW:
-            EyeShieldStatus_RequestFuseBlow(0U, 1U);
+            //EyeShieldStatus_RequestFuseBlow(0U, 1U);
             break;
         case APP_CMD_SET_TREATMENT_TIME:
             cfg.treatment_minutes = (cmd.v.u16 == 0U) ? 1U : cmd.v.u16;
@@ -332,10 +364,6 @@ static void AppTask(void *argument)
             break;
         case APP_CMD_MODE_SELECT:
             apply_mode_profile(&cfg, cmd.v.u8);
-            LOG_I("app mode=%u pulse_on=%d pulse_off=%d",
-                  cfg.mode,
-                  (int)cfg.pulse_on_ms,
-                  (int)cfg.pulse_off_ms);
             send_ctrl_command(CTRL_CMD_UPDATE_CFG, &cfg);
             break;
         case APP_CMD_START:
@@ -353,24 +381,35 @@ static void AppTask(void *argument)
                   (int)cfg.press_target_max,
                   cfg.press_enable_L,
                   cfg.press_enable_R);
-            send_sensor_mode(resolve_temperature_mode(&cfg));
+            send_sensor_mode(resolve_temperature_mode(&cfg),
+                             resolve_temperature_log_suppress(&cfg));
             send_ctrl_command(CTRL_CMD_START, &cfg);
             break;
         case APP_CMD_STOP:
+        {
+            stop_reason_t stop_reason = STOP_REASON_NONE;
+            uint8_t stop_reason_valid = consume_pending_stop_reason(&stop_reason);
+
             paused = 0U;
             cfg.running = 0U;
             gTreatmentRunning = 0U;
             LOG_I("app stop");
-            send_sensor_mode(TEMP_ACQUIRE_MODE_IDLE);
+            send_sensor_mode(TEMP_ACQUIRE_MODE_IDLE, 0U);
+            if (stop_reason_valid == 0U)
+            {
+                stop_reason = STOP_REASON_MANUAL;
+            }
+            enqueue_tx_u8(PROTOCOL_ID_U8_STOP_REASON, (uint8_t)stop_reason);
             send_ctrl_command(CTRL_CMD_STOP, &cfg);
             break;
+        }
         case APP_CMD_PAUSE_RESUME:
             if (cmd.v.u8 == 0U)
             {
                 paused = 1U;
                 gTreatmentRunning = 0U;
                 LOG_I("app pause");
-                send_sensor_mode(TEMP_ACQUIRE_MODE_IDLE);
+                send_sensor_mode(TEMP_ACQUIRE_MODE_IDLE, 0U);
                 send_ctrl_command(CTRL_CMD_PAUSE, &cfg);
             }
             else
@@ -378,7 +417,8 @@ static void AppTask(void *argument)
                 paused = 0U;
                 gTreatmentRunning = (cfg.running != 0U) ? 1U : 0U;
                 LOG_I("app resume");
-                send_sensor_mode(resolve_temperature_mode(&cfg));
+                send_sensor_mode(resolve_temperature_mode(&cfg),
+                                 resolve_temperature_log_suppress(&cfg));
                 send_ctrl_command(CTRL_CMD_RESUME, &cfg);
             }
             (void)paused;
@@ -453,7 +493,9 @@ static void SensorTask(void *argument)
         while ((gSensorCmdQueue != NULL) &&
                (xQueueReceive(gSensorCmdQueue, &sensor_cmd, 0U) == pdTRUE))
         {
-            TreatmentTemperatureSensor_SetMode(&temperature_sensor, sensor_cmd.mode);
+            TreatmentTemperatureSensor_SetMode(&temperature_sensor,
+                                               sensor_cmd.mode,
+                                               sensor_cmd.suppress_rtd_fail_log);
         }
 
         now = xTaskGetTickCount();
@@ -502,6 +544,7 @@ static void ControlTask(void *argument)
             if (EyeShieldStatus_Process(&controller.cfg) != 0U)
             {
                 LOG_E("eye shield offline during treatment, request stop");
+                set_pending_stop_reason(STOP_REASON_EYE_SHIELD_OFFLINE);
                 send_ctrl_command(CTRL_CMD_STOP, NULL);
                 gTreatmentRunning = 0U;
                 request_app_stop();
@@ -509,6 +552,23 @@ static void ControlTask(void *argument)
         }
 
         TreatmentAppController_Run(&controller,&gSensorData,now,(float)CONTROL_PERIOD_MS / 1000.0f, &runtime);
+
+        if ((controller.cfg.running != 0U) && (controller.cfg.treatment_minutes > 0U))
+        {
+            uint32_t elapsed_ms =
+                (uint32_t)((now - controller.wave_anchor_tick) * portTICK_PERIOD_MS);
+            uint32_t duration_ms = (uint32_t)controller.cfg.treatment_minutes * 60U * 1000U;
+
+            if (elapsed_ms >= duration_ms)
+            {
+                set_pending_stop_reason(STOP_REASON_NONE);
+                send_ctrl_command(CTRL_CMD_STOP, NULL);
+                gTreatmentRunning = 0U;
+                request_app_stop();
+                vTaskDelay(pdMS_TO_TICKS(CONTROL_PERIOD_MS));
+                continue;
+            }
+        }
 
 #if CONTROL_RUNTIME_LOG_ENABLE
         if ((runtime.session_active != 0U) &&
@@ -574,6 +634,7 @@ static void SafetyTask(void *argument)
 
     for (;;)
     {
+        stop_reason_t stop_reason = STOP_REASON_NONE;
         uint8_t fault =
             (uint8_t)((gSensorData.tempL > TEMP_MAX_C) ||
                       (gSensorData.tempR > TEMP_MAX_C) ||
@@ -591,8 +652,18 @@ static void SafetyTask(void *argument)
                   (int)((gSensorData.pressL - (float)((int)gSensorData.pressL)) * 100.0f),
                   (int)gSensorData.pressR,
                   (int)((gSensorData.pressR - (float)((int)gSensorData.pressR)) * 100.0f));
+            if ((gSensorData.tempL > TEMP_MAX_C) || (gSensorData.tempR > TEMP_MAX_C))
+            {
+                stop_reason = STOP_REASON_OVER_TEMP;
+            }
+            else if ((gSensorData.pressL > PRESS_MAX_KPA) || (gSensorData.pressR > PRESS_MAX_KPA))
+            {
+                stop_reason = STOP_REASON_OVER_PRESSURE;
+            }
+            set_pending_stop_reason(stop_reason);
             send_ctrl_command(CTRL_CMD_STOP, NULL);
             gTreatmentRunning = 0U;
+            request_app_stop();
             fault_active = 1U;
         }
         else if (fault == 0U)
@@ -608,8 +679,9 @@ void AppTasks_Init(void)
 {
     CommunicationCallbacks callbacks;
     (void)memset(&callbacks, 0, sizeof(callbacks));
+    PidDebugProtocol_InitRxParser(&s_pid_debug_rx_parser);
     callbacks.on_protocol_frame = OnProtocolFrame;
-    callbacks.on_ascii_command = OnAsciiCommand;
+    callbacks.on_log_rx = OnLogRx;
     Communication_SetCallbacks(&callbacks);
 
     (void)xTaskCreate(AppTask, "app", APP_TASK_STACK_WORDS, NULL,tskIDLE_PRIORITY + 3U, &s_app_task);

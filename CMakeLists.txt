@@ -69,12 +69,11 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 
     # Modules
     Modules/Log/module_log.c
-    Modules/communication/ascii_processor.c
     Modules/communication/communication.c
     Modules/communication/Protocol/protocol_common.c
+    Modules/communication/Protocol/pid_debug_protocol.c
     Modules/communication/Protocol/rk3576_protocol.c
     Modules/Pid/pid_controller.c
-    Modules/Pid/pid_debug_protocol.c
     Modules/Filter/target_window_filter.c
     Modules/Sensors/treatment_temperature_sensor.c
     Modules/Sensors/treatment_pressure_sensor.c

@@ -44,6 +44,12 @@ void ValveControl_ApplyTreatmentRoute(uint8_t enable_left, uint8_t enable_right)
     }
 }
 
+void ValveControl_SetVentAll(void)
+{
+    VALVE_LEFT(1);
+    VALVE_RIGHT(1);
+}
+
 void ValveControl_SetWave(uint8_t enabled)
 {
     /* 波形阀统一走本文件里的底层函数实现。 */

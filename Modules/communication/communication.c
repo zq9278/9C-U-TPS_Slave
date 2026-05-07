@@ -20,17 +20,12 @@ typedef struct
 
 static CommunicationUartInterface s_log_uart1;
 static CommunicationUartInterface s_rk3576_uart3;
-static AsciiProcessor s_ascii_processor;
 static Rk3576Protocol s_rk3576_protocol;
 static CommunicationCallbacks s_callbacks;
 static uint8_t s_initialized = 0U;
 
 static void Communication_OnLogUartChunk(void *context, const uint8_t *data, size_t length);
 static void Communication_OnRk3576UartChunk(void *context, const uint8_t *data, size_t length);
-static void Communication_OnAsciiLine(void *context,
-                                      CommunicationChannel channel,
-                                      const char *line,
-                                      size_t length);
 static void Communication_OnRk3576Frame(void *context, const ProtocolFrameView *frame);
 static uint8_t Communication_WriteRk3576Bytes(void *context, const uint8_t *data, size_t length);
 static uint8_t Communication_InitUartInterface(CommunicationUartInterface *interface,
@@ -77,25 +72,16 @@ static uint8_t Communication_InitUartInterface(CommunicationUartInterface *inter
 static void Communication_OnLogUartChunk(void *context, const uint8_t *data, size_t length)
 {
     (void)context;
-    AsciiProcessor_ProcessStream(&s_ascii_processor, COMM_CHANNEL_UART1, data, length);
+    if (s_callbacks.on_log_rx != NULL)
+    {
+        s_callbacks.on_log_rx(s_callbacks.context, COMM_CHANNEL_UART1, data, length);
+    }
 }
 
 static void Communication_OnRk3576UartChunk(void *context, const uint8_t *data, size_t length)
 {
     (void)context;
     Rk3576Protocol_Input(&s_rk3576_protocol, data, length);
-}
-
-static void Communication_OnAsciiLine(void *context,
-                                      CommunicationChannel channel,
-                                      const char *line,
-                                      size_t length)
-{
-    (void)context;
-    if (s_callbacks.on_ascii_command != NULL)
-    {
-        s_callbacks.on_ascii_command(s_callbacks.context, channel, line, length);
-    }
 }
 
 static void Communication_OnRk3576Frame(void *context, const ProtocolFrameView *frame)
@@ -123,8 +109,6 @@ static uint8_t Communication_WriteRk3576Bytes(void *context, const uint8_t *data
 
 void Communication_Init(void)
 {
-    AsciiProcessorCallbacks ascii_callbacks;
-
     if (s_initialized != 0U)
     {
         return;
@@ -133,11 +117,6 @@ void Communication_Init(void)
     (void)memset(&s_log_uart1, 0, sizeof(s_log_uart1));
     (void)memset(&s_rk3576_uart3, 0, sizeof(s_rk3576_uart3));
     (void)memset(&s_callbacks, 0, sizeof(s_callbacks));
-
-    AsciiProcessor_Init(&s_ascii_processor);
-    ascii_callbacks.on_line_received = Communication_OnAsciiLine;
-    ascii_callbacks.context = NULL;
-    AsciiProcessor_SetCallbacks(&s_ascii_processor, &ascii_callbacks);
 
     if (Communication_InitUartInterface(&s_log_uart1,
                                         &huart1,

@@ -202,30 +202,6 @@ uint8_t UserAds1248_Init(UserAds1248 *dev)
     return 1U;
 }
 
-uint8_t UserAds1248_InitSingleChannel(UserAds1248 *dev, UserAds1248Channel channel)
-{
-    uint32_t raw_discard = 0U;
-    uint32_t i;
-
-    UserAds1248_Reset(dev);
-    if (UserAds1248_SelectChannel(dev, channel) == 0U)
-    {
-        return 0U;
-    }
-
-    AdsDelay(dev, ADS1248_STARTUP_SETTLE_MS);
-    for (i = 0U; i < ADS1248_STARTUP_DISCARD_CNT; ++i)
-    {
-        if ((UserAds1248_WaitDrdy(dev, USER_ADS1248_DRDY_TIMEOUT_MS) == 0U) ||
-            (UserAds1248_ReadRaw(dev, &raw_discard) == 0U))
-        {
-            return 0U;
-        }
-    }
-
-    return 1U;
-}
-
 uint8_t UserAds1248_SelectChannel(UserAds1248 *dev, UserAds1248Channel channel)
 {
     const UserAds1248ChannelConfig *cfg;
@@ -398,36 +374,3 @@ uint8_t UserAds1248_ReadTemperatureC(UserAds1248 *dev,
     return AdsReadTemperatureFromCurrentChannel(dev, temp_c_out, raw_out);
 }
 
-uint8_t UserAds1248_ReadSingleChannelTemperatureC(UserAds1248 *dev,
-                                                  UserAds1248Channel channel,
-                                                  float *temp_c_out,
-                                                  uint32_t *raw_out)
-{
-    uint8_t ok;
-
-    if ((dev == NULL) || (temp_c_out == NULL))
-    {
-        return 0U;
-    }
-
-    if (channel != dev->current_channel)
-    {
-        if (UserAds1248_InitSingleChannel(dev, channel) == 0U)
-        {
-            return 0U;
-        }
-    }
-
-    ok = AdsReadTemperatureFromCurrentChannel(dev, temp_c_out, raw_out);
-    if (ok != 0U)
-    {
-        return 1U;
-    }
-
-    if (UserAds1248_InitSingleChannel(dev, channel) == 0U)
-    {
-        return 0U;
-    }
-
-    return AdsReadTemperatureFromCurrentChannel(dev, temp_c_out, raw_out);
-}

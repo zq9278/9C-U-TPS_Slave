@@ -33,11 +33,8 @@ try:
         QSlider,
         QSpinBox,
         QSplitter,
-        QTableWidget,
-        QTableWidgetItem,
         QVBoxLayout,
         QWidget,
-        QHeaderView,
     )
 except ImportError as exc:
     raise SystemExit("Please install dependencies first: python -m pip install -r requirements.txt") from exc
@@ -50,9 +47,12 @@ MAX_POINTS = 1200
 MAX_LOG_BLOCKS = 800
 DEBUG_LOG_NAME = "pid_tuner_debug.log"
 FRAME_MAGIC = b"\xC5\x5C"
-FRAME_LEN = 52
-FRAME_STRUCT = struct.Struct("<2sBBI10fH2s")
-CURVE_KEYS = ["p", "i", "d", "error", "output", "setpoint", "measurement"]
+FRAME_LEN = 56
+FRAME_STRUCT = struct.Struct("<2sBBI11fH2s")
+CURVE_KEYS = ["p", "i", "d", "error", "output", "mapped_output", "setpoint", "measurement"]
+
+PID_CMD_SET_GAINS = 0x01
+PID_CMD_STREAM_ENABLE = 0x02
 
 TARGETS = [
     {"id": 0, "code": "PR", "name": "Pressure Rise"},
@@ -86,8 +86,20 @@ CURVE_COLORS = {
     "d": "#2ecc71",
     "error": "#a66cff",
     "output": "#ff9f43",
+    "mapped_output": "#f1c40f",
     "setpoint": "#00b894",
     "measurement": "#95a5a6",
+}
+
+CURVE_LABELS = {
+    "p": "p",
+    "i": "i",
+    "d": "d",
+    "error": "error",
+    "output": "output",
+    "mapped_output": "pwm_actual",
+    "setpoint": "setpoint",
+    "measurement": "measurement",
 }
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -184,13 +196,28 @@ class MixedPidParser:
                         "d": unpacked[9],
                         "error": unpacked[10],
                         "output": unpacked[11],
-                        "setpoint": unpacked[12],
-                        "measurement": unpacked[13],
+                        "mapped_output": unpacked[12],
+                        "setpoint": unpacked[13],
+                        "measurement": unpacked[14],
                     }
                 )
             del self.buffer[:FRAME_LEN]
 
         return b"".join(text_chunks).decode("utf-8", errors="replace"), samples
+
+
+def build_pid_set_frame(target_id: int, kp: float, ki: float, kd: float) -> bytes:
+    payload = struct.pack("<Bfff", target_id, kp, ki, kd)
+    body = struct.pack("<BBB", 0x01, PID_CMD_SET_GAINS, len(payload)) + payload
+    crc = crc16_modbus(body)
+    return FRAME_MAGIC + body + struct.pack("<H", crc)
+
+
+def build_pid_stream_frame(enabled: bool) -> bytes:
+    payload = struct.pack("<B", 1 if enabled else 0)
+    body = struct.pack("<BBB", 0x01, PID_CMD_STREAM_ENABLE, len(payload)) + payload
+    crc = crc16_modbus(body)
+    return FRAME_MAGIC + body + struct.pack("<H", crc)
 
 
 class SerialWorker(QThread):
@@ -249,14 +276,14 @@ class SerialWorker(QThread):
     def stop(self):
         self._running = False
 
-    def send_line(self, line: str):
+    def send_bytes(self, data: bytes):
         if (self._serial is None) or (not self._serial.is_open):
-            LOGGER.warning("serial write rejected not connected line=%s", line)
+            LOGGER.warning("serial write rejected not connected bytes=%d", len(data) if data is not None else 0)
             self.error.emit("Serial is not connected")
             return
         try:
-            LOGGER.info("serial write line=%s", line)
-            self._serial.write((line.strip() + "\r\n").encode("ascii"))
+            LOGGER.info("serial write bytes=%d", len(data))
+            self._serial.write(data)
         except serial.SerialException as exc:
             LOGGER.exception("serial write failed")
             self.error.emit(f"Serial write failed: {exc}")
@@ -366,29 +393,6 @@ class PidTuneCard(QFrame):
         self.send_requested.emit(self.code, kp, ki, kd)
 
 
-class StatTile(QFrame):
-    def __init__(self, label: str):
-        super().__init__()
-        self.setObjectName("statTile")
-        self.title = QLabel(label)
-        self.title.setObjectName("statLabel")
-        self.value = QLabel("--")
-        self.value.setObjectName("statValue")
-        self.value.setTextInteractionFlags(Qt.TextSelectableByMouse)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(4)
-        layout.addWidget(self.title)
-        layout.addWidget(self.value)
-
-    def set_value(self, value):
-        if isinstance(value, float):
-            self.value.setText(f"{value:.4f}")
-        else:
-            self.value.setText(str(value))
-
-
 class CurveControlBar(QFrame):
     def __init__(self):
         super().__init__()
@@ -400,7 +404,7 @@ class CurveControlBar(QFrame):
         layout.setVerticalSpacing(8)
 
         for index, key in enumerate(CURVE_KEYS):
-            box = QCheckBox(key)
+            box = QCheckBox(CURVE_LABELS[key])
             box.setChecked(True)
             scale = QDoubleSpinBox()
             scale.setRange(-1000000.0, 1000000.0)
@@ -465,22 +469,12 @@ class MainWindow(QMainWindow):
         self.plot.addLegend()
         self.plot.setBackground("#111315")
         self.plot_items = {
-            key: self.plot.plot([], [], pen=pg.mkPen(CURVE_COLORS[key], width=2), name=key)
+            key: self.plot.plot([], [], pen=pg.mkPen(CURVE_COLORS[key], width=2), name=CURVE_LABELS[key])
             for key in CURVE_KEYS
         }
         self.curve_bar = CurveControlBar()
         self.clear_curve_btn = QPushButton("Clear Curve")
 
-        self.snapshot_title = QLabel("Live Snapshot")
-        self.snapshot_title.setObjectName("sectionTitle")
-        self.snapshot_target = QLabel("Pressure Rise")
-        self.snapshot_target.setObjectName("snapshotTarget")
-        self.snapshot_tiles = {
-            key: StatTile(key)
-            for key in ["kp", "ki", "kd", "error", "output", "setpoint", "measurement", "p", "i", "d"]
-        }
-
-        self.summary_table = QTableWidget(len(TARGETS), 8)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.clear_log_btn = QPushButton("Clear Log")
@@ -493,9 +487,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._apply_style()
         self._connect_signals()
-        self._init_summary_table()
         self.refresh_ports()
-        self.update_snapshot()
         LOGGER.info("mainwindow init")
 
     def _build_ui(self):
@@ -577,27 +569,8 @@ class MainWindow(QMainWindow):
         header.addWidget(self.clear_curve_btn)
         layout.addLayout(header)
 
-        layout.addWidget(self.plot, 4)
+        layout.addWidget(self.plot, 8)
         layout.addWidget(self.curve_bar)
-
-        snapshot_header = QHBoxLayout()
-        snapshot_header.addWidget(self.snapshot_title)
-        snapshot_header.addStretch(1)
-        snapshot_header.addWidget(self.snapshot_target)
-        layout.addLayout(snapshot_header)
-
-        snapshot_grid = QGridLayout()
-        snapshot_grid.setHorizontalSpacing(10)
-        snapshot_grid.setVerticalSpacing(10)
-        tile_order = ["kp", "ki", "kd", "error", "output", "setpoint", "measurement", "p", "i", "d"]
-        for index, key in enumerate(tile_order):
-            snapshot_grid.addWidget(self.snapshot_tiles[key], index // 5, index % 5)
-        layout.addLayout(snapshot_grid)
-
-        summary_title = QLabel("Quick Summary")
-        summary_title.setObjectName("sectionTitle")
-        layout.addWidget(summary_title)
-        layout.addWidget(self.summary_table, 2)
 
         log_header = QHBoxLayout()
         log_title = QLabel("Log")
@@ -622,7 +595,7 @@ class MainWindow(QMainWindow):
                 background: #fbfcfe;
             }
             QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 4px; }
-            QFrame#pidCard, QFrame#curveBar, QFrame#statTile {
+            QFrame#pidCard, QFrame#curveBar {
                 border: 1px solid #d7dde5;
                 border-radius: 10px;
                 background: white;
@@ -631,13 +604,6 @@ class MainWindow(QMainWindow):
                 font-size: 15px;
                 font-weight: 700;
             }
-            QLabel#snapshotTarget {
-                font-size: 14px;
-                font-weight: 600;
-                color: #2563eb;
-            }
-            QLabel#statLabel { color: #6b7280; font-size: 12px; }
-            QLabel#statValue { font-size: 15px; font-weight: 600; }
             QPushButton {
                 background: white;
                 border: 1px solid #cfd8e3;
@@ -653,19 +619,6 @@ class MainWindow(QMainWindow):
                 border: 1px solid #cfd8e3;
                 border-radius: 10px;
             }
-            QTableWidget {
-                background: white;
-                border: 1px solid #d7dde5;
-                border-radius: 10px;
-                gridline-color: #edf1f5;
-            }
-            QHeaderView::section {
-                background: #eef2f7;
-                border: none;
-                border-bottom: 1px solid #d7dde5;
-                padding: 6px;
-                font-weight: 600;
-            }
             """
         )
 
@@ -679,22 +632,6 @@ class MainWindow(QMainWindow):
         self.target_combo.currentIndexChanged.connect(self._target_changed)
         for card in self.tune_cards.values():
             card.send_requested.connect(self.send_pid)
-
-    def _init_summary_table(self):
-        headers = ["Target", "Kp", "Ki", "Kd", "Error", "Output", "Setpoint", "Actual"]
-        self.summary_table.setHorizontalHeaderLabels(headers)
-        self.summary_table.verticalHeader().setVisible(False)
-        self.summary_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.summary_table.setSelectionMode(QTableWidget.NoSelection)
-        self.summary_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.summary_table.horizontalHeader().setMinimumSectionSize(80)
-        for row, item in enumerate(TARGETS):
-            for col, text in enumerate([item["name"], "--", "--", "--", "--", "--", "--", "--"]):
-                cell = QTableWidgetItem(text)
-                if col == 0:
-                    cell.setFont(QFont("", weight=QFont.Bold))
-                self.summary_table.setItem(row, col, cell)
-        self.summary_table.setMinimumHeight(220)
 
     def refresh_ports(self):
         current_port = self.port_combo.currentData()
@@ -725,7 +662,7 @@ class MainWindow(QMainWindow):
         LOGGER.info("disconnect requested stream=%s", self.stream_enabled)
         if self.worker is not None:
             if self.stream_enabled:
-                self.send_line("PID STREAM 0")
+                self.send_bytes("PID STREAM 0", build_pid_stream_frame(False))
             self.worker.stop()
             self.worker.wait(1000)
 
@@ -774,27 +711,9 @@ class MainWindow(QMainWindow):
             self.series_x[code].append(sample["tick_ms"] / 1000.0)
             for key in CURVE_KEYS:
                 self.series_y[code][key].append(sample[key])
-            self._update_summary_row(code, sample)
             if code == self.current_target:
                 dirty_current = True
-        if dirty_current:
-            self.update_snapshot()
         self._emit_periodic_diag()
-
-    def _update_summary_row(self, code: str, sample: dict):
-        row = next(index for index, item in enumerate(TARGETS) if item["code"] == code)
-        values = [
-            sample["target_name"],
-            f'{sample["kp"]:.4f}',
-            f'{sample["ki"]:.4f}',
-            f'{sample["kd"]:.4f}',
-            f'{sample["error"]:.4f}',
-            f'{sample["output"]:.4f}',
-            f'{sample["setpoint"]:.4f}',
-            f'{sample["measurement"]:.4f}',
-        ]
-        for col, text in enumerate(values):
-            self.summary_table.item(row, col).setText(text)
 
     def refresh_visuals(self):
         start_ts = time.perf_counter()
@@ -808,7 +727,6 @@ class MainWindow(QMainWindow):
             ]
             self.plot_items[key].setVisible(control["visible"].isChecked())
             self.plot_items[key].setData(x_values, y_values)
-        self.update_snapshot()
         elapsed_ms = (time.perf_counter() - start_ts) * 1000.0
         self._max_refresh_ms = max(self._max_refresh_ms, elapsed_ms)
         if elapsed_ms > 80.0:
@@ -818,17 +736,6 @@ class MainWindow(QMainWindow):
                            len(x_values))
         self._emit_periodic_diag()
 
-    def update_snapshot(self):
-        sample = self.last_samples.get(self.current_target)
-        target = TARGET_BY_CODE[self.current_target]
-        self.snapshot_target.setText(target["name"])
-        if sample is None:
-            for tile in self.snapshot_tiles.values():
-                tile.set_value("--")
-            return
-        for key, tile in self.snapshot_tiles.items():
-            tile.set_value(sample.get(key, "--"))
-
     def clear_curve(self):
         LOGGER.info("clear curve")
         for x_values in self.series_x.values():
@@ -837,27 +744,27 @@ class MainWindow(QMainWindow):
             for values in group.values():
                 values.clear()
         self.last_samples = {item["code"]: None for item in TARGETS}
-        for row in range(self.summary_table.rowCount()):
-            for col in range(1, self.summary_table.columnCount()):
-                self.summary_table.item(row, col).setText("--")
         self.refresh_visuals()
 
-    def send_line(self, line: str):
-        self.append_log(f"[PC->MCU] {line}\n")
+    def send_bytes(self, label: str, data: bytes):
+        self.append_log(f"[PC->MCU] {label}  {data.hex(' ').upper()}\n")
         if self.worker is None:
             self.on_error("Serial is not connected")
             return
-        self.worker.send_line(line)
+        self.worker.send_bytes(data)
 
     def send_pid(self, code: str, kp: float, ki: float, kd: float):
         LOGGER.info("send pid code=%s kp=%.4f ki=%.4f kd=%.4f", code, kp, ki, kd)
-        self.send_line(f"PID SET {code} {kp:.4f} {ki:.4f} {kd:.4f}")
+        target = TARGET_BY_CODE[code]
+        frame = build_pid_set_frame(target["id"], kp, ki, kd)
+        self.send_bytes(f"PID SET {code}", frame)
 
     def toggle_stream(self):
         self.stream_enabled = not self.stream_enabled
         LOGGER.info("toggle stream enabled=%s", self.stream_enabled)
         self._update_stream_button()
-        self.send_line(f"PID STREAM {1 if self.stream_enabled else 0}")
+        frame = build_pid_stream_frame(self.stream_enabled)
+        self.send_bytes(f"PID STREAM {1 if self.stream_enabled else 0}", frame)
 
     def _update_stream_button(self):
         self.stream_btn.setText("Disable PID Stream" if self.stream_enabled else "Enable PID Stream")
@@ -868,7 +775,6 @@ class MainWindow(QMainWindow):
             return
         LOGGER.info("target changed code=%s", code)
         self.current_target = code
-        self.update_snapshot()
 
     def _emit_periodic_diag(self):
         now_ts = time.time()

@@ -3,6 +3,7 @@
 #include <string.h>
 #include "BSP/Gpio/bsp_gpio.h"
 #include "FreeRTOS.h"
+#define MODULE_LOG_ENABLED MODULE_LOG_EYE_SHIELD_ENABLE
 #include "Modules/Log/module_log.h"
 #include "Modules/communication/Protocol/protocol_ids.h"
 #include "TreatmentActuators.h"

@@ -1,6 +1,7 @@
 #include "TreatmentActuators.h"
 
 #include "BSP/Pwm/bsp_pwm.h"
+#define MODULE_LOG_ENABLED MODULE_LOG_ACTUATOR_ENABLE
 #include "Modules/Log/module_log.h"
 #include "UserDrivers/ValveControl/valve_control.h"
 #include "main.h"
@@ -109,6 +110,11 @@ void TreatmentActuators_SetIdle(void)
 void TreatmentActuators_ApplyPressureRoute(uint8_t enable_left, uint8_t enable_right)
 {
     ValveControl_ApplyTreatmentRoute(enable_left, enable_right);
+}
+
+void TreatmentActuators_SetPressureVentAll(void)
+{
+    ValveControl_SetVentAll();
 }
 
 void TreatmentActuators_SetWaveValve(uint8_t enabled)

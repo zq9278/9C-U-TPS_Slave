@@ -39,6 +39,7 @@ typedef struct
     float setpoint;
     float measurement;
     float output;
+    float mapped_output;
     float dt_s;
     uint8_t output_limited;
 } PidControllerDebug;

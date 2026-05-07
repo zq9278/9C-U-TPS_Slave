@@ -74,15 +74,23 @@ typedef struct
 typedef enum
 {
     TEMP_ACQUIRE_MODE_IDLE = 0,
-    TEMP_ACQUIRE_MODE_LEFT_FIXED,
-    TEMP_ACQUIRE_MODE_RIGHT_FIXED,
     TEMP_ACQUIRE_MODE_DUAL_SCAN,
 } temp_acquire_mode_t;
 
 typedef struct
 {
     temp_acquire_mode_t mode;
+    uint8_t suppress_rtd_fail_log;
 } sensor_cmd_t;
+
+typedef enum
+{
+    STOP_REASON_NONE = 0,
+    STOP_REASON_MANUAL = 1,
+    STOP_REASON_EYE_SHIELD_OFFLINE = 2,
+    STOP_REASON_OVER_TEMP = 3,
+    STOP_REASON_OVER_PRESSURE = 4
+} stop_reason_t;
 
 typedef enum
 {

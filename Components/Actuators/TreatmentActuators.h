@@ -16,6 +16,7 @@ typedef enum
 void TreatmentActuators_Init(void);
 void TreatmentActuators_SetIdle(void);
 void TreatmentActuators_ApplyPressureRoute(uint8_t enable_left, uint8_t enable_right);
+void TreatmentActuators_SetPressureVentAll(void);
 void TreatmentActuators_SetWaveValve(uint8_t enabled);
 void TreatmentActuators_SetPumpPwm(uint16_t pwm);
 void TreatmentActuators_SetHeaterPower(TreatmentSide side, uint8_t enabled);
