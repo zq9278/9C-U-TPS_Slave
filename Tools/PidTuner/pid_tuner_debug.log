@@ -17988,3 +17988,17 @@
 2026-05-07 15:44:27,937 INFO diag target=HL points=1200 batches=0 samples=0 max_batch=0 max_refresh_ms=7.04 log_blocks=91 last_tick=419476
 2026-05-07 15:44:29,987 INFO diag target=HL points=1200 batches=0 samples=0 max_batch=0 max_refresh_ms=6.30 log_blocks=91 last_tick=419476
 2026-05-07 15:44:32,050 INFO diag target=HL points=1200 batches=0 samples=0 max_batch=0 max_refresh_ms=6.34 log_blocks=91 last_tick=419476
+2026-05-07 15:44:34,123 INFO diag target=HL points=1200 batches=0 samples=0 max_batch=0 max_refresh_ms=5.92 log_blocks=91 last_tick=419476
+2026-05-07 15:44:36,174 INFO diag target=HL points=1200 batches=0 samples=0 max_batch=0 max_refresh_ms=7.78 log_blocks=91 last_tick=419476
+2026-05-07 15:44:38,247 INFO diag target=HL points=1200 batches=0 samples=0 max_batch=0 max_refresh_ms=6.49 log_blocks=91 last_tick=419476
+2026-05-07 15:44:40,314 INFO diag target=HL points=1200 batches=0 samples=0 max_batch=0 max_refresh_ms=6.60 log_blocks=91 last_tick=419476
+2026-05-07 15:44:42,364 INFO diag target=HL points=1200 batches=0 samples=0 max_batch=0 max_refresh_ms=5.39 log_blocks=91 last_tick=419476
+2026-05-07 15:44:44,370 INFO diag target=HL points=1200 batches=0 samples=0 max_batch=0 max_refresh_ms=5.92 log_blocks=91 last_tick=419476
+2026-05-07 15:44:46,429 INFO diag target=HL points=1200 batches=0 samples=0 max_batch=0 max_refresh_ms=8.15 log_blocks=91 last_tick=419476
+2026-05-07 15:44:48,335 DEBUG serial read bytes=78 text_len=78 samples=0
+2026-05-07 15:44:48,510 INFO diag target=HL points=1200 batches=0 samples=0 max_batch=0 max_refresh_ms=8.02 log_blocks=93 last_tick=419476
+2026-05-07 15:44:50,566 INFO diag target=HL points=1200 batches=0 samples=0 max_batch=0 max_refresh_ms=8.49 log_blocks=93 last_tick=419476
+2026-05-07 15:44:52,645 INFO diag target=HL points=1200 batches=0 samples=0 max_batch=0 max_refresh_ms=7.40 log_blocks=93 last_tick=419476
+2026-05-07 15:44:54,733 INFO diag target=HL points=1200 batches=0 samples=0 max_batch=0 max_refresh_ms=5.70 log_blocks=93 last_tick=419476
+2026-05-07 15:44:56,788 INFO diag target=HL points=1200 batches=0 samples=0 max_batch=0 max_refresh_ms=6.67 log_blocks=93 last_tick=419476
+2026-05-07 15:44:58,860 INFO diag target=HL points=1200 batches=0 samples=0 max_batch=0 max_refresh_ms=8.27 log_blocks=93 last_tick=419476

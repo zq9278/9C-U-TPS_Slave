@@ -16,7 +16,7 @@ extern "C" {
 
 void EyeShieldStatus_Init(void);
 void EyeShieldStatus_Service(void);
-void EyeShieldStatus_Process(control_config_t *cfg);
+uint8_t EyeShieldStatus_Process(control_config_t *cfg);
 void EyeShieldStatus_RequestFuseBlow(uint8_t blow_left, uint8_t blow_right);
 
 #ifdef __cplusplus

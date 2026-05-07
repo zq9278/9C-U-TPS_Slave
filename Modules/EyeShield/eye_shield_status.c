@@ -210,12 +210,15 @@ void EyeShieldStatus_Service(void)
     }
 }
 
-void EyeShieldStatus_Process(control_config_t *cfg)
+uint8_t EyeShieldStatus_Process(control_config_t *cfg)
 {
     uint8_t left_present_raw;
     uint8_t right_present_raw;
     uint8_t left_fuse_raw;
     uint8_t right_fuse_raw;
+    uint8_t stop_requested = 0U;
+    uint8_t left_required = 0U;
+    uint8_t right_required = 0U;
 
     if (s_initialized == 0U)
     {
@@ -271,8 +274,11 @@ void EyeShieldStatus_Process(control_config_t *cfg)
 
     if (cfg == NULL)
     {
-        return;
+        return 0U;
     }
+
+    left_required = (uint8_t)((cfg->running != 0U) && (cfg->press_enable_L != 0U));
+    right_required = (uint8_t)((cfg->running != 0U) && (cfg->press_enable_R != 0U));
 
     {
         static uint8_t left_missing_warned = 0U;
@@ -287,6 +293,10 @@ void EyeShieldStatus_Process(control_config_t *cfg)
             {
                 left_missing_warned = 1U;
                 LOG_W("eye shield L not present, disable L heat");
+            }
+            if (left_required != 0U)
+            {
+                stop_requested = 1U;
             }
             EyeShieldStatus_DisableSide(TREATMENT_SIDE_LEFT, &cfg->press_enable_L);
         }
@@ -305,6 +315,10 @@ void EyeShieldStatus_Process(control_config_t *cfg)
             {
                 right_missing_warned = 1U;
                 LOG_W("eye shield R not present, disable R heat");
+            }
+            if (right_required != 0U)
+            {
+                stop_requested = 1U;
             }
             EyeShieldStatus_DisableSide(TREATMENT_SIDE_RIGHT, &cfg->press_enable_R);
         }
@@ -333,4 +347,6 @@ void EyeShieldStatus_Process(control_config_t *cfg)
         EyeShieldStatus_DisableSide(TREATMENT_SIDE_RIGHT, &cfg->press_enable_R);
     }
 #endif
+
+    return stop_requested;
 }

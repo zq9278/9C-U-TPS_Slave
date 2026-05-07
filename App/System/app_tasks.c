@@ -64,6 +64,7 @@ static void OnAsciiCommand(void *context,
                            size_t length);
 static void send_sensor_mode(temp_acquire_mode_t mode);
 static temp_acquire_mode_t resolve_temperature_mode(const control_config_t *cfg);
+static void request_app_stop(void);
 
 static void enqueue_tx_u8(uint16_t frame_id, uint8_t value)
 {
@@ -192,6 +193,23 @@ static temp_acquire_mode_t resolve_temperature_mode(const control_config_t *cfg)
         return TEMP_ACQUIRE_MODE_RIGHT_FIXED;
     }
     return TEMP_ACQUIRE_MODE_IDLE;
+}
+
+static void request_app_stop(void)
+{
+    app_cmd_t cmd;
+
+    if (gAppCommandQueue == NULL)
+    {
+        return;
+    }
+
+    (void)memset(&cmd, 0, sizeof(cmd));
+    cmd.id = APP_CMD_STOP;
+    if (xQueueSend(gAppCommandQueue, &cmd, 0U) != pdTRUE)
+    {
+        LOG_E("app queue full stop request");
+    }
 }
 
 static void OnProtocolFrame(void *context,
@@ -481,7 +499,13 @@ static void ControlTask(void *argument)
         if ((int32_t)(now - next_eye_shield_status) >= 0)
         {
             next_eye_shield_status = now + pdMS_TO_TICKS(EYE_SHIELD_STATUS_MS);
-            EyeShieldStatus_Process(&controller.cfg);
+            if (EyeShieldStatus_Process(&controller.cfg) != 0U)
+            {
+                LOG_E("eye shield offline during treatment, request stop");
+                send_ctrl_command(CTRL_CMD_STOP, NULL);
+                gTreatmentRunning = 0U;
+                request_app_stop();
+            }
         }
 
         TreatmentAppController_Run(&controller,&gSensorData,now,(float)CONTROL_PERIOD_MS / 1000.0f, &runtime);
