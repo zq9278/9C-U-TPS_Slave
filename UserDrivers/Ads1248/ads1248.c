@@ -49,8 +49,10 @@ static const uint16_t kTempTableCold[] = {
 };
 
 static const UserAds1248ChannelConfig kChannelConfig[] = {
-    { 0x13U, 0x28U, ADS1248_SYS0_PGA1_DR80SPS, 0x01U, 0x89U },
-    { 0x01U, 0x20U, ADS1248_SYS0_PGA1_DR80SPS, 0x01U, 0x8AU },
+    /* Heat1: AIN2/AIN3 + REFP1/REFN1, excitation routed only to IEXC2. */
+    { 0x13U, 0x28U, ADS1248_SYS0_PGA1_DR80SPS, 0x01U, 0xF9U },
+    /* Heat2: AIN0/AIN1 + REFP0/REFN0, excitation routed only to IEXC1. */
+    { 0x01U, 0x20U, ADS1248_SYS0_PGA1_DR80SPS, 0x01U, 0xF8U },
 };
 
 static void AdsDelay(UserAds1248 *dev, uint32_t ms)

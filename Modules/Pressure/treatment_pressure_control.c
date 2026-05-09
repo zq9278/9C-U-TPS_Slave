@@ -1,8 +1,11 @@
 #include "treatment_pressure_control.h"
 
 #include <string.h>
-#include "TreatmentActuators.h"
+#include "BSP/Pwm/bsp_pwm.h"
+#include "UserDrivers/ValveControl/valve_control.h"
+#include "tim.h"
 
+/* 压力 PID 缺省参数与执行器映射常量。 */
 #define PRESS_PID_DEFAULT_DT_S 0.002f
 #define PRESS_VENT_ZERO_KPA 0.50f
 #define PRESS_VENT_MAX_MS 500U
@@ -10,6 +13,10 @@
 #define PRESS_PUMP_MAX_PWM 255U
 #define PRESS_PUMP_RAW_MAX 255.0f
 
+static BspPwmChannel s_pump_pwm;
+static uint8_t s_pressure_hw_initialized = 0U;
+
+/* 当前支持“单眼治疗”和“双眼治疗”两套独立压力 PID 参数。 */
 typedef enum
 {
     TREATMENT_PRESS_PROFILE_SINGLE_EYE = 0,
@@ -30,20 +37,24 @@ typedef struct
     TreatmentPressurePidGains pulse;
 } TreatmentPressurePidProfile;
 
+/* 单眼治疗 PID 参数组。 */
 static TreatmentPressurePidProfile s_press_pid_single_eye = {
     {0.1f, 0.1f, 0.0f},
     {0.30f, 0.1f, 0.00f},
     {0.06f, 0.000f, 0.000f},
 };
 
+/* 双眼治疗 PID 参数组。 */
 static TreatmentPressurePidProfile s_press_pid_dual_eye = {
     {0.1f, 0.1f, 0.0f},
     {0.50f, 0.1f, 0.00f},
     {0.1f, 0.000f, 0.000f},
 };
 
+/* 参数版本号，供运行中热切换 PID 配置时判断是否需要重载。 */
 static uint32_t s_press_pid_profile_version = 0U;
 
+/* 根据当前左右眼使能状态决定使用单眼还是双眼参数组。 */
 static TreatmentPressureProfileKind TreatmentPressureControl_GetProfileKind(
     const TreatmentAppController *controller)
 {
@@ -57,6 +68,7 @@ static TreatmentPressureProfileKind TreatmentPressureControl_GetProfileKind(
     return TREATMENT_PRESS_PROFILE_SINGLE_EYE;
 }
 
+/* 返回可写的 PID 参数组对象。 */
 static TreatmentPressurePidProfile *TreatmentPressureControl_SelectProfileMutable(
     TreatmentPressureProfileKind kind)
 {
@@ -65,6 +77,7 @@ static TreatmentPressurePidProfile *TreatmentPressureControl_SelectProfileMutabl
            &s_press_pid_single_eye;
 }
 
+/* 返回只读的 PID 参数组对象。 */
 static const TreatmentPressurePidProfile *TreatmentPressureControl_SelectProfile(
     TreatmentPressureProfileKind kind)
 {
@@ -73,6 +86,7 @@ static const TreatmentPressurePidProfile *TreatmentPressureControl_SelectProfile
            &s_press_pid_single_eye;
 }
 
+/* 选择某个阶段对应的可写 PID 参数。 */
 static TreatmentPressurePidGains *TreatmentPressureControl_SelectStageGainsMutable(
     TreatmentPressurePidProfile *profile,
     TreatmentPressurePidStage stage)
@@ -89,6 +103,7 @@ static TreatmentPressurePidGains *TreatmentPressureControl_SelectStageGainsMutab
     }
 }
 
+/* 选择某个阶段对应的只读 PID 参数。 */
 static const TreatmentPressurePidGains *TreatmentPressureControl_SelectStageGains(
     const TreatmentPressurePidProfile *profile,
     TreatmentPressurePidStage stage)
@@ -105,6 +120,7 @@ static const TreatmentPressurePidGains *TreatmentPressureControl_SelectStageGain
     }
 }
 
+/* 将 PID 输出归一化映射到泵 PWM 区间，并保留最小有效驱动。 */
 static uint16_t TreatmentPressureControl_ClampPwm(float value, uint16_t max_value)
 {
     float scaled_value;
@@ -140,6 +156,56 @@ static uint16_t TreatmentPressureControl_ClampPwm(float value, uint16_t max_valu
     return (uint16_t)scaled_value;
 }
 
+static void TreatmentPressureControl_ApplyPressureRouteOutputs(uint8_t enable_left,
+                                                               uint8_t enable_right)
+{
+    ValveControl_ApplyTreatmentRoute(enable_left, enable_right);
+}
+
+static void TreatmentPressureControl_SetPressureVentAllOutputs(void)
+{
+    ValveControl_SetVentAll();
+}
+
+static void TreatmentPressureControl_SetWaveValveOutput(uint8_t enabled)
+{
+    ValveControl_SetWave(enabled);
+}
+
+static void TreatmentPressureControl_SetPumpPwmOutput(uint16_t pwm)
+{
+    BspPwm_SetPulse(&s_pump_pwm, (pwm > PRESS_PUMP_MAX_PWM) ? PRESS_PUMP_MAX_PWM : pwm);
+}
+
+void TreatmentPressureControl_InitHardware(void)
+{
+    BspPwmChannelConfig cfg;
+
+    if (s_pressure_hw_initialized != 0U)
+    {
+        return;
+    }
+
+    cfg.htim = &htim15;
+    cfg.channel = TIM_CHANNEL_1;
+    BspPwm_Init(&s_pump_pwm, &cfg);
+    (void)BspPwm_Start(&s_pump_pwm);
+    s_pressure_hw_initialized = 1U;
+    TreatmentPressureControl_SetIdleOutputs();
+}
+
+void TreatmentPressureControl_SetIdleOutputs(void)
+{
+    TreatmentPressureControl_SetPumpPwmOutput(0U);
+    TreatmentPressureControl_SetWaveValveOutput(0U);
+    TreatmentPressureControl_SetPressureVentAllOutputs();
+}
+
+/*
+ * 反馈压力选择规则：
+ * - 双眼治疗时取左右眼较大值，保证两侧都不会低于目标过多；
+ * - 单眼治疗时取启用侧压力。
+ */
 static float TreatmentPressureControl_GetFeedbackKpa(const TreatmentAppController *controller,
                                                      const volatile sensor_data_t *sensor)
 {
@@ -161,6 +227,7 @@ static float TreatmentPressureControl_GetFeedbackKpa(const TreatmentAppControlle
     return sensor->pressL;
 }
 
+/* 记录上一周期阶段信息，供跨周期放气和阶段切换判断使用。 */
 static void TreatmentPressureControl_UpdateHistory(TreatmentAppController *controller,
                                                    const TreatmentPressurePlan *plan)
 {
@@ -174,6 +241,7 @@ static void TreatmentPressureControl_UpdateHistory(TreatmentAppController *contr
     controller->pressure_cycle_seen = 1U;
 }
 
+/* 放气阶段的统一输出：阀路切换到放气，泵关闭。 */
 static void TreatmentPressureControl_ApplyVentOutputs(TreatmentAppController *controller,
                                                       const TreatmentPressurePlan *plan,
                                                       float feedback_kpa,
@@ -185,12 +253,13 @@ static void TreatmentPressureControl_ApplyVentOutputs(TreatmentAppController *co
     runtime->feedback_pressure_kpa = feedback_kpa;
     runtime->pump_pwm = 0U;
     runtime->running_outputs = 1U;
-    TreatmentActuators_SetPressureVentAll();
-    TreatmentActuators_SetWaveValve(0U);
-    TreatmentActuators_SetPumpPwm(0U);
+    TreatmentPressureControl_SetPressureVentAllOutputs();
+    TreatmentPressureControl_SetWaveValveOutput(0U);
+    TreatmentPressureControl_SetPumpPwmOutput(0U);
     TreatmentPressureControl_UpdateHistory(controller, plan);
 }
 
+/* 把 rise/hold/pulse 三段时长归一化映射到固定 60s 周期。 */
 static void TreatmentPressureControl_NormalizeStageMs(uint32_t *rise_ms,
                                                       uint32_t *hold_ms,
                                                       uint32_t *pulse_ms)
@@ -234,6 +303,7 @@ static void TreatmentPressureControl_NormalizeStageMs(uint32_t *rise_ms,
     *pulse_ms = p;
 }
 
+/* 计算当前脉冲周期总长度。 */
 static uint32_t TreatmentPressureControl_GetPulsePeriodMs(const TreatmentAppController *controller)
 {
     uint32_t pulse_on_ms;
@@ -252,6 +322,7 @@ static uint32_t TreatmentPressureControl_GetPulsePeriodMs(const TreatmentAppCont
     return (pulse_period_ms > 0U) ? pulse_period_ms : TREATMENT_DEFAULT_PULSE_PERIOD_MS;
 }
 
+/* 计算当前脉冲周期内导通时长。 */
 static uint32_t TreatmentPressureControl_GetPulseOnMs(const TreatmentAppController *controller,
                                                       uint32_t pulse_period_ms)
 {
@@ -275,6 +346,7 @@ static uint32_t TreatmentPressureControl_GetPulseOnMs(const TreatmentAppControll
     return pulse_on_ms;
 }
 
+/* 将当前治疗模式和阶段对应的 PID 参数真正加载到控制器中。 */
 static void TreatmentPressureControl_ApplyProfile(TreatmentAppController *controller,
                                                   TreatmentPressurePidStage stage)
 {
@@ -293,6 +365,7 @@ static void TreatmentPressureControl_ApplyProfile(TreatmentAppController *contro
     controller->pressure_profile_loaded = 1U;
 }
 
+/* 阶段名字符串主要用于日志和遥测。 */
 const char *TreatmentPressureControl_PhaseName(TreatmentPhase phase)
 {
     switch (phase)
@@ -312,6 +385,7 @@ void TreatmentPressureControl_InitPid(TreatmentAppController *controller)
     PidControllerConfig cfg;
     const TreatmentPressurePidGains *gains;
 
+    /* 初始化时先加载当前模式下的 rise 段 PID，后续再按阶段切换。 */
     gains = TreatmentPressureControl_SelectStageGains(
         TreatmentPressureControl_SelectProfile(TreatmentPressureControl_GetProfileKind(controller)),
         TREATMENT_PRESS_PID_STAGE_RISE);
@@ -336,6 +410,7 @@ void TreatmentPressureControl_ResetPid(TreatmentAppController *controller)
         return;
     }
 
+    /* 清空运行时状态，但不动静态参数组。 */
     controller->pressure_profile_loaded = 0U;
     controller->pressure_cycle_seen = 0U;
     controller->pressure_cycle_venting = 0U;
@@ -356,6 +431,7 @@ void TreatmentPressureControl_BuildPlan(const TreatmentAppController *controller
     uint32_t elapsed_total_ms;
     uint32_t cycle_elapsed_ms;
 
+    /* 先清零计划结构，再按当前相位计算目标值与阶段。 */
     (void)memset(plan, 0, sizeof(*plan));
     rise_ms = (uint32_t)(controller->cfg.t1_rise_s * 1000.0f);
     hold_ms = (uint32_t)(controller->cfg.t2_hold_s * 1000.0f);
@@ -369,6 +445,7 @@ void TreatmentPressureControl_BuildPlan(const TreatmentAppController *controller
 
     if (cycle_elapsed_ms < rise_ms)
     {
+        /* 升压段：目标压力线性爬升。 */
         float ratio = (rise_ms > 0U) ? ((float)cycle_elapsed_ms / (float)rise_ms) : 1.0f;
 
         if (ratio > 1.0f)
@@ -383,6 +460,7 @@ void TreatmentPressureControl_BuildPlan(const TreatmentAppController *controller
     }
     else if (cycle_elapsed_ms < (rise_ms + hold_ms))
     {
+        /* 保压段：目标压力保持峰值。 */
         plan->phase = TREATMENT_PHASE_HOLD;
         plan->pid_stage = TREATMENT_PRESS_PID_STAGE_HOLD;
         plan->target_pressure_kpa = controller->cfg.press_target_max;
@@ -390,6 +468,7 @@ void TreatmentPressureControl_BuildPlan(const TreatmentAppController *controller
     }
     else
     {
+        /* 脉冲段：依据 pulse_on / pulse_off 交替导通与放气。 */
         uint32_t pulse_elapsed_ms = cycle_elapsed_ms - rise_ms - hold_ms;
         uint32_t pulse_period_ms = TreatmentPressureControl_GetPulsePeriodMs(controller);
         uint32_t pulse_on_ms = TreatmentPressureControl_GetPulseOnMs(controller, pulse_period_ms);
@@ -419,6 +498,7 @@ void TreatmentPressureControl_ApplyPlan(TreatmentAppController *controller,
         return;
     }
 
+    /* 先选定本周期使用的反馈压力与参数组。 */
     feedback_kpa = TreatmentPressureControl_GetFeedbackKpa(controller, sensor);
     profile_kind = TreatmentPressureControl_GetProfileKind(controller);
     cycle_wrapped = (uint8_t)((controller->pressure_cycle_seen != 0U) &&
@@ -430,6 +510,7 @@ void TreatmentPressureControl_ApplyPlan(TreatmentAppController *controller,
         ((controller->last_pressure_phase == TREATMENT_PHASE_PULSE_ON) ||
          (controller->last_pressure_phase == TREATMENT_PHASE_PULSE_OFF)))
     {
+        /* 一个治疗大周期结束后，先强制进入短放气，避免残压带入下一轮。 */
         controller->pressure_cycle_venting = 1U;
         controller->pressure_vent_start_tick = xTaskGetTickCount();
         PidController_Reset(&controller->pressure_pid);
@@ -440,6 +521,7 @@ void TreatmentPressureControl_ApplyPlan(TreatmentAppController *controller,
         (controller->active_pressure_profile_kind != (uint8_t)profile_kind) ||
         (controller->active_pressure_profile_version != s_press_pid_profile_version))
     {
+        /* 运行中阶段切换、模式切换或参数热更新时，都需要重新装载 PID。 */
         TreatmentPressureControl_ApplyProfile(controller, plan->pid_stage);
     }
 
@@ -472,12 +554,14 @@ void TreatmentPressureControl_ApplyPlan(TreatmentAppController *controller,
 
     if (plan->phase == TREATMENT_PHASE_PULSE_OFF)
     {
+        /* 脉冲关闭窗口直接执行放气，不参与 PID。 */
         TreatmentPressureControl_ApplyVentOutputs(controller, plan, feedback_kpa, runtime);
         return;
     }
 
-    TreatmentActuators_ApplyPressureRoute(controller->cfg.press_enable_L,
-                                          controller->cfg.press_enable_R);
+    /* 切换气路到当前治疗眼别。 */
+    TreatmentPressureControl_ApplyPressureRouteOutputs(controller->cfg.press_enable_L,
+                                                       controller->cfg.press_enable_R);
     if (pulse_rise_started != 0U)
     {
         PidController_Reset(&controller->pressure_pid);
@@ -485,24 +569,27 @@ void TreatmentPressureControl_ApplyPlan(TreatmentAppController *controller,
 
     if (plan->inflating != 0U)
     {
-        TreatmentActuators_SetWaveValve(1U);
+        /* 需要加压时打开波形阀并执行压力 PID。 */
+        TreatmentPressureControl_SetWaveValveOutput(1U);
         PidController_SetSetpoint(&controller->pressure_pid, plan->target_pressure_kpa);
         pressure_output = PidController_ComputeDt(&controller->pressure_pid, feedback_kpa, dt_s);
         runtime->pump_pwm = TreatmentPressureControl_ClampPwm(pressure_output, PRESS_PUMP_MAX_PWM);
         controller->pressure_pid.debug.mapped_output = (float)runtime->pump_pwm;
-        TreatmentActuators_SetPumpPwm(runtime->pump_pwm);
+        TreatmentPressureControl_SetPumpPwmOutput(runtime->pump_pwm);
     }
     else
     {
-        TreatmentActuators_SetWaveValve(0U);
+        /* 这里理论上目前只会用于某些扩展场景，保守关闭输出。 */
+        TreatmentPressureControl_SetWaveValveOutput(0U);
         runtime->pump_pwm = 0U;
         controller->pressure_pid.debug.mapped_output = 0.0f;
-        TreatmentActuators_SetPumpPwm(0U);
+        TreatmentPressureControl_SetPumpPwmOutput(0U);
     }
 
     TreatmentPressureControl_UpdateHistory(controller, plan);
 }
 
+/* 只修改当前治疗模式对应的 PID 参数组。 */
 void TreatmentPressureControl_SetPidGainsForController(const TreatmentAppController *controller,
                                                        TreatmentPressurePidStage stage,
                                                        float kp,
@@ -521,6 +608,7 @@ void TreatmentPressureControl_SetPidGainsForController(const TreatmentAppControl
     ++s_press_pid_profile_version;
 }
 
+/* 读取当前治疗模式对应的 PID 参数组。 */
 void TreatmentPressureControl_GetPidGainsForController(const TreatmentAppController *controller,
                                                        TreatmentPressurePidStage stage,
                                                        float *kp,
@@ -542,6 +630,7 @@ void TreatmentPressureControl_GetPidGainsForController(const TreatmentAppControl
     *kd = gains->kd;
 }
 
+/* 同步修改单双眼两套参数，适用于“全局默认参数”写入。 */
 void TreatmentPressureControl_SetPidGains(TreatmentPressurePidStage stage, float kp, float ki, float kd)
 {
     TreatmentPressurePidGains *single_gains;
@@ -560,6 +649,7 @@ void TreatmentPressureControl_SetPidGains(TreatmentPressurePidStage stage, float
     ++s_press_pid_profile_version;
 }
 
+/* 默认读取双眼参数组，兼容旧接口。 */
 void TreatmentPressureControl_GetPidGains(TreatmentPressurePidStage stage, float *kp, float *ki, float *kd)
 {
     const TreatmentPressurePidGains *gains;

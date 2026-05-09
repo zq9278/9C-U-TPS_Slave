@@ -6,6 +6,7 @@
 #include "Modules/Log/module_log.h"
 #include "UserDrivers/user_drivers_board.h"
 
+/* 初始化 ADS1248 及其 DRDY 信号量依赖。 */
 void TreatmentTemperatureSensor_Init(TreatmentTemperatureSensor *sensor,
                                      SemaphoreHandle_t rtd_drdy_sem)
 {
@@ -37,6 +38,7 @@ void TreatmentTemperatureSensor_SetMode(TreatmentTemperatureSensor *sensor,
 
     sensor->suppress_rtd_fail_log = suppress_rtd_fail_log;
 
+    /* 模式切换时从固定首通道重新开始，保证左右采样顺序可预测。 */
     if (sensor->mode != mode)
     {
         sensor->mode = mode;
@@ -57,6 +59,7 @@ void TreatmentTemperatureSensor_Poll(TreatmentTemperatureSensor *sensor,
         return;
     }
 
+    /* 当前实现只保留双通道轮询和空闲两种采样模式。 */
     switch (sensor->mode)
     {
     case TEMP_ACQUIRE_MODE_DUAL_SCAN:
@@ -79,6 +82,7 @@ void TreatmentTemperatureSensor_Poll(TreatmentTemperatureSensor *sensor,
 
     if (read_ok != 0U)
     {
+        /* Heat2 对应左眼，Heat1 对应右眼。 */
         if (read_channel == USER_ADS1248_CHANNEL_HEAT2)
         {
             out->tempL = temp_c;

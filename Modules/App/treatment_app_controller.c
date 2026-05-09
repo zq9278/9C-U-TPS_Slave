@@ -2,15 +2,16 @@
 
 #include <stddef.h>
 #include <string.h>
+
 #define MODULE_LOG_ENABLED MODULE_LOG_APP_CONTROLLER_ENABLE
 #include "Modules/Heat/treatment_heating_control.h"
 #include "Modules/Log/module_log.h"
 #include "Modules/Pressure/treatment_pressure_control.h"
-#include "TreatmentActuators.h"
 
-static void TreatmentApp_SetIdleOutputs(void)
+void TreatmentAppController_SetSystemIdleOutputs(void)
 {
-    TreatmentActuators_SetIdle();
+    TreatmentPressureControl_SetIdleOutputs();
+    TreatmentHeatingControl_SetIdleOutputs();
 }
 
 void TreatmentAppController_Init(TreatmentAppController *controller)
@@ -21,10 +22,11 @@ void TreatmentAppController_Init(TreatmentAppController *controller)
     }
 
     (void)memset(controller, 0, sizeof(*controller));
+    TreatmentPressureControl_InitHardware();
+    TreatmentHeatingControl_InitHardware();
     TreatmentPressureControl_InitPid(controller);
     TreatmentHeatingControl_InitPid(controller);
-    TreatmentActuators_Init();
-    TreatmentApp_SetIdleOutputs();
+    TreatmentAppController_SetSystemIdleOutputs();
 }
 
 void TreatmentAppController_HandleCommand(TreatmentAppController *controller,
@@ -47,7 +49,7 @@ void TreatmentAppController_HandleCommand(TreatmentAppController *controller,
         controller->paused_elapsed_ticks = 0U;
         TreatmentPressureControl_ResetPid(controller);
         TreatmentHeatingControl_ResetPid(controller);
-        TreatmentApp_SetIdleOutputs();
+        TreatmentAppController_SetSystemIdleOutputs();
         break;
 
     case CTRL_CMD_START:
@@ -69,11 +71,11 @@ void TreatmentAppController_HandleCommand(TreatmentAppController *controller,
               controller->cfg.press_enable_R);
         if (controller->cfg.press_enable_L != 0U)
         {
-            TreatmentActuators_ResetHeaterOtp(TREATMENT_SIDE_LEFT);
+            TreatmentHeatingControl_ResetOtp(TREATMENT_SIDE_LEFT);
         }
         if (controller->cfg.press_enable_R != 0U)
         {
-            TreatmentActuators_ResetHeaterOtp(TREATMENT_SIDE_RIGHT);
+            TreatmentHeatingControl_ResetOtp(TREATMENT_SIDE_RIGHT);
         }
         break;
 
@@ -82,7 +84,7 @@ void TreatmentAppController_HandleCommand(TreatmentAppController *controller,
         controller->pause_log_emitted = 0U;
         controller->paused_elapsed_ticks = now_tick - controller->wave_anchor_tick;
         LOG_I("treat ctrl pause tick=%lu", (unsigned long)now_tick);
-        TreatmentApp_SetIdleOutputs();
+        TreatmentAppController_SetSystemIdleOutputs();
         break;
 
     case CTRL_CMD_RESUME:
@@ -99,12 +101,12 @@ void TreatmentAppController_HandleCommand(TreatmentAppController *controller,
         if ((controller->cfg.press_enable_L != command->cfg.press_enable_L) &&
             (command->cfg.press_enable_L != 0U))
         {
-            TreatmentActuators_ResetHeaterOtp(TREATMENT_SIDE_LEFT);
+            TreatmentHeatingControl_ResetOtp(TREATMENT_SIDE_LEFT);
         }
         if ((controller->cfg.press_enable_R != command->cfg.press_enable_R) &&
             (command->cfg.press_enable_R != 0U))
         {
-            TreatmentActuators_ResetHeaterOtp(TREATMENT_SIDE_RIGHT);
+            TreatmentHeatingControl_ResetOtp(TREATMENT_SIDE_RIGHT);
         }
         controller->cfg = command->cfg;
         TreatmentHeatingControl_UpdateSetpoint(controller);
@@ -196,7 +198,7 @@ void TreatmentAppController_Run(TreatmentAppController *controller,
         runtime->phase_name = TreatmentPressureControl_PhaseName(TREATMENT_PHASE_PAUSE);
         runtime->phase_char = (uint8_t)'p';
         runtime->session_active = 1U;
-        TreatmentApp_SetIdleOutputs();
+        TreatmentAppController_SetSystemIdleOutputs();
         return;
     }
 
@@ -218,7 +220,7 @@ void TreatmentAppController_Run(TreatmentAppController *controller,
                   controller->cfg.press_enable_L,
                   controller->cfg.press_enable_R);
         }
-        TreatmentApp_SetIdleOutputs();
+        TreatmentAppController_SetSystemIdleOutputs();
         return;
     }
 
@@ -237,7 +239,7 @@ void TreatmentAppController_SetEmergencyStop(TreatmentAppController *controller,
     controller->emergency_stop = (enabled != 0U) ? 1U : 0U;
     if (controller->emergency_stop != 0U)
     {
-        TreatmentApp_SetIdleOutputs();
+        TreatmentAppController_SetSystemIdleOutputs();
     }
 }
 

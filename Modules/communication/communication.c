@@ -7,9 +7,11 @@
 #include "semphr.h"
 #include "usart.h"
 
+/* 底层 UART DMA 收发缓冲大小。 */
 #define COMM_UART_RX_BUFFER_SIZE 256U
 #define COMM_UART_TX_BUFFER_SIZE 160U
 
+/* 单个 UART 接口的资源封装。 */
 typedef struct
 {
     BspUart port;
@@ -24,6 +26,7 @@ static Rk3576Protocol s_rk3576_protocol;
 static CommunicationCallbacks s_callbacks;
 static uint8_t s_initialized = 0U;
 
+/* 初始化单个 UART 接口并启动 DMA 接收。 */
 static void Communication_OnLogUartChunk(void *context, const uint8_t *data, size_t length);
 static void Communication_OnRk3576UartChunk(void *context, const uint8_t *data, size_t length);
 static void Communication_OnRk3576Frame(void *context, const ProtocolFrameView *frame);
@@ -69,6 +72,7 @@ static uint8_t Communication_InitUartInterface(CommunicationUartInterface *inter
     return BspUart_StartReceiveDma(&interface->port);
 }
 
+/* UART1 收到新数据块后转交给上层。 */
 static void Communication_OnLogUartChunk(void *context, const uint8_t *data, size_t length)
 {
     (void)context;
@@ -78,12 +82,14 @@ static void Communication_OnLogUartChunk(void *context, const uint8_t *data, siz
     }
 }
 
+/* UART3 收到新业务数据块后交给 RK3576 协议状态机。 */
 static void Communication_OnRk3576UartChunk(void *context, const uint8_t *data, size_t length)
 {
     (void)context;
     Rk3576Protocol_Input(&s_rk3576_protocol, data, length);
 }
 
+/* 收到完整业务帧后通知上层业务逻辑。 */
 static void Communication_OnRk3576Frame(void *context, const ProtocolFrameView *frame)
 {
     (void)context;
@@ -95,6 +101,7 @@ static void Communication_OnRk3576Frame(void *context, const ProtocolFrameView *
     }
 }
 
+/* RK3576 协议层最终落到 UART3 DMA 发送。 */
 static uint8_t Communication_WriteRk3576Bytes(void *context, const uint8_t *data, size_t length)
 {
     CommunicationUartInterface *interface = (CommunicationUartInterface *)context;
@@ -118,6 +125,7 @@ void Communication_Init(void)
     (void)memset(&s_rk3576_uart3, 0, sizeof(s_rk3576_uart3));
     (void)memset(&s_callbacks, 0, sizeof(s_callbacks));
 
+    /* UART1 用于日志与 PID 调试。 */
     if (Communication_InitUartInterface(&s_log_uart1,
                                         &huart1,
                                         Communication_OnLogUartChunk) == 0U)
@@ -125,6 +133,7 @@ void Communication_Init(void)
         return;
     }
 
+    /* UART3 用于 RK3576 业务协议。 */
     if (Communication_InitUartInterface(&s_rk3576_uart3,
                                         &huart3,
                                         Communication_OnRk3576UartChunk) == 0U)
@@ -161,6 +170,7 @@ void Communication_PollRx(void)
         return;
     }
 
+    /* 两个 UART 通道都通过统一轮询接口推进接收状态。 */
     BspUart_Poll(&s_log_uart1.port);
     BspUart_Poll(&s_rk3576_uart3.port);
 }
@@ -176,6 +186,7 @@ uint8_t Communication_SendFrame(CommunicationInterfaceId interface_id,
         return 0U;
     }
 
+    /* 当前只有 RK3576 业务接口支持协议帧发送。 */
     switch (interface_id)
     {
     case COMM_INTERFACE_RK3576_UART3:

@@ -7,11 +7,13 @@
 extern "C" {
 #endif
 
+/* 单帧 payload 最大长度。 */
 enum
 {
     PROTOCOL_FRAME_MAX_PAYLOAD_LENGTH = 32U
 };
 
+/* 协议 data_type 字段定义。 */
 typedef enum
 {
     PROTOCOL_DATA_TYPE_NONE = 0x00,
@@ -22,6 +24,7 @@ typedef enum
     PROTOCOL_DATA_TYPE_UINT32 = 0x05
 } ProtocolDataType;
 
+/* 协议 ID 规划说明见下方枚举：0x10xx 为下行控制，0x11xx 为上行状态/遥测。 */
 /*
  * Direction note:
  *

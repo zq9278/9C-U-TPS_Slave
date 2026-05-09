@@ -3,6 +3,7 @@
 
 #include <string.h>
 
+/* 收包完成或异常后统一复位协议接收状态。 */
 static void Rk3576Protocol_ResetRxState(ProtocolRxState *state)
 {
     if (state == NULL)
@@ -23,6 +24,7 @@ uint16_t Protocol_Crc16Modbus(const uint8_t *data, size_t length)
         return crc;
     }
 
+    /* 标准 Modbus CRC16 实现。 */
     while (index < length)
     {
         uint8_t bit = 0U;
@@ -67,6 +69,7 @@ uint8_t Protocol_BuildFrame(uint16_t frame_id,
         return 0U;
     }
 
+    /* 依次写入头、ID、类型、长度、payload、CRC、尾。 */
     cursor = out_buffer;
     *cursor++ = PROTOCOL_FRAME_HEADER_1;
     *cursor++ = PROTOCOL_FRAME_HEADER_2;

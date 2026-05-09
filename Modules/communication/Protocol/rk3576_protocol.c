@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+/* 读取 1 字节 payload。 */
 static uint8_t frame_get_u8(const ProtocolFrameView *frame, uint8_t *out)
 {
     if ((frame == NULL) || (out == NULL) || (frame->payload_length < sizeof(uint8_t)))
@@ -13,6 +14,7 @@ static uint8_t frame_get_u8(const ProtocolFrameView *frame, uint8_t *out)
     return 1U;
 }
 
+/* 读取 2 字节 payload。 */
 static uint8_t frame_get_u16(const ProtocolFrameView *frame, uint16_t *out)
 {
     if ((frame == NULL) || (out == NULL) || (frame->payload_length < sizeof(uint16_t)))
@@ -24,6 +26,7 @@ static uint8_t frame_get_u16(const ProtocolFrameView *frame, uint16_t *out)
     return 1U;
 }
 
+/* 读取 4 字节 float payload。 */
 static uint8_t frame_get_f32(const ProtocolFrameView *frame, float *out)
 {
     if ((frame == NULL) || (out == NULL) || (frame->payload_length < sizeof(float)))
@@ -45,6 +48,7 @@ uint8_t Rk3576Protocol_FrameToAppCommand(const ProtocolFrameView *frame,
 
     (void)memset(command, 0, sizeof(*command));
 
+    /* 这里只做“协议帧 -> 应用命令”的纯翻译，不直接操作硬件。 */
     switch (frame->frame_id)
     {
     case PROTOCOL_ID_U8_HEARTBEAT_REQ:

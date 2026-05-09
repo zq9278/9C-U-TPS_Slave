@@ -4,11 +4,13 @@
 #include <stddef.h>
 #include <string.h>
 
+/* 轻量绝对值实现，避免引入额外数学库依赖。 */
 static float FilterAbs(float value)
 {
     return (value < 0.0f) ? -value : value;
 }
 
+/* 判断当前窗口是否到期。 */
 static uint8_t FilterWindowExpired(const TargetWindowFilter *filter, uint32_t now_ms)
 {
     if ((filter == NULL) || (filter->has_sample == 0U))
@@ -36,6 +38,7 @@ void TargetWindowFilter_Init(TargetWindowFilter *filter, const TargetWindowFilte
         return;
     }
 
+    /* 初始化时清空状态，并把最佳误差置为最大值。 */
     (void)memset(filter, 0, sizeof(*filter));
     filter->best_error_abs = FLT_MAX;
 
@@ -58,6 +61,7 @@ void TargetWindowFilter_Reset(TargetWindowFilter *filter, uint32_t now_ms)
         return;
     }
 
+    /* Reset 只清空窗口内容，不丢失配置。 */
     target = filter->target;
     sample_count_limit = filter->sample_count_limit;
     period_ms = filter->period_ms;
@@ -105,6 +109,7 @@ uint8_t TargetWindowFilter_Push(TargetWindowFilter *filter,
         filter->window_start_ms = now_ms;
     }
 
+    /* 记录最后样本，并尝试更新“最接近目标值”的最佳样本。 */
     filter->last_value = sample;
     error_abs = FilterAbs(sample - filter->target);
     if ((filter->has_sample == 0U) || (error_abs < filter->best_error_abs))
@@ -146,6 +151,7 @@ uint8_t TargetWindowFilter_GetOutput(TargetWindowFilter *filter, float *output)
 
     *output = filter->best_value;
     filter->ready = 0U;
+    /* 取出结果后自动开启下一窗口。 */
     TargetWindowFilter_Reset(filter, filter->window_start_ms + filter->period_ms);
     return 1U;
 }

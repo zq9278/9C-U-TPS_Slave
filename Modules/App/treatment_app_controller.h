@@ -2,6 +2,7 @@
 #define MODULES_APP_TREATMENT_APP_CONTROLLER_H
 
 #include <stdint.h>
+
 #include "FreeRTOS.h"
 #include "pid_controller.h"
 #include "system_app.h"
@@ -75,33 +76,47 @@ typedef struct
     TreatmentPhase last_pressure_phase;
 } TreatmentAppController;
 
+/* 将全部治疗输出切回系统级安全空闲态。 */
+void TreatmentAppController_SetSystemIdleOutputs(void);
+/* 控制器初始化。 */
 void TreatmentAppController_Init(TreatmentAppController *controller);
+/* 处理来自 AppTask 的控制命令。 */
 void TreatmentAppController_HandleCommand(TreatmentAppController *controller,
                                           const ctrl_cmd_t *command,
                                           TickType_t now_tick);
+/* 执行一次控制循环。 */
 void TreatmentAppController_Run(TreatmentAppController *controller,
                                 const volatile sensor_data_t *sensor,
                                 TickType_t now_tick,
                                 float dt_s,
                                 TreatmentAppRuntime *runtime);
+/* 设置紧急停机标志。 */
 void TreatmentAppController_SetEmergencyStop(TreatmentAppController *controller, uint8_t enabled);
+/* 获取当前控制配置。 */
 const control_config_t *TreatmentAppController_GetConfig(const TreatmentAppController *controller);
+/* 获取压力 PID 调试快照。 */
 const PidControllerDebug *TreatmentAppController_GetPressureDebug(const TreatmentAppController *controller);
+/* 获取左温度 PID 调试快照。 */
 const PidControllerDebug *TreatmentAppController_GetHeatLeftDebug(const TreatmentAppController *controller);
+/* 获取右温度 PID 调试快照。 */
 const PidControllerDebug *TreatmentAppController_GetHeatRightDebug(const TreatmentAppController *controller);
+/* 同时修改单双眼两套压力 PID 某一阶段参数。 */
 void TreatmentAppController_SetPressurePidGains(TreatmentPressurePidStage stage,
                                                 float kp,
                                                 float ki,
                                                 float kd);
+/* 读取默认压力 PID 参数。 */
 void TreatmentAppController_GetPressurePidGains(TreatmentPressurePidStage stage,
                                                 float *kp,
                                                 float *ki,
                                                 float *kd);
 uint32_t TreatmentAppController_GetPressurePidVersion(void);
+/* 修改温度 PID 参数。 */
 void TreatmentAppController_SetHeatPidGains(pid_debug_target_t target,
                                             float kp,
                                             float ki,
                                             float kd);
+/* 读取温度 PID 参数。 */
 void TreatmentAppController_GetHeatPidGains(pid_debug_target_t target,
                                             float *kp,
                                             float *ki,

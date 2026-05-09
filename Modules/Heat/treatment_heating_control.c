@@ -1,17 +1,84 @@
 #include "treatment_heating_control.h"
 
-#include "TreatmentActuators.h"
+#include "BSP/Pwm/bsp_pwm.h"
+#include "FreeRTOS.h"
+#include "main.h"
+#define MODULE_LOG_ENABLED MODULE_LOG_ACTUATOR_ENABLE
+#include "Modules/Log/module_log.h"
+#include "task.h"
+#include "tim.h"
 
 #define HEAT_PID_DEFAULT_DT_S 0.002f
+#define HEAT_PID_INTEGRAL_MAX 1000.0f
+#define HEAT_OTP_NORMAL_LEVEL  1U
 
-static float s_heat_left_kp = 0.001f;
-static float s_heat_left_ki = 0.0000f;
+static float s_heat_left_kp = 3.001f;
+static float s_heat_left_ki = 0.5000f;
 static float s_heat_left_kd = 0.0000f;
-static float s_heat_right_kp = 0.001f;
-static float s_heat_right_ki = 0.0000f;
+static float s_heat_right_kp = 3.001f;
+static float s_heat_right_ki = 0.5000f;
 static float s_heat_right_kd = 0.0000f;
 static uint32_t s_heat_left_pid_version = 0U;
 static uint32_t s_heat_right_pid_version = 0U;
+
+static BspPwmChannel s_heat_left_pwm;
+static BspPwmChannel s_heat_right_pwm;
+static uint8_t s_heat_hw_initialized = 0U;
+static uint8_t s_heat_left_enabled = 0U;
+static uint8_t s_heat_right_enabled = 0U;
+static uint16_t s_heat_left_last_pwm = 0U;
+static uint16_t s_heat_right_last_pwm = 0U;
+static uint8_t s_heat_left_otp_reference = 0U;
+static uint8_t s_heat_right_otp_reference = 0U;
+static uint8_t s_heat_left_otp_reference_valid = 0U;
+static uint8_t s_heat_right_otp_reference_valid = 0U;
+
+static uint32_t TreatmentHeatingControl_PinToIndex(uint16_t pin)
+{
+    uint32_t index;
+
+    for (index = 0U; index < 16U; ++index)
+    {
+        if (pin == (uint16_t)(1U << index))
+        {
+            return index;
+        }
+    }
+
+    return 0U;
+}
+
+static void TreatmentHeatingControl_GpioSetModeInput(GPIO_TypeDef *port, uint16_t pin)
+{
+    uint32_t shift = TreatmentHeatingControl_PinToIndex(pin) * 2U;
+
+    port->MODER &= ~(0x3UL << shift);
+}
+
+static void TreatmentHeatingControl_GpioSetModeOutput(GPIO_TypeDef *port, uint16_t pin)
+{
+    uint32_t shift = TreatmentHeatingControl_PinToIndex(pin) * 2U;
+
+    port->MODER &= ~(0x3UL << shift);
+    port->MODER |= (0x1UL << shift);
+}
+
+static void TreatmentHeatingControl_DelayMs(uint32_t delay_ms)
+{
+    if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING)
+    {
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    }
+    else
+    {
+        HAL_Delay(delay_ms);
+    }
+}
+
+static uint16_t TreatmentHeatingControl_ClampU16(uint16_t value, uint16_t max_value)
+{
+    return (value > max_value) ? max_value : value;
+}
 
 static uint16_t TreatmentHeatingControl_ClampPwm(float value, uint16_t max_value)
 {
@@ -24,6 +91,107 @@ static uint16_t TreatmentHeatingControl_ClampPwm(float value, uint16_t max_value
         return max_value;
     }
     return (uint16_t)value;
+}
+
+static void TreatmentHeatingControl_SetPower(TreatmentSide side, uint8_t enabled)
+{
+    /* 板级映射：左眼走 Heat2/OTP2，右眼走 Heat1/OTP1。 */
+    if (side == TREATMENT_SIDE_LEFT)
+    {
+        if (enabled != 0U)
+        {
+            if (BspPwm_Start(&s_heat_right_pwm) == 0U)
+            {
+                LOG_E("heater L pwm start failed");
+            }
+            if (s_heat_left_enabled == 0U)
+            {
+                LOG_I("heater L power on");
+            }
+            s_heat_left_enabled = 1U;
+        }
+        else
+        {
+            BspPwm_SetPulse(&s_heat_right_pwm, 0U);
+            if (BspPwm_Stop(&s_heat_right_pwm) == 0U)
+            {
+                LOG_E("heater L pwm stop failed");
+            }
+            TreatmentHeatingControl_GpioSetModeOutput(OTP2_RESET_GPIO_Port, OTP2_RESET_Pin);
+            HAL_GPIO_WritePin(OTP2_RESET_GPIO_Port, OTP2_RESET_Pin, GPIO_PIN_RESET);
+            if (s_heat_left_enabled != 0U)
+            {
+                LOG_I("heater L power off");
+            }
+            s_heat_left_enabled = 0U;
+            s_heat_left_otp_reference_valid = 0U;
+        }
+    }
+    else
+    {
+        if (enabled != 0U)
+        {
+            if (BspPwm_Start(&s_heat_left_pwm) == 0U)
+            {
+                LOG_E("heater R pwm start failed");
+            }
+            if (s_heat_right_enabled == 0U)
+            {
+                LOG_I("heater R power on");
+            }
+            s_heat_right_enabled = 1U;
+        }
+        else
+        {
+            BspPwm_SetPulse(&s_heat_left_pwm, 0U);
+            if (BspPwm_Stop(&s_heat_left_pwm) == 0U)
+            {
+                LOG_E("heater R pwm stop failed");
+            }
+            TreatmentHeatingControl_GpioSetModeOutput(OTP1_RESET_GPIO_Port, OTP1_RESET_Pin);
+            HAL_GPIO_WritePin(OTP1_RESET_GPIO_Port, OTP1_RESET_Pin, GPIO_PIN_RESET);
+            if (s_heat_right_enabled != 0U)
+            {
+                LOG_I("heater R power off");
+            }
+            s_heat_right_enabled = 0U;
+            s_heat_right_otp_reference_valid = 0U;
+        }
+    }
+}
+
+static void TreatmentHeatingControl_SetPwm(TreatmentSide side, uint16_t pwm)
+{
+    uint16_t clamped_pwm = TreatmentHeatingControl_ClampU16(pwm, 1999U);
+
+    if (side == TREATMENT_SIDE_LEFT)
+    {
+        if ((clamped_pwm != 0U) && (BspPwm_Start(&s_heat_right_pwm) == 0U))
+        {
+            LOG_E("heater L pwm start failed while set pwm=%u", clamped_pwm);
+        }
+        BspPwm_SetPulse(&s_heat_right_pwm, clamped_pwm);
+        if (((s_heat_left_last_pwm == 0U) && (clamped_pwm != 0U)) ||
+            ((s_heat_left_last_pwm != 0U) && (clamped_pwm == 0U)))
+        {
+            LOG_I("heater L pwm=%u", clamped_pwm);
+        }
+        s_heat_left_last_pwm = clamped_pwm;
+    }
+    else
+    {
+        if ((clamped_pwm != 0U) && (BspPwm_Start(&s_heat_left_pwm) == 0U))
+        {
+            LOG_E("heater R pwm start failed while set pwm=%u", clamped_pwm);
+        }
+        BspPwm_SetPulse(&s_heat_left_pwm, clamped_pwm);
+        if (((s_heat_right_last_pwm == 0U) && (clamped_pwm != 0U)) ||
+            ((s_heat_right_last_pwm != 0U) && (clamped_pwm == 0U)))
+        {
+            LOG_I("heater R pwm=%u", clamped_pwm);
+        }
+        s_heat_right_last_pwm = clamped_pwm;
+    }
 }
 
 static void TreatmentHeatingControl_LoadPid(TreatmentAppController *controller,
@@ -63,6 +231,103 @@ static void TreatmentHeatingControl_LoadPid(TreatmentAppController *controller,
     }
 }
 
+void TreatmentHeatingControl_InitHardware(void)
+{
+    BspPwmChannelConfig cfg;
+
+    if (s_heat_hw_initialized != 0U)
+    {
+        return;
+    }
+
+    cfg.htim = &htim14;
+    cfg.channel = TIM_CHANNEL_1;
+    BspPwm_Init(&s_heat_left_pwm, &cfg);
+
+    cfg.htim = &htim17;
+    cfg.channel = TIM_CHANNEL_1;
+    BspPwm_Init(&s_heat_right_pwm, &cfg);
+
+    (void)BspPwm_Start(&s_heat_left_pwm);
+    (void)BspPwm_Start(&s_heat_right_pwm);
+
+    HAL_GPIO_WritePin(OTP1_RESET_GPIO_Port, OTP1_RESET_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(OTP2_RESET_GPIO_Port, OTP2_RESET_Pin, GPIO_PIN_RESET);
+    TreatmentHeatingControl_GpioSetModeOutput(OTP1_RESET_GPIO_Port, OTP1_RESET_Pin);
+    TreatmentHeatingControl_GpioSetModeOutput(OTP2_RESET_GPIO_Port, OTP2_RESET_Pin);
+
+    s_heat_hw_initialized = 1U;
+    s_heat_left_otp_reference_valid = 0U;
+    s_heat_right_otp_reference_valid = 0U;
+    TreatmentHeatingControl_SetIdleOutputs();
+}
+
+void TreatmentHeatingControl_SetIdleOutputs(void)
+{
+    TreatmentHeatingControl_DisableSide(TREATMENT_SIDE_LEFT);
+    TreatmentHeatingControl_DisableSide(TREATMENT_SIDE_RIGHT);
+}
+
+void TreatmentHeatingControl_DisableSide(TreatmentSide side)
+{
+    TreatmentHeatingControl_SetPwm(side, 0U);
+    TreatmentHeatingControl_SetPower(side, 0U);
+}
+
+void TreatmentHeatingControl_ResetOtp(TreatmentSide side)
+{
+    GPIO_TypeDef *port = (side == TREATMENT_SIDE_LEFT) ? OTP2_RESET_GPIO_Port : OTP1_RESET_GPIO_Port;
+    uint16_t pin = (side == TREATMENT_SIDE_LEFT) ? OTP2_RESET_Pin : OTP1_RESET_Pin;
+
+    LOG_I("heater %c otp reset", (side == TREATMENT_SIDE_LEFT) ? 'L' : 'R');
+    TreatmentHeatingControl_GpioSetModeOutput(port, pin);
+    HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET);
+    TreatmentHeatingControl_DelayMs(50U);
+    TreatmentHeatingControl_GpioSetModeInput(port, pin);
+    if (side == TREATMENT_SIDE_LEFT)
+    {
+        s_heat_left_otp_reference = HEAT_OTP_NORMAL_LEVEL;
+        s_heat_left_otp_reference_valid = 1U;
+    }
+    else
+    {
+        s_heat_right_otp_reference = HEAT_OTP_NORMAL_LEVEL;
+        s_heat_right_otp_reference_valid = 1U;
+    }
+    LOG_I("heater %c otp ready pin=%u",
+          (side == TREATMENT_SIDE_LEFT) ? 'L' : 'R',
+          (unsigned int)((HAL_GPIO_ReadPin(port, pin) == GPIO_PIN_SET) ? 1U : 0U));
+}
+
+void TreatmentHeatingControl_GetOtpFaultFlags(uint8_t *left_fault, uint8_t *right_fault)
+{
+    uint8_t left = 0U;
+    uint8_t right = 0U;
+
+    if ((s_heat_left_enabled != 0U) &&
+        (s_heat_left_otp_reference_valid != 0U))
+    {
+        left = (uint8_t)(((HAL_GPIO_ReadPin(OTP2_RESET_GPIO_Port, OTP2_RESET_Pin) == GPIO_PIN_SET) ? 1U : 0U) !=
+                         HEAT_OTP_NORMAL_LEVEL);
+    }
+
+    if ((s_heat_right_enabled != 0U) &&
+        (s_heat_right_otp_reference_valid != 0U))
+    {
+        right = (uint8_t)(((HAL_GPIO_ReadPin(OTP1_RESET_GPIO_Port, OTP1_RESET_Pin) == GPIO_PIN_SET) ? 1U : 0U) !=
+                          HEAT_OTP_NORMAL_LEVEL);
+    }
+
+    if (left_fault != NULL)
+    {
+        *left_fault = left;
+    }
+    if (right_fault != NULL)
+    {
+        *right_fault = right;
+    }
+}
+
 void TreatmentHeatingControl_InitPid(TreatmentAppController *controller)
 {
     PidControllerConfig cfg;
@@ -74,7 +339,7 @@ void TreatmentHeatingControl_InitPid(TreatmentAppController *controller)
     cfg.output_min = 0.0f;
     cfg.output_max = 1999.0f;
     cfg.integral_min = 0.0f;
-    cfg.integral_max = 100000.0f;
+    cfg.integral_max = HEAT_PID_INTEGRAL_MAX;
     cfg.default_dt_s = HEAT_PID_DEFAULT_DT_S;
     cfg.derivative_filter_alpha = 0.85f;
     cfg.derivative_mode = PID_CONTROLLER_DERIVATIVE_ON_MEASUREMENT;
@@ -115,9 +380,9 @@ void TreatmentHeatingControl_UpdateSetpoint(TreatmentAppController *controller)
 }
 
 void TreatmentHeatingControl_ApplyOutputs(TreatmentAppController *controller,
-                                         const volatile sensor_data_t *sensor,
-                                         float dt_s,
-                                         TreatmentAppRuntime *runtime)
+                                          const volatile sensor_data_t *sensor,
+                                          float dt_s,
+                                          TreatmentAppRuntime *runtime)
 {
     float heat_output;
 
@@ -137,36 +402,44 @@ void TreatmentHeatingControl_ApplyOutputs(TreatmentAppController *controller,
 
     if (controller->cfg.press_enable_L != 0U)
     {
-        TreatmentActuators_SetHeaterPower(TREATMENT_SIDE_LEFT, 1U);
+        if (s_heat_left_otp_reference_valid == 0U)
+        {
+            TreatmentHeatingControl_ResetOtp(TREATMENT_SIDE_LEFT);
+        }
+        TreatmentHeatingControl_SetPower(TREATMENT_SIDE_LEFT, 1U);
         heat_output = PidController_ComputeDt(&controller->heat_left_pid,
                                               sensor->tempL * 100.0f,
                                               dt_s);
         runtime->heat_left_pwm = TreatmentHeatingControl_ClampPwm(heat_output, 1999U);
         controller->heat_left_pid.debug.mapped_output = (float)runtime->heat_left_pwm;
-        TreatmentActuators_SetHeaterPwm(TREATMENT_SIDE_LEFT, runtime->heat_left_pwm);
+        TreatmentHeatingControl_SetPwm(TREATMENT_SIDE_LEFT, runtime->heat_left_pwm);
     }
     else
     {
-        TreatmentActuators_SetHeaterPwm(TREATMENT_SIDE_LEFT, 0U);
+        TreatmentHeatingControl_SetPwm(TREATMENT_SIDE_LEFT, 0U);
         controller->heat_left_pid.debug.mapped_output = 0.0f;
-        TreatmentActuators_SetHeaterPower(TREATMENT_SIDE_LEFT, 0U);
+        TreatmentHeatingControl_SetPower(TREATMENT_SIDE_LEFT, 0U);
     }
 
     if (controller->cfg.press_enable_R != 0U)
     {
-        TreatmentActuators_SetHeaterPower(TREATMENT_SIDE_RIGHT, 1U);
+        if (s_heat_right_otp_reference_valid == 0U)
+        {
+            TreatmentHeatingControl_ResetOtp(TREATMENT_SIDE_RIGHT);
+        }
+        TreatmentHeatingControl_SetPower(TREATMENT_SIDE_RIGHT, 1U);
         heat_output = PidController_ComputeDt(&controller->heat_right_pid,
                                               sensor->tempR * 100.0f,
                                               dt_s);
         runtime->heat_right_pwm = TreatmentHeatingControl_ClampPwm(heat_output, 1999U);
         controller->heat_right_pid.debug.mapped_output = (float)runtime->heat_right_pwm;
-        TreatmentActuators_SetHeaterPwm(TREATMENT_SIDE_RIGHT, runtime->heat_right_pwm);
+        TreatmentHeatingControl_SetPwm(TREATMENT_SIDE_RIGHT, runtime->heat_right_pwm);
     }
     else
     {
-        TreatmentActuators_SetHeaterPwm(TREATMENT_SIDE_RIGHT, 0U);
+        TreatmentHeatingControl_SetPwm(TREATMENT_SIDE_RIGHT, 0U);
         controller->heat_right_pid.debug.mapped_output = 0.0f;
-        TreatmentActuators_SetHeaterPower(TREATMENT_SIDE_RIGHT, 0U);
+        TreatmentHeatingControl_SetPower(TREATMENT_SIDE_RIGHT, 0U);
     }
 }
 

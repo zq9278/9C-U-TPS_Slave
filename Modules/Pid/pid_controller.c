@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <string.h>
 
+/* 通用裁剪函数。 */
 static float PidClamp(float value, float min_value, float max_value)
 {
     if (value < min_value)
@@ -17,6 +18,7 @@ static float PidClamp(float value, float min_value, float max_value)
     return value;
 }
 
+/* 解析本次计算实际使用的 dt。 */
 static float PidResolveDt(const PidController *pid, float dt_s)
 {
     if (dt_s > 0.0f)
@@ -30,6 +32,7 @@ static float PidResolveDt(const PidController *pid, float dt_s)
     return 1.0f;
 }
 
+/* 标准化配置，确保上下限与滤波系数合法。 */
 static void PidNormalizeConfig(PidControllerConfig *config)
 {
     float tmp;
@@ -81,6 +84,7 @@ void PidController_Init(PidController *pid, const PidControllerConfig *config)
         local_config.derivative_mode = PID_CONTROLLER_DERIVATIVE_ON_MEASUREMENT;
     }
 
+    /* 初始化时清零运行态，但保留整理后的配置。 */
     PidNormalizeConfig(&local_config);
     (void)memset(pid, 0, sizeof(*pid));
     pid->config = local_config;
@@ -101,6 +105,7 @@ void PidController_Reset(PidController *pid)
         return;
     }
 
+    /* Reset 只清空运行态，不丢失当前配置。 */
     config = pid->config;
     (void)memset(pid, 0, sizeof(*pid));
     pid->config = config;
@@ -213,6 +218,7 @@ float PidController_ComputeDt(PidController *pid, float measurement, float dt_s)
     dt = PidResolveDt(pid, dt_s);
     error = pid->config.setpoint - measurement;
 
+    /* 积分先累加，再按积分限幅裁剪。 */
     pid->integral += error * dt;
     pid->integral = PidClamp(pid->integral, pid->config.integral_min, pid->config.integral_max);
 
@@ -228,6 +234,7 @@ float PidController_ComputeDt(PidController *pid, float measurement, float dt_s)
         }
     }
 
+    /* 微分项使用一阶低通滤波，降低测量噪声影响。 */
     pid->derivative_filtered =
         (pid->config.derivative_filter_alpha * pid->derivative_filtered) +
         ((1.0f - pid->config.derivative_filter_alpha) * derivative_raw);
@@ -237,6 +244,7 @@ float PidController_ComputeDt(PidController *pid, float measurement, float dt_s)
     pid->debug.d = pid->config.kd * pid->derivative_filtered;
     output = pid->debug.p + pid->debug.i + pid->debug.d;
 
+    /* 最终输出仍需要做一次输出限幅。 */
     if (output > pid->config.output_max)
     {
         output = pid->config.output_max;

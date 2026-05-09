@@ -1,19 +1,24 @@
 #include "eye_shield_status.h"
 
 #include <string.h>
+#include "adc.h"
 #include "BSP/Gpio/bsp_gpio.h"
 #include "FreeRTOS.h"
 #define MODULE_LOG_ENABLED MODULE_LOG_EYE_SHIELD_ENABLE
+#include "Modules/Heat/treatment_heating_control.h"
 #include "Modules/Log/module_log.h"
 #include "Modules/communication/Protocol/protocol_ids.h"
-#include "TreatmentActuators.h"
 #include "main.h"
 #include "queue.h"
 #include "task.h"
 
+/* 保险丝击穿脉冲宽度与左右侧 bit mask。 */
 #define EYE_SHIELD_FUSE_BLOW_PULSE_MS 10U
 #define EYE_SHIELD_MASK_LEFT          0x01U
 #define EYE_SHIELD_MASK_RIGHT         0x02U
+#define EYE_SHIELD_ADC_FULL_SCALE     4095U
+#define EYE_SHIELD_ADC_FAULT_MARGIN   8U
+#define EYE_SHIELD_ADC_FAULT_TH       (EYE_SHIELD_ADC_FULL_SCALE - EYE_SHIELD_ADC_FAULT_MARGIN)
 
 static BspGpioPin s_left_present_pin;
 static BspGpioPin s_right_present_pin;
@@ -35,6 +40,7 @@ static uint8_t s_fuse_blow_pending_mask = 0U;
 static uint8_t s_fuse_blow_active_mask = 0U;
 static TickType_t s_fuse_blow_deadline_tick = 0U;
 
+/* 按统一配置初始化一个 GPIO 状态引脚。 */
 static void EyeShieldStatus_InitPin(BspGpioPin *pin,
                                     GPIO_TypeDef *port,
                                     uint16_t gpio_pin,
@@ -48,6 +54,7 @@ static void EyeShieldStatus_InitPin(BspGpioPin *pin,
     BspGpio_Init(pin, &cfg);
 }
 
+/* 按 mask 同时控制左右保险丝击穿引脚。 */
 static void EyeShieldStatus_ApplyFuseMask(uint8_t mask, GPIO_PinState state)
 {
     if ((mask & EYE_SHIELD_MASK_LEFT) != 0U)
@@ -61,14 +68,16 @@ static void EyeShieldStatus_ApplyFuseMask(uint8_t mask, GPIO_PinState state)
     }
 }
 
+/* 对在位/保险丝输入做简单计数去抖。 */
 static void EyeShieldStatus_Debounce(uint8_t raw_value,
                                      uint8_t *stable_value,
-                                     uint8_t *count)
+                                     uint8_t *count,
+                                     uint8_t threshold)
 {
     if (raw_value != *stable_value)
     {
         ++(*count);
-        if (*count >= EYE_SHIELD_STATUS_DEBOUNCE_COUNT)
+        if (*count >= threshold)
         {
             *stable_value = raw_value;
             *count = 0U;
@@ -80,6 +89,7 @@ static void EyeShieldStatus_Debounce(uint8_t raw_value,
     }
 }
 
+/* 把状态值压入统一发送队列，交由 CommTxTask 上报。 */
 static void EyeShieldStatus_EnqueueU8(uint16_t frame_id, uint8_t value)
 {
     tx_frame_t tx;
@@ -96,6 +106,7 @@ static void EyeShieldStatus_EnqueueU8(uint16_t frame_id, uint8_t value)
     (void)xQueueSend(gTxQueue, &tx, 0U);
 }
 
+/* 关闭某一侧治疗：清除使能并切断加热。 */
 static void EyeShieldStatus_DisableSide(TreatmentSide side, uint8_t *enable)
 {
     if (enable != NULL)
@@ -103,8 +114,39 @@ static void EyeShieldStatus_DisableSide(TreatmentSide side, uint8_t *enable)
         *enable = 0U;
     }
 
-    TreatmentActuators_SetHeaterPwm(side, 0U);
-    TreatmentActuators_SetHeaterPower(side, 0U);
+    TreatmentHeatingControl_DisableSide(side);
+}
+
+static uint8_t EyeShieldStatus_ReadAdc(uint32_t channel, uint16_t *value)
+{
+    ADC_ChannelConfTypeDef cfg;
+
+    if (value == NULL)
+    {
+        return 0U;
+    }
+
+    (void)memset(&cfg, 0, sizeof(cfg));
+    cfg.Channel = channel;
+    cfg.Rank = ADC_REGULAR_RANK_1;
+    cfg.SamplingTime = ADC_SAMPLINGTIME_COMMON_1;
+    if (HAL_ADC_ConfigChannel(&hadc1, &cfg) != HAL_OK)
+    {
+        return 0U;
+    }
+    if (HAL_ADC_Start(&hadc1) != HAL_OK)
+    {
+        return 0U;
+    }
+    if (HAL_ADC_PollForConversion(&hadc1, 10U) != HAL_OK)
+    {
+        (void)HAL_ADC_Stop(&hadc1);
+        return 0U;
+    }
+
+    *value = (uint16_t)HAL_ADC_GetValue(&hadc1);
+    (void)HAL_ADC_Stop(&hadc1);
+    return 1U;
 }
 
 void EyeShieldStatus_Init(void)
@@ -114,10 +156,7 @@ void EyeShieldStatus_Init(void)
         return;
     }
 
-    /*
-     * Keep the old board mapping:
-     * left eye shield is wired to Heat2 pins, right eye shield is wired to Heat1 pins.
-     */
+    /* 保持现有板级映射：左眼走 Heat2，右眼走 Heat1。 */
     EyeShieldStatus_InitPin(&s_left_present_pin,
                             MCU_Heat2_Sense_GPIO_Port,
                             MCU_Heat2_Sense_Pin,
@@ -195,6 +234,7 @@ void EyeShieldStatus_Service(void)
 
     if (s_fuse_blow_pending_mask != 0U)
     {
+        /* 收到请求后拉高对应击穿引脚，并在超时后自动拉低。 */
         s_fuse_blow_active_mask |= s_fuse_blow_pending_mask;
         EyeShieldStatus_ApplyFuseMask(s_fuse_blow_pending_mask, GPIO_PIN_SET);
         LOG_I("eye shield fuse pulse start mask=0x%02X", s_fuse_blow_pending_mask);
@@ -211,7 +251,7 @@ void EyeShieldStatus_Service(void)
     }
 }
 
-uint8_t EyeShieldStatus_Process(control_config_t *cfg)
+uint8_t EyeShieldStatus_Process(control_config_t *cfg, stop_reason_t *stop_reason)
 {
     uint8_t left_present_raw;
     uint8_t right_present_raw;
@@ -220,21 +260,43 @@ uint8_t EyeShieldStatus_Process(control_config_t *cfg)
     uint8_t stop_requested = 0U;
     uint8_t left_required = 0U;
     uint8_t right_required = 0U;
+    uint16_t left_protector_adc = 0U;
+    uint16_t right_protector_adc = 0U;
+    uint8_t left_adc_valid = 0U;
+    uint8_t right_adc_valid = 0U;
 
     if (s_initialized == 0U)
     {
         EyeShieldStatus_Init();
     }
 
+    if (stop_reason != NULL)
+    {
+        *stop_reason = STOP_REASON_NONE;
+    }
+
+    /* 采集原始 GPIO 状态，再通过去抖更新稳定态。 */
     left_present_raw = BspGpio_ReadActive(&s_left_present_pin);
     right_present_raw = BspGpio_ReadActive(&s_right_present_pin);
     left_fuse_raw = BspGpio_ReadActive(&s_left_fuse_detect_pin);
     right_fuse_raw = BspGpio_ReadActive(&s_right_fuse_detect_pin);
 
-    EyeShieldStatus_Debounce(left_present_raw, &s_left_present_stable, &s_left_present_count);
-    EyeShieldStatus_Debounce(right_present_raw, &s_right_present_stable, &s_right_present_count);
-    EyeShieldStatus_Debounce(left_fuse_raw, &s_left_fuse_stable, &s_left_fuse_count);
-    EyeShieldStatus_Debounce(right_fuse_raw, &s_right_fuse_stable, &s_right_fuse_count);
+    EyeShieldStatus_Debounce(left_present_raw,
+                             &s_left_present_stable,
+                             &s_left_present_count,
+                             EYE_SHIELD_PRESENT_DEBOUNCE_COUNT);
+    EyeShieldStatus_Debounce(right_present_raw,
+                             &s_right_present_stable,
+                             &s_right_present_count,
+                             EYE_SHIELD_PRESENT_DEBOUNCE_COUNT);
+    EyeShieldStatus_Debounce(left_fuse_raw,
+                             &s_left_fuse_stable,
+                             &s_left_fuse_count,
+                             EYE_SHIELD_FUSE_DEBOUNCE_COUNT);
+    EyeShieldStatus_Debounce(right_fuse_raw,
+                             &s_right_fuse_stable,
+                             &s_right_fuse_count,
+                             EYE_SHIELD_FUSE_DEBOUNCE_COUNT);
 
     {
         static uint8_t last_left_present = 0xFFU;
@@ -263,6 +325,7 @@ uint8_t EyeShieldStatus_Process(control_config_t *cfg)
         }
     }
 
+    /* 同步更新共享传感器快照，供其他任务直接使用。 */
     gSensorData.heaterPresentL = s_left_present_stable;
     gSensorData.heaterPresentR = s_right_present_stable;
     gSensorData.heaterFuseL = s_left_fuse_stable;
@@ -278,6 +341,7 @@ uint8_t EyeShieldStatus_Process(control_config_t *cfg)
         return 0U;
     }
 
+    /* 仅在治疗中且该侧启用时，眼罩缺失才升级为停机条件。 */
     left_required = (uint8_t)((cfg->running != 0U) && (cfg->press_enable_L != 0U));
     right_required = (uint8_t)((cfg->running != 0U) && (cfg->press_enable_R != 0U));
 
@@ -298,6 +362,10 @@ uint8_t EyeShieldStatus_Process(control_config_t *cfg)
             if (left_required != 0U)
             {
                 stop_requested = 1U;
+                if (stop_reason != NULL)
+                {
+                    *stop_reason = STOP_REASON_EYE_SHIELD_OFFLINE;
+                }
             }
             EyeShieldStatus_DisableSide(TREATMENT_SIDE_LEFT, &cfg->press_enable_L);
         }
@@ -320,6 +388,10 @@ uint8_t EyeShieldStatus_Process(control_config_t *cfg)
             if (right_required != 0U)
             {
                 stop_requested = 1U;
+                if (stop_reason != NULL)
+                {
+                    *stop_reason = STOP_REASON_EYE_SHIELD_OFFLINE;
+                }
             }
             EyeShieldStatus_DisableSide(TREATMENT_SIDE_RIGHT, &cfg->press_enable_R);
         }
@@ -348,6 +420,34 @@ uint8_t EyeShieldStatus_Process(control_config_t *cfg)
         EyeShieldStatus_DisableSide(TREATMENT_SIDE_RIGHT, &cfg->press_enable_R);
     }
 #endif
+
+    if ((left_required != 0U) && (s_left_present_stable != 0U))
+    {
+        left_adc_valid = EyeShieldStatus_ReadAdc(ADC_CHANNEL_8, &left_protector_adc);
+        if ((left_adc_valid != 0U) && (left_protector_adc >= EYE_SHIELD_ADC_FAULT_TH))
+        {
+            LOG_E("eye shield L protector adc fault value=%u", left_protector_adc);
+            stop_requested = 1U;
+            if (stop_reason != NULL)
+            {
+                *stop_reason = STOP_REASON_LEFT_HEATER_PROTECTOR_FAULT;
+            }
+        }
+    }
+
+    if ((right_required != 0U) && (s_right_present_stable != 0U))
+    {
+        right_adc_valid = EyeShieldStatus_ReadAdc(ADC_CHANNEL_5, &right_protector_adc);
+        if ((right_adc_valid != 0U) && (right_protector_adc >= EYE_SHIELD_ADC_FAULT_TH))
+        {
+            LOG_E("eye shield R protector adc fault value=%u", right_protector_adc);
+            stop_requested = 1U;
+            if (stop_reason != NULL)
+            {
+                *stop_reason = STOP_REASON_RIGHT_HEATER_PROTECTOR_FAULT;
+            }
+        }
+    }
 
     return stop_requested;
 }

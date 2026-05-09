@@ -6,11 +6,13 @@
 #include "Modules/Log/module_log.h"
 #include "UserDrivers/user_drivers_board.h"
 
+/* 压力采样周期与原始值到 kPa 的换算常量。 */
 #define TREATMENT_PRESSURE_SENSOR_SAMPLE_PERIOD_MS 10U
 #define TREATMENT_PRESSURE_SENSOR_SCALE_KPA 7.50062f
 #define TREATMENT_PRESSURE_SENSOR_LEFT_CHANNEL 1U
 #define TREATMENT_PRESSURE_SENSOR_RIGHT_CHANNEL 0U
 
+/* 3 点中值滤波，用于抑制孤立尖峰。 */
 static float TreatmentPressureSensor_Median3(const float *buf, uint8_t count)
 {
     float tmp[TREATMENT_PRESSURE_SENSOR_MEDIAN_WINDOW];
@@ -48,6 +50,7 @@ static float TreatmentPressureSensor_Median3(const float *buf, uint8_t count)
     return 0.5f * (tmp[(count / 2U) - 1U] + tmp[count / 2U]);
 }
 
+/* 将一个新样本推入环形缓冲并输出当前滤波结果。 */
 static void TreatmentPressureSensor_PushSample(TreatmentPressureSensor *sensor,
                                                uint8_t channel,
                                                float value_kpa,
@@ -96,6 +99,7 @@ void TreatmentPressureSensor_Poll(TreatmentPressureSensor *sensor,
 
     if (UserPressureSensor_Read(&gUserPressureSensor) != 0U)
     {
+        /* 原始值先转为 kPa，再做 3 点中值滤波。 */
         float left_kpa =
             ((float)gUserPressureSensor.left.pressure_raw / 1000.0f) *
             TREATMENT_PRESSURE_SENSOR_SCALE_KPA;

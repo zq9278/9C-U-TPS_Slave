@@ -11,6 +11,12 @@
 extern "C" {
 #endif
 
+/*
+ * RK3576 协议对象封装了两类能力：
+ * 1. 主动发包：借助 ProtocolTransport 把协议帧送到底层 UART；
+ * 2. 被动收包：利用 ProtocolRxState 在字节流中识别完整帧。
+ */
+
 /**
  * @brief RK3576 协议对象。
  *

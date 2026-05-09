@@ -65,7 +65,6 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     UserDrivers/Eeprom24cxx/eeprom24cxx.c
     UserDrivers/PressureSensor/pressure_sensor_driver.c
     UserDrivers/ValveControl/valve_control.c
-    Components/Actuators/TreatmentActuators.c
 
     # Modules
     Modules/Log/module_log.c
@@ -103,8 +102,6 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     UserDrivers/Eeprom24cxx
     UserDrivers/PressureSensor
     UserDrivers/ValveControl
-    Components
-    Components/Actuators
     Modules
     Modules/Log
     Modules/communication

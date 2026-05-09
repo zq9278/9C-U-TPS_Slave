@@ -63,6 +63,13 @@ TARGETS = [
 ]
 TARGET_BY_ID = {item["id"]: item for item in TARGETS}
 TARGET_BY_CODE = {item["code"]: item for item in TARGETS}
+PID_SET_TARGET_ID = {
+    "PR": 0,
+    "PH": 1,
+    "PP": 2,
+    "HL": 3,
+    "HR": 4,
+}
 
 DEFAULT_GAINS = {
     "PR": (0.0800, 0.0000, 0.0000),
@@ -76,8 +83,16 @@ RANGES = {
     "PR": ((0.0, 2.0), (0.0, 20.0), (0.0, 2.0)),
     "PH": ((0.0, 2.0), (0.0, 20.0), (0.0, 2.0)),
     "PP": ((0.0, 2.0), (0.0, 20.0), (0.0, 2.0)),
-    "HL": ((0.0, 0.05), (0.0, 10.0), (0.0, 0.05)),
-    "HR": ((0.0, 0.05), (0.0, 10.0), (0.0, 0.05)),
+    "HL": ((0.0, 5.0), (0.0, 10.0), (0.0, 5.0)),
+    "HR": ((0.0, 5.0), (0.0, 10.0), (0.0, 5.0)),
+}
+
+DISPLAY_SCALES = {
+    "PR": {"kp": 1.0, "ki": 1.0, "kd": 1.0},
+    "PH": {"kp": 1.0, "ki": 1.0, "kd": 1.0},
+    "PP": {"kp": 1.0, "ki": 1.0, "kd": 1.0},
+    "HL": {"kp": 1.0, "ki": 1.0, "kd": 1.0},
+    "HR": {"kp": 1.0, "ki": 1.0, "kd": 1.0},
 }
 
 CURVE_COLORS = {
@@ -356,11 +371,13 @@ class PidTuneCard(QFrame):
 
         kp, ki, kd = DEFAULT_GAINS[code]
         kp_range, ki_range, kd_range = RANGES[code]
+        scales = DISPLAY_SCALES[code]
         self.rows = {
-            "kp": GainRow("Kp", kp, kp_range[0], kp_range[1]),
-            "ki": GainRow("Ki", ki, ki_range[0], ki_range[1]),
-            "kd": GainRow("Kd", kd, kd_range[0], kd_range[1]),
+            "kp": GainRow("Kp", kp * scales["kp"], kp_range[0] * scales["kp"], kp_range[1] * scales["kp"]),
+            "ki": GainRow("Ki", ki * scales["ki"], ki_range[0] * scales["ki"], ki_range[1] * scales["ki"]),
+            "kd": GainRow("Kd", kd * scales["kd"], kd_range[0] * scales["kd"], kd_range[1] * scales["kd"]),
         }
+        self.scales = scales
 
         body = QVBoxLayout(self)
         body.setContentsMargins(14, 14, 14, 14)
@@ -377,12 +394,16 @@ class PidTuneCard(QFrame):
         body.addLayout(footer)
 
     def values(self):
-        return self.rows["kp"].value(), self.rows["ki"].value(), self.rows["kd"].value()
+        return (
+            self.rows["kp"].value() / self.scales["kp"],
+            self.rows["ki"].value() / self.scales["ki"],
+            self.rows["kd"].value() / self.scales["kd"],
+        )
 
     def set_values(self, kp: float, ki: float, kd: float):
-        self.rows["kp"].set_value(kp)
-        self.rows["ki"].set_value(ki)
-        self.rows["kd"].set_value(kd)
+        self.rows["kp"].set_value(kp * self.scales["kp"])
+        self.rows["ki"].set_value(ki * self.scales["ki"])
+        self.rows["kd"].set_value(kd * self.scales["kd"])
 
     def _emit_send_if_auto(self):
         if self.auto_send.isChecked():
@@ -755,8 +776,7 @@ class MainWindow(QMainWindow):
 
     def send_pid(self, code: str, kp: float, ki: float, kd: float):
         LOGGER.info("send pid code=%s kp=%.4f ki=%.4f kd=%.4f", code, kp, ki, kd)
-        target = TARGET_BY_CODE[code]
-        frame = build_pid_set_frame(target["id"], kp, ki, kd)
+        frame = build_pid_set_frame(PID_SET_TARGET_ID[code], kp, ki, kd)
         self.send_bytes(f"PID SET {code}", frame)
 
     def toggle_stream(self):

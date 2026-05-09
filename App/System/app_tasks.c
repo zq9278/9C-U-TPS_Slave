@@ -10,6 +10,7 @@
 #include "Modules/communication/Protocol/rk3576_protocol.h"
 #include "Modules/EyeShield/eye_shield_status.h"
 #include "Modules/Filter/target_window_filter.h"
+#include "Modules/Heat/treatment_heating_control.h"
 #include "treatment_app_controller.h"
 #include "Modules/Sensors/treatment_pressure_sensor.h"
 #include "Modules/Sensors/treatment_temperature_sensor.h"
@@ -18,6 +19,21 @@
 #include "semphr.h"
 #include "task.h"
 
+/*
+ * 本文件是应用层任务编排中心：
+ * - AppTask 负责把协议命令翻译为控制配置；
+ * - CommRxTask / CommTxTask 负责业务串口收发；
+ * - SensorTask 负责压力/温度采样；
+ * - ControlTask 负责压力波形、加热闭环和遥测；
+ * - SafetyTask 负责超温/超压保护。
+ *
+ * 整体数据流为：
+ * RK3576 帧 -> gAppCommandQueue -> AppTask -> gCtrlCmdQueue -> ControlTask
+ *                                        \-> gSensorCmdQueue -> SensorTask
+ * 其他任务上报 -> gTxQueue -> CommTxTask -> UART3 -> RK3576
+ */
+
+/* 各任务栈深，单位为 StackType_t 个数。 */
 #define APP_TASK_STACK_WORDS       356U
 #define COMM_RX_TASK_STACK_WORDS   320U
 #define COMM_TX_TASK_STACK_WORDS   288U
@@ -25,6 +41,7 @@
 #define CONTROL_TASK_STACK_WORDS   448U
 #define SAFETY_TASK_STACK_WORDS    192U
 
+/* 各任务周期/节拍宏，集中定义便于统一调整。 */
 #define SENSOR_PERIOD_MS           2U
 #define CONTROL_PERIOD_MS          2U
 #define COMM_RX_PERIOD_MS          1U
@@ -33,15 +50,17 @@
 #define TEMP_TELEMETRY_MS          20U
 #define EYE_SHIELD_STATUS_MS       100U
 #define PID_DEBUG_TELEMETRY_MS     100U
+/* 是否启用“发送给 RK3576 的遥测值”窗口滤波。1=启用，0=直接发送原始采样值。 */
 #define RK3576_TELEMETRY_FILTER_ENABLE 1U
 #define RK3576_PRESS_FILTER_WINDOW_MS PRESS_TELEMETRY_MS
 #define RK3576_TEMP_FILTER_WINDOW_MS  TEMP_TELEMETRY_MS
 #define RK3576_PRESS_FILTER_SAMPLES ((uint16_t)(RK3576_PRESS_FILTER_WINDOW_MS / CONTROL_PERIOD_MS))
 #define RK3576_TEMP_FILTER_SAMPLES  ((uint16_t)(RK3576_TEMP_FILTER_WINDOW_MS / CONTROL_PERIOD_MS))
 
-#define TEMP_MAX_C                 60.0f
+#define TEMP_MAX_C                 50.0f
 #define PRESS_MAX_KPA              450.0f
 #define CONTROL_RUNTIME_LOG_ENABLE 0U
+/* RK3576 下发的三档模式值。 */
 #define MODE_SELECT_RELAX          1U
 #define MODE_SELECT_STANDARD       2U
 #define MODE_SELECT_FAST           3U
@@ -59,6 +78,7 @@ static TaskHandle_t s_sensor_task = NULL;
 static TaskHandle_t s_control_task = NULL;
 static TaskHandle_t s_safety_task = NULL;
 
+/* ADS1248 数据就绪中断通过该信号量驱动温度采样。 */
 static SemaphoreHandle_t s_rtd_drdy_sem = NULL;
 
 static void AppTask(void *argument);
@@ -92,10 +112,12 @@ static float Rk3576TelemetryFilter_GetTempLeft(const void *state,
 static float Rk3576TelemetryFilter_GetTempRight(const void *state,
                                                 const volatile sensor_data_t *sensor);
 
+/* USART1 PID 调试协议接收状态。 */
 static PidDebugRxParser s_pid_debug_rx_parser;
 static volatile stop_reason_t s_pending_stop_reason = STOP_REASON_NONE;
 static volatile uint8_t s_pending_stop_reason_valid = 0U;
 
+/* 发送侧滤波仅作用于当前实际上传给 RK3576 的测点，不影响控制闭环输入。 */
 typedef struct
 {
     TargetWindowFilter press_left;
@@ -144,6 +166,7 @@ static void send_ctrl_command(ctrl_cmd_id_t id, const control_config_t *cfg)
     }
 }
 
+/* 将 PID 调试串口解析出的命令转为 ctrl_cmd_t。 */
 static void send_pid_ctrl_command(const PidDebugCommand *pid_cmd)
 {
     ctrl_cmd_t cmd;
@@ -167,6 +190,10 @@ static void send_pid_ctrl_command(const PidDebugCommand *pid_cmd)
     }
 }
 
+/*
+ * 根据模式值写入脉冲阶段的开关时间。
+ * 这是 MODE_SELECT 协议帧的参数落点，后续调试只需要改档位宏即可。
+ */
 static void apply_mode_profile(control_config_t *cfg, uint8_t mode)
 {
     if (cfg == NULL)
@@ -195,6 +222,7 @@ static void apply_mode_profile(control_config_t *cfg, uint8_t mode)
     }
 }
 
+/* 给传感器任务下发采样模式，使用 overwrite 保证只保留最新意图。 */
 static void send_sensor_mode(temp_acquire_mode_t mode, uint8_t suppress_rtd_fail_log)
 {
     sensor_cmd_t cmd;
@@ -209,6 +237,7 @@ static void send_sensor_mode(temp_acquire_mode_t mode, uint8_t suppress_rtd_fail
     (void)xQueueOverwrite(gSensorCmdQueue, &cmd);
 }
 
+/* 上电默认治疗参数。 */
 static void config_defaults(control_config_t *cfg)
 {
     (void)memset(cfg, 0, sizeof(*cfg));
@@ -223,6 +252,10 @@ static void config_defaults(control_config_t *cfg)
     cfg->treatment_minutes = 1U;
 }
 
+/*
+ * 根据左右眼使能和眼罩在位状态，决定温度采样任务是否需要工作。
+ * 当前实现只区分“空闲停止采样”和“双路轮询采样”。
+ */
 static temp_acquire_mode_t resolve_temperature_mode(const control_config_t *cfg)
 {
     const uint8_t left_enabled = (uint8_t)((cfg != NULL) &&
@@ -243,6 +276,7 @@ static temp_acquire_mode_t resolve_temperature_mode(const control_config_t *cfg)
     return TEMP_ACQUIRE_MODE_IDLE;
 }
 
+/* 单眼治疗时，允许抑制另一侧 RTD 可能产生的读数失败告警。 */
 static uint8_t resolve_temperature_log_suppress(const control_config_t *cfg)
 {
     const uint8_t left_enabled = (uint8_t)((cfg != NULL) &&
@@ -255,6 +289,7 @@ static uint8_t resolve_temperature_log_suppress(const control_config_t *cfg)
     return (uint8_t)(((left_enabled != 0U) ^ (right_enabled != 0U)) ? 1U : 0U);
 }
 
+/* 把“停机请求”重新投递给 AppTask，统一走 APP_CMD_STOP 分支收口。 */
 static void request_app_stop(void)
 {
     app_cmd_t cmd;
@@ -272,12 +307,14 @@ static void request_app_stop(void)
     }
 }
 
+/* 暂存停机原因，等待 AppTask 停机时统一回传给 RK3576。 */
 static void set_pending_stop_reason(stop_reason_t reason)
 {
     s_pending_stop_reason = reason;
     s_pending_stop_reason_valid = 1U;
 }
 
+/* 取出并清除待处理的停机原因。 */
 static uint8_t consume_pending_stop_reason(stop_reason_t *reason)
 {
     uint8_t valid = s_pending_stop_reason_valid;
@@ -292,6 +329,7 @@ static uint8_t consume_pending_stop_reason(stop_reason_t *reason)
     return valid;
 }
 
+/* 初始化单个遥测通道的目标窗口滤波器。 */
 static void Rk3576TelemetryFilter_InitChannel(TargetWindowFilter *filter,
                                               uint16_t sample_count_limit,
                                               uint32_t period_ms,
@@ -311,6 +349,11 @@ static void Rk3576TelemetryFilter_InitChannel(TargetWindowFilter *filter,
     TargetWindowFilter_Reset(filter, now_ms);
 }
 
+/*
+ * 将一个采样值送入滤波器。
+ * 当前策略不是平均值，而是“选择窗口内最接近目标值的样本”，
+ * 目标值默认跟随上一窗口输出，用于减小上位机曲线抖动。
+ */
 static void Rk3576TelemetryFilter_PushChannel(TargetWindowFilter *filter,
                                               float sample,
                                               uint32_t now_ms,
@@ -344,6 +387,7 @@ static void Rk3576TelemetryFilter_PushChannel(TargetWindowFilter *filter,
     *valid = 1U;
 }
 
+/* 初始化发送侧滤波状态。 */
 static void Rk3576TelemetryFilter_Init(void *state_ptr, TickType_t now_tick)
 {
     Rk3576TelemetryFilterState *state = (Rk3576TelemetryFilterState *)state_ptr;
@@ -369,6 +413,7 @@ static void Rk3576TelemetryFilter_Init(void *state_ptr, TickType_t now_tick)
                                       now_ms);
 }
 
+/* 治疗会话边界处重置滤波器，避免跨会话串窗。 */
 static void Rk3576TelemetryFilter_Reset(void *state_ptr, TickType_t now_tick)
 {
     Rk3576TelemetryFilterState *state = (Rk3576TelemetryFilterState *)state_ptr;
@@ -390,6 +435,7 @@ static void Rk3576TelemetryFilter_Reset(void *state_ptr, TickType_t now_tick)
     TargetWindowFilter_Reset(&state->temp_right, now_ms);
 }
 
+/* 按控制周期持续向发送侧滤波器喂样本。 */
 static void Rk3576TelemetryFilter_Update(void *state_ptr,
                                          const volatile sensor_data_t *sensor,
                                          TickType_t now_tick)
@@ -420,6 +466,7 @@ static void Rk3576TelemetryFilter_Update(void *state_ptr,
                                       &state->temp_right_valid);
 }
 
+/* 获取左压力滤波输出，若窗口尚未成熟则回退为当前原始采样。 */
 static float Rk3576TelemetryFilter_GetPressureLeft(const void *state_ptr,
                                                    const volatile sensor_data_t *sensor)
 {
@@ -433,6 +480,7 @@ static float Rk3576TelemetryFilter_GetPressureLeft(const void *state_ptr,
     return (sensor != NULL) ? sensor->pressL : 0.0f;
 }
 
+/* 获取左温度滤波输出，若窗口尚未成熟则回退为当前原始采样。 */
 static float Rk3576TelemetryFilter_GetTempLeft(const void *state_ptr,
                                                const volatile sensor_data_t *sensor)
 {
@@ -446,6 +494,7 @@ static float Rk3576TelemetryFilter_GetTempLeft(const void *state_ptr,
     return (sensor != NULL) ? sensor->tempL : 0.0f;
 }
 
+/* 获取右温度滤波输出，若窗口尚未成熟则回退为当前原始采样。 */
 static float Rk3576TelemetryFilter_GetTempRight(const void *state_ptr,
                                                 const volatile sensor_data_t *sensor)
 {
@@ -459,6 +508,7 @@ static float Rk3576TelemetryFilter_GetTempRight(const void *state_ptr,
     return (sensor != NULL) ? sensor->tempR : 0.0f;
 }
 
+/* 协议层回调：将 UART3 解析出的业务帧投递给 AppTask。 */
 static void OnProtocolFrame(void *context,
                             CommunicationInterfaceId interface_id,
                             const CommunicationFrameView *frame)
@@ -488,6 +538,7 @@ static void OnProtocolFrame(void *context,
     }
 }
 
+/* 日志串口回调：当前主要承接 PID 调试协议。 */
 static void OnLogRx(void *context,
                     CommunicationChannel channel,
                     const uint8_t *data,
@@ -511,6 +562,13 @@ static void OnLogRx(void *context,
     }
 }
 
+/*
+ * 应用状态机任务。
+ * 职责是维护 control_config_t，并把 RK3576 命令转换为：
+ * 1. ControlTask 的控制命令；
+ * 2. SensorTask 的采样模式命令；
+ * 3. 必要的上位机回包。
+ */
 static void AppTask(void *argument)
 {
     app_cmd_t cmd;
@@ -532,6 +590,7 @@ static void AppTask(void *argument)
         switch (cmd.id)
         {
         case APP_CMD_HEARTBEAT:
+            /* 心跳只回 ACK，不改动本地状态。 */
             enqueue_tx_u8(PROTOCOL_ID_U8_HEARTBEAT_ACK, 1U);
             break;
         case APP_CMD_SET_PRESSURE_KPA:
@@ -545,6 +604,7 @@ static void AppTask(void *argument)
             send_ctrl_command(CTRL_CMD_UPDATE_CFG, &cfg);
             break;
         case APP_CMD_LEFT_ENABLE:
+            /* 左眼启停会影响加热采样模式和后续闭环所作用的治疗侧。 */
             cfg.press_enable_L = (cmd.v.u8 != 0U) ? 1U : 0U;
             if (cfg.running != 0U)
             {
@@ -554,6 +614,7 @@ static void AppTask(void *argument)
             send_ctrl_command(CTRL_CMD_UPDATE_CFG, &cfg);
             break;
         case APP_CMD_RIGHT_ENABLE:
+            /* 右眼启停逻辑与左眼对称。 */
             cfg.press_enable_R = (cmd.v.u8 != 0U) ? 1U : 0U;
             if (cfg.running != 0U)
             {
@@ -573,10 +634,12 @@ static void AppTask(void *argument)
             send_ctrl_command(CTRL_CMD_UPDATE_CFG, &cfg);
             break;
         case APP_CMD_MODE_SELECT:
+            /* 模式切换只改参数，不隐式启动治疗。 */
             apply_mode_profile(&cfg, cmd.v.u8);
             send_ctrl_command(CTRL_CMD_UPDATE_CFG, &cfg);
             break;
         case APP_CMD_START:
+            /* 若上位机未显式指定左右眼，则默认双眼治疗。 */
             if ((cfg.press_enable_L == 0U) && (cfg.press_enable_R == 0U))
             {
                 cfg.press_enable_L = 1U;
@@ -614,6 +677,7 @@ static void AppTask(void *argument)
             break;
         }
         case APP_CMD_PAUSE_RESUME:
+            /* 协议约定：0=暂停，非 0=恢复。 */
             if (cmd.v.u8 == 0U)
             {
                 paused = 1U;
@@ -641,6 +705,7 @@ static void AppTask(void *argument)
     }
 }
 
+/* 周期轮询通信模块，驱动 DMA/IDLE 串口收包状态机前进。 */
 static void CommRxTask(void *argument)
 {
     (void)argument;
@@ -651,6 +716,7 @@ static void CommRxTask(void *argument)
     }
 }
 
+/* 统一发送任务：把抽象 tx_frame_t 转换成真实协议帧发往 UART3。 */
 static void CommTxTask(void *argument)
 {
     tx_frame_t tx;
@@ -685,6 +751,12 @@ static void CommTxTask(void *argument)
     }
 }
 
+/*
+ * 传感器任务：
+ * - 温度：通过 ADS1248 轮询/中断配合更新；
+ * - 压力：固定周期轮询更新；
+ * 最终都写入共享的 gSensorData。
+ */
 static void SensorTask(void *argument)
 {
     TreatmentTemperatureSensor temperature_sensor;
@@ -716,6 +788,13 @@ static void SensorTask(void *argument)
     }
 }
 
+/*
+ * 控制任务是治疗主闭环：
+ * - 接收 ctrl_cmd_t；
+ * - 维护眼罩在位/保险丝保护；
+ * - 执行压力和加热控制；
+ * - 发送温度、压力及 PID 调试信息。
+ */
 static void ControlTask(void *argument)
 {
     TreatmentAppController controller;
@@ -729,6 +808,7 @@ static void ControlTask(void *argument)
     TickType_t next_control_log;
     TickType_t next_pid_debug_tx;
     uint8_t telemetry_filter_active = 0U;
+    uint8_t telemetry_tx_enabled = 0U;
 
     (void)argument;
     TreatmentAppController_Init(&controller);
@@ -750,14 +830,17 @@ static void ControlTask(void *argument)
             TreatmentAppController_HandleCommand(&controller, &cmd, now);
         }
 
+        /* 眼罩状态检查属于控制前置安全条件。 */
         EyeShieldStatus_Service();
         if ((int32_t)(now - next_eye_shield_status) >= 0)
         {
+            stop_reason_t eye_shield_stop_reason = STOP_REASON_EYE_SHIELD_OFFLINE;
+
             next_eye_shield_status = now + pdMS_TO_TICKS(EYE_SHIELD_STATUS_MS);
-            if (EyeShieldStatus_Process(&controller.cfg) != 0U)
+            if (EyeShieldStatus_Process(&controller.cfg, &eye_shield_stop_reason) != 0U)
             {
-                LOG_E("eye shield offline during treatment, request stop");
-                set_pending_stop_reason(STOP_REASON_EYE_SHIELD_OFFLINE);
+                LOG_E("eye shield stop during treatment, reason=%u", (unsigned int)eye_shield_stop_reason);
+                set_pending_stop_reason(eye_shield_stop_reason);
                 send_ctrl_command(CTRL_CMD_STOP, NULL);
                 gTreatmentRunning = 0U;
                 request_app_stop();
@@ -765,9 +848,12 @@ static void ControlTask(void *argument)
         }
 
         TreatmentAppController_Run(&controller,&gSensorData,now,(float)CONTROL_PERIOD_MS / 1000.0f, &runtime);
+        telemetry_tx_enabled = (uint8_t)((runtime.session_active != 0U) &&
+                                         (controller.paused == 0U));
 
 #if RK3576_TELEMETRY_FILTER_ENABLE
-        if (runtime.session_active != 0U)
+        /* 发送侧滤波只影响上位机曲线，不参与控制闭环。 */
+        if (telemetry_tx_enabled != 0U)
         {
             if (telemetry_filter_active == 0U)
             {
@@ -785,9 +871,15 @@ static void ControlTask(void *argument)
         (void)telemetry_filter;
         (void)telemetry_filter_active;
 #endif
+        if (telemetry_tx_enabled == 0U)
+        {
+            next_press_tx = now + pdMS_TO_TICKS(PRESS_TELEMETRY_MS);
+            next_temp_tx = now + pdMS_TO_TICKS(TEMP_TELEMETRY_MS);
+        }
 
         if ((controller.cfg.running != 0U) && (controller.cfg.treatment_minutes > 0U))
         {
+            /* 达到总治疗时长后，通过统一停机链路结束治疗。 */
             uint32_t elapsed_ms =
                 (uint32_t)((now - controller.wave_anchor_tick) * portTICK_PERIOD_MS);
             uint32_t duration_ms = (uint32_t)controller.cfg.treatment_minutes * 60U * 1000U;
@@ -825,11 +917,12 @@ static void ControlTask(void *argument)
         (void)next_control_log;
 #endif
 
-        if ((runtime.session_active != 0U) &&
+        if ((telemetry_tx_enabled != 0U) &&
             ((int32_t)(now - next_press_tx) >= 0))
         {
             next_press_tx = now + pdMS_TO_TICKS(PRESS_TELEMETRY_MS);
 #if RK3576_TELEMETRY_FILTER_ENABLE
+            /* 当前协议主链路只发左压力值，右压力帧 ID 仍保留作后续扩展。 */
             enqueue_tx_f32(PROTOCOL_ID_F32_LEFT_PRESSURE_VALUE,
                            Rk3576TelemetryFilter_GetPressureLeft(&telemetry_filter, &gSensorData));
 #else
@@ -837,7 +930,7 @@ static void ControlTask(void *argument)
 #endif
         }
 
-        if ((runtime.session_active != 0U) &&
+        if ((telemetry_tx_enabled != 0U) &&
             ((int32_t)(now - next_temp_tx) >= 0))
         {
             next_temp_tx = now + pdMS_TO_TICKS(TEMP_TELEMETRY_MS);
@@ -856,6 +949,7 @@ static void ControlTask(void *argument)
         if ((controller.pid_debug_stream_enabled != 0U) &&
             ((int32_t)(now - next_pid_debug_tx) >= 0))
         {
+            /* PID 调试数据走日志串口格式，不占用 RK3576 业务协议。 */
             next_pid_debug_tx = now + pdMS_TO_TICKS(PID_DEBUG_TELEMETRY_MS);
             (void)PidDebugProtocol_SendSample(PID_DEBUG_TARGET_HEAT_LEFT,
                                               (uint32_t)(now * portTICK_PERIOD_MS),
@@ -872,6 +966,7 @@ static void ControlTask(void *argument)
     }
 }
 
+/* 独立安全任务：检测超温/超压并触发应用层停机。 */
 static void SafetyTask(void *argument)
 {
     uint8_t fault_active = 0U;
@@ -880,15 +975,37 @@ static void SafetyTask(void *argument)
     for (;;)
     {
         stop_reason_t stop_reason = STOP_REASON_NONE;
+        uint8_t heat_otp_fault_left = 0U;
+        uint8_t heat_otp_fault_right = 0U;
+        uint8_t heat_otp_level_left = 0U;
+        uint8_t heat_otp_level_right = 0U;
+        uint8_t over_temp_fault;
+        uint8_t over_pressure_fault;
+        uint8_t heat_otp_fault;
         uint8_t fault =
+            0U;
+
+        heat_otp_level_left =
+            (uint8_t)((HAL_GPIO_ReadPin(OTP2_RESET_GPIO_Port, OTP2_RESET_Pin) == GPIO_PIN_SET) ? 1U : 0U);
+        heat_otp_level_right =
+            (uint8_t)((HAL_GPIO_ReadPin(OTP1_RESET_GPIO_Port, OTP1_RESET_Pin) == GPIO_PIN_SET) ? 1U : 0U);
+        TreatmentHeatingControl_GetOtpFaultFlags(&heat_otp_fault_left, &heat_otp_fault_right);
+        over_temp_fault =
             (uint8_t)((gSensorData.tempL > TEMP_MAX_C) ||
-                      (gSensorData.tempR > TEMP_MAX_C) ||
-                      (gSensorData.pressL > PRESS_MAX_KPA) ||
+                      (gSensorData.tempR > TEMP_MAX_C));
+        over_pressure_fault =
+            (uint8_t)((gSensorData.pressL > PRESS_MAX_KPA) ||
                       (gSensorData.pressR > PRESS_MAX_KPA));
+        heat_otp_fault =
+            (uint8_t)((heat_otp_fault_left != 0U) ||
+                      (heat_otp_fault_right != 0U));
+        fault = (uint8_t)((over_temp_fault != 0U) ||
+                          (over_pressure_fault != 0U) ||
+                          (heat_otp_fault != 0U));
 
         if ((fault != 0U) && (fault_active == 0U))
         {
-            LOG_E("safety stop tempL=%d.%02d tempR=%d.%02d pressL=%d.%02d pressR=%d.%02d",
+            LOG_E("safety fault detect tempL=%d.%02d tempR=%d.%02d pressL=%d.%02d pressR=%d.%02d otpL_level=%u otpR_level=%u otpL_fault=%u otpR_fault=%u",
                   (int)gSensorData.tempL,
                   (int)((gSensorData.tempL - (float)((int)gSensorData.tempL)) * 100.0f),
                   (int)gSensorData.tempR,
@@ -896,12 +1013,16 @@ static void SafetyTask(void *argument)
                   (int)gSensorData.pressL,
                   (int)((gSensorData.pressL - (float)((int)gSensorData.pressL)) * 100.0f),
                   (int)gSensorData.pressR,
-                  (int)((gSensorData.pressR - (float)((int)gSensorData.pressR)) * 100.0f));
-            if ((gSensorData.tempL > TEMP_MAX_C) || (gSensorData.tempR > TEMP_MAX_C))
+                  (int)((gSensorData.pressR - (float)((int)gSensorData.pressR)) * 100.0f),
+                  heat_otp_level_left,
+                  heat_otp_level_right,
+                  heat_otp_fault_left,
+                  heat_otp_fault_right);
+            if ((over_temp_fault != 0U) || (heat_otp_fault != 0U))
             {
                 stop_reason = STOP_REASON_OVER_TEMP;
             }
-            else if ((gSensorData.pressL > PRESS_MAX_KPA) || (gSensorData.pressR > PRESS_MAX_KPA))
+            else if (over_pressure_fault != 0U)
             {
                 stop_reason = STOP_REASON_OVER_PRESSURE;
             }
@@ -920,6 +1041,7 @@ static void SafetyTask(void *argument)
     }
 }
 
+/* 注册通信回调并创建全部应用任务。 */
 void AppTasks_Init(void)
 {
     CommunicationCallbacks callbacks;
