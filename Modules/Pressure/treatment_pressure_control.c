@@ -10,16 +10,100 @@
 #define PRESS_PUMP_MAX_PWM 255U
 #define PRESS_PUMP_RAW_MAX 255.0f
 
-static float s_press_pid_rise_kp = 0.1f;
-static float s_press_pid_rise_ki = 0.1f;
-static float s_press_pid_rise_kd = 0.0f;
-static float s_press_pid_hold_kp = 0.50;
-static float s_press_pid_hold_ki = 0.1f;
-static float s_press_pid_hold_kd = 0.00f;
-static float s_press_pid_pulse_kp = 0.1f;
-static float s_press_pid_pulse_ki = 0.000f;
-static float s_press_pid_pulse_kd = 0.000f;
+typedef enum
+{
+    TREATMENT_PRESS_PROFILE_SINGLE_EYE = 0,
+    TREATMENT_PRESS_PROFILE_DUAL_EYE = 1
+} TreatmentPressureProfileKind;
+
+typedef struct
+{
+    float kp;
+    float ki;
+    float kd;
+} TreatmentPressurePidGains;
+
+typedef struct
+{
+    TreatmentPressurePidGains rise;
+    TreatmentPressurePidGains hold;
+    TreatmentPressurePidGains pulse;
+} TreatmentPressurePidProfile;
+
+static TreatmentPressurePidProfile s_press_pid_single_eye = {
+    {0.1f, 0.1f, 0.0f},
+    {0.30f, 0.1f, 0.00f},
+    {0.06f, 0.000f, 0.000f},
+};
+
+static TreatmentPressurePidProfile s_press_pid_dual_eye = {
+    {0.1f, 0.1f, 0.0f},
+    {0.50f, 0.1f, 0.00f},
+    {0.1f, 0.000f, 0.000f},
+};
+
 static uint32_t s_press_pid_profile_version = 0U;
+
+static TreatmentPressureProfileKind TreatmentPressureControl_GetProfileKind(
+    const TreatmentAppController *controller)
+{
+    if ((controller != NULL) &&
+        (controller->cfg.press_enable_L != 0U) &&
+        (controller->cfg.press_enable_R != 0U))
+    {
+        return TREATMENT_PRESS_PROFILE_DUAL_EYE;
+    }
+
+    return TREATMENT_PRESS_PROFILE_SINGLE_EYE;
+}
+
+static TreatmentPressurePidProfile *TreatmentPressureControl_SelectProfileMutable(
+    TreatmentPressureProfileKind kind)
+{
+    return (kind == TREATMENT_PRESS_PROFILE_DUAL_EYE) ?
+           &s_press_pid_dual_eye :
+           &s_press_pid_single_eye;
+}
+
+static const TreatmentPressurePidProfile *TreatmentPressureControl_SelectProfile(
+    TreatmentPressureProfileKind kind)
+{
+    return (kind == TREATMENT_PRESS_PROFILE_DUAL_EYE) ?
+           &s_press_pid_dual_eye :
+           &s_press_pid_single_eye;
+}
+
+static TreatmentPressurePidGains *TreatmentPressureControl_SelectStageGainsMutable(
+    TreatmentPressurePidProfile *profile,
+    TreatmentPressurePidStage stage)
+{
+    switch (stage)
+    {
+    case TREATMENT_PRESS_PID_STAGE_RISE:
+        return &profile->rise;
+    case TREATMENT_PRESS_PID_STAGE_HOLD:
+        return &profile->hold;
+    case TREATMENT_PRESS_PID_STAGE_PULSE:
+    default:
+        return &profile->pulse;
+    }
+}
+
+static const TreatmentPressurePidGains *TreatmentPressureControl_SelectStageGains(
+    const TreatmentPressurePidProfile *profile,
+    TreatmentPressurePidStage stage)
+{
+    switch (stage)
+    {
+    case TREATMENT_PRESS_PID_STAGE_RISE:
+        return &profile->rise;
+    case TREATMENT_PRESS_PID_STAGE_HOLD:
+        return &profile->hold;
+    case TREATMENT_PRESS_PID_STAGE_PULSE:
+    default:
+        return &profile->pulse;
+    }
+}
 
 static uint16_t TreatmentPressureControl_ClampPwm(float value, uint16_t max_value)
 {
@@ -194,33 +278,17 @@ static uint32_t TreatmentPressureControl_GetPulseOnMs(const TreatmentAppControll
 static void TreatmentPressureControl_ApplyProfile(TreatmentAppController *controller,
                                                   TreatmentPressurePidStage stage)
 {
-    float kp;
-    float ki;
-    float kd;
+    TreatmentPressureProfileKind profile_kind;
+    const TreatmentPressurePidGains *gains;
 
-    switch (stage)
-    {
-    case TREATMENT_PRESS_PID_STAGE_RISE:
-        kp = s_press_pid_rise_kp;
-        ki = s_press_pid_rise_ki;
-        kd = s_press_pid_rise_kd;
-        break;
-    case TREATMENT_PRESS_PID_STAGE_HOLD:
-        kp = s_press_pid_hold_kp;
-        ki = s_press_pid_hold_ki;
-        kd = s_press_pid_hold_kd;
-        break;
-    case TREATMENT_PRESS_PID_STAGE_PULSE:
-    default:
-        kp = s_press_pid_pulse_kp;
-        ki = s_press_pid_pulse_ki;
-        kd = s_press_pid_pulse_kd;
-        break;
-    }
+    profile_kind = TreatmentPressureControl_GetProfileKind(controller);
+    gains = TreatmentPressureControl_SelectStageGains(
+        TreatmentPressureControl_SelectProfile(profile_kind), stage);
 
-    PidController_SetGains(&controller->pressure_pid, kp, ki, kd);
+    PidController_SetGains(&controller->pressure_pid, gains->kp, gains->ki, gains->kd);
     PidController_Reset(&controller->pressure_pid);
     controller->active_pressure_stage = stage;
+    controller->active_pressure_profile_kind = (uint8_t)profile_kind;
     controller->active_pressure_profile_version = s_press_pid_profile_version;
     controller->pressure_profile_loaded = 1U;
 }
@@ -242,10 +310,14 @@ const char *TreatmentPressureControl_PhaseName(TreatmentPhase phase)
 void TreatmentPressureControl_InitPid(TreatmentAppController *controller)
 {
     PidControllerConfig cfg;
+    const TreatmentPressurePidGains *gains;
 
-    cfg.kp = s_press_pid_rise_kp;
-    cfg.ki = s_press_pid_rise_ki;
-    cfg.kd = s_press_pid_rise_kd;
+    gains = TreatmentPressureControl_SelectStageGains(
+        TreatmentPressureControl_SelectProfile(TreatmentPressureControl_GetProfileKind(controller)),
+        TREATMENT_PRESS_PID_STAGE_RISE);
+    cfg.kp = gains->kp;
+    cfg.ki = gains->ki;
+    cfg.kd = gains->kd;
     cfg.setpoint = 0.0f;
     cfg.output_min = 0.0f;
     cfg.output_max = 255.0f;
@@ -270,6 +342,7 @@ void TreatmentPressureControl_ResetPid(TreatmentAppController *controller)
     controller->pressure_vent_start_tick = 0U;
     controller->last_pressure_cycle_elapsed_ms = 0U;
     controller->last_pressure_phase = TREATMENT_PHASE_IDLE;
+    controller->active_pressure_profile_kind = (uint8_t)TREATMENT_PRESS_PROFILE_SINGLE_EYE;
     PidController_Reset(&controller->pressure_pid);
 }
 
@@ -339,6 +412,7 @@ void TreatmentPressureControl_ApplyPlan(TreatmentAppController *controller,
     float feedback_kpa;
     uint8_t cycle_wrapped;
     uint8_t pulse_rise_started;
+    TreatmentPressureProfileKind profile_kind;
 
     if ((controller == NULL) || (sensor == NULL) || (plan == NULL) || (runtime == NULL))
     {
@@ -346,6 +420,7 @@ void TreatmentPressureControl_ApplyPlan(TreatmentAppController *controller,
     }
 
     feedback_kpa = TreatmentPressureControl_GetFeedbackKpa(controller, sensor);
+    profile_kind = TreatmentPressureControl_GetProfileKind(controller);
     cycle_wrapped = (uint8_t)((controller->pressure_cycle_seen != 0U) &&
                               (plan->cycle_elapsed_ms < controller->last_pressure_cycle_elapsed_ms));
     pulse_rise_started = (uint8_t)((plan->phase == TREATMENT_PHASE_PULSE_ON) &&
@@ -362,6 +437,7 @@ void TreatmentPressureControl_ApplyPlan(TreatmentAppController *controller,
 
     if ((controller->pressure_profile_loaded == 0U) ||
         (controller->active_pressure_stage != plan->pid_stage) ||
+        (controller->active_pressure_profile_kind != (uint8_t)profile_kind) ||
         (controller->active_pressure_profile_version != s_press_pid_profile_version))
     {
         TreatmentPressureControl_ApplyProfile(controller, plan->pid_stage);
@@ -427,57 +503,76 @@ void TreatmentPressureControl_ApplyPlan(TreatmentAppController *controller,
     TreatmentPressureControl_UpdateHistory(controller, plan);
 }
 
+void TreatmentPressureControl_SetPidGainsForController(const TreatmentAppController *controller,
+                                                       TreatmentPressurePidStage stage,
+                                                       float kp,
+                                                       float ki,
+                                                       float kd)
+{
+    TreatmentPressurePidProfile *profile;
+    TreatmentPressurePidGains *gains;
+
+    profile = TreatmentPressureControl_SelectProfileMutable(
+        TreatmentPressureControl_GetProfileKind(controller));
+    gains = TreatmentPressureControl_SelectStageGainsMutable(profile, stage);
+    gains->kp = kp;
+    gains->ki = ki;
+    gains->kd = kd;
+    ++s_press_pid_profile_version;
+}
+
+void TreatmentPressureControl_GetPidGainsForController(const TreatmentAppController *controller,
+                                                       TreatmentPressurePidStage stage,
+                                                       float *kp,
+                                                       float *ki,
+                                                       float *kd)
+{
+    const TreatmentPressurePidGains *gains;
+
+    if ((kp == NULL) || (ki == NULL) || (kd == NULL))
+    {
+        return;
+    }
+
+    gains = TreatmentPressureControl_SelectStageGains(
+        TreatmentPressureControl_SelectProfile(TreatmentPressureControl_GetProfileKind(controller)),
+        stage);
+    *kp = gains->kp;
+    *ki = gains->ki;
+    *kd = gains->kd;
+}
+
 void TreatmentPressureControl_SetPidGains(TreatmentPressurePidStage stage, float kp, float ki, float kd)
 {
-    switch (stage)
-    {
-    case TREATMENT_PRESS_PID_STAGE_RISE:
-        s_press_pid_rise_kp = kp;
-        s_press_pid_rise_ki = ki;
-        s_press_pid_rise_kd = kd;
-        break;
-    case TREATMENT_PRESS_PID_STAGE_HOLD:
-        s_press_pid_hold_kp = kp;
-        s_press_pid_hold_ki = ki;
-        s_press_pid_hold_kd = kd;
-        break;
-    case TREATMENT_PRESS_PID_STAGE_PULSE:
-    default:
-        s_press_pid_pulse_kp = kp;
-        s_press_pid_pulse_ki = ki;
-        s_press_pid_pulse_kd = kd;
-        break;
-    }
+    TreatmentPressurePidGains *single_gains;
+    TreatmentPressurePidGains *dual_gains;
+
+    single_gains = TreatmentPressureControl_SelectStageGainsMutable(&s_press_pid_single_eye, stage);
+    dual_gains = TreatmentPressureControl_SelectStageGainsMutable(&s_press_pid_dual_eye, stage);
+
+    single_gains->kp = kp;
+    single_gains->ki = ki;
+    single_gains->kd = kd;
+    dual_gains->kp = kp;
+    dual_gains->ki = ki;
+    dual_gains->kd = kd;
 
     ++s_press_pid_profile_version;
 }
 
 void TreatmentPressureControl_GetPidGains(TreatmentPressurePidStage stage, float *kp, float *ki, float *kd)
 {
+    const TreatmentPressurePidGains *gains;
+
     if ((kp == NULL) || (ki == NULL) || (kd == NULL))
     {
         return;
     }
 
-    switch (stage)
-    {
-    case TREATMENT_PRESS_PID_STAGE_RISE:
-        *kp = s_press_pid_rise_kp;
-        *ki = s_press_pid_rise_ki;
-        *kd = s_press_pid_rise_kd;
-        break;
-    case TREATMENT_PRESS_PID_STAGE_HOLD:
-        *kp = s_press_pid_hold_kp;
-        *ki = s_press_pid_hold_ki;
-        *kd = s_press_pid_hold_kd;
-        break;
-    case TREATMENT_PRESS_PID_STAGE_PULSE:
-    default:
-        *kp = s_press_pid_pulse_kp;
-        *ki = s_press_pid_pulse_ki;
-        *kd = s_press_pid_pulse_kd;
-        break;
-    }
+    gains = TreatmentPressureControl_SelectStageGains(&s_press_pid_dual_eye, stage);
+    *kp = gains->kp;
+    *ki = gains->ki;
+    *kd = gains->kd;
 }
 
 uint32_t TreatmentPressureControl_GetPidVersion(void)

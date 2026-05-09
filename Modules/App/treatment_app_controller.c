@@ -116,12 +116,15 @@ void TreatmentAppController_HandleCommand(TreatmentAppController *controller,
         case PID_DEBUG_TARGET_PRESS_RISE:
         case PID_DEBUG_TARGET_PRESS_HOLD:
         case PID_DEBUG_TARGET_PRESS_PULSE:
-            TreatmentPressureControl_SetPidGains((TreatmentPressurePidStage)command->pid_target,
-                                                 command->kp,
-                                                 command->ki,
-                                                 command->kd);
-            LOG_I("pid set target=%u kp=%d.%04d ki=%d.%04d kd=%d.%04d",
+            TreatmentPressureControl_SetPidGainsForController(controller,
+                                                              (TreatmentPressurePidStage)command->pid_target,
+                                                              command->kp,
+                                                              command->ki,
+                                                              command->kd);
+            LOG_I("pid set target=%u profile=%s kp=%d.%04d ki=%d.%04d kd=%d.%04d",
                   (unsigned int)command->pid_target,
+                  ((controller->cfg.press_enable_L != 0U) &&
+                   (controller->cfg.press_enable_R != 0U)) ? "dual" : "single",
                   (int)command->kp,
                   (int)((command->kp - (float)((int)command->kp)) * 10000.0f),
                   (int)command->ki,

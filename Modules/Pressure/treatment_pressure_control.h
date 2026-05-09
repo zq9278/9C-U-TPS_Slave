@@ -27,6 +27,16 @@ void TreatmentPressureControl_ApplyPlan(TreatmentAppController *controller,
                                         const TreatmentPressurePlan *plan,
                                         TreatmentAppRuntime *runtime);
 const char *TreatmentPressureControl_PhaseName(TreatmentPhase phase);
+void TreatmentPressureControl_SetPidGainsForController(const TreatmentAppController *controller,
+                                                       TreatmentPressurePidStage stage,
+                                                       float kp,
+                                                       float ki,
+                                                       float kd);
+void TreatmentPressureControl_GetPidGainsForController(const TreatmentAppController *controller,
+                                                       TreatmentPressurePidStage stage,
+                                                       float *kp,
+                                                       float *ki,
+                                                       float *kd);
 void TreatmentPressureControl_SetPidGains(TreatmentPressurePidStage stage, float kp, float ki, float kd);
 void TreatmentPressureControl_GetPidGains(TreatmentPressurePidStage stage, float *kp, float *ki, float *kd);
 uint32_t TreatmentPressureControl_GetPidVersion(void);

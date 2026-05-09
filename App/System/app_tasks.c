@@ -9,6 +9,7 @@
 #include "Modules/communication/Protocol/pid_debug_protocol.h"
 #include "Modules/communication/Protocol/rk3576_protocol.h"
 #include "Modules/EyeShield/eye_shield_status.h"
+#include "Modules/Filter/target_window_filter.h"
 #include "treatment_app_controller.h"
 #include "Modules/Sensors/treatment_pressure_sensor.h"
 #include "Modules/Sensors/treatment_temperature_sensor.h"
@@ -32,14 +33,24 @@
 #define TEMP_TELEMETRY_MS          20U
 #define EYE_SHIELD_STATUS_MS       100U
 #define PID_DEBUG_TELEMETRY_MS     100U
+#define RK3576_TELEMETRY_FILTER_ENABLE 1U
+#define RK3576_PRESS_FILTER_WINDOW_MS PRESS_TELEMETRY_MS
+#define RK3576_TEMP_FILTER_WINDOW_MS  TEMP_TELEMETRY_MS
+#define RK3576_PRESS_FILTER_SAMPLES ((uint16_t)(RK3576_PRESS_FILTER_WINDOW_MS / CONTROL_PERIOD_MS))
+#define RK3576_TEMP_FILTER_SAMPLES  ((uint16_t)(RK3576_TEMP_FILTER_WINDOW_MS / CONTROL_PERIOD_MS))
 
 #define TEMP_MAX_C                 60.0f
 #define PRESS_MAX_KPA              450.0f
 #define CONTROL_RUNTIME_LOG_ENABLE 0U
-#define MODE_1_PULSE_ON_MS         1000.0f
-#define MODE_1_PULSE_OFF_MS        1000.0f
-#define MODE_2_PULSE_ON_MS         1500.0f
-#define MODE_2_PULSE_OFF_MS        1500.0f
+#define MODE_SELECT_RELAX          1U
+#define MODE_SELECT_STANDARD       2U
+#define MODE_SELECT_FAST           3U
+#define MODE_RELAX_PULSE_ON_MS     2000.0f
+#define MODE_RELAX_PULSE_OFF_MS    2000.0f
+#define MODE_STANDARD_PULSE_ON_MS  1500.0f
+#define MODE_STANDARD_PULSE_OFF_MS 1500.0f
+#define MODE_FAST_PULSE_ON_MS      1000.0f
+#define MODE_FAST_PULSE_OFF_MS     1000.0f
 
 static TaskHandle_t s_app_task = NULL;
 static TaskHandle_t s_comm_rx_task = NULL;
@@ -69,10 +80,34 @@ static uint8_t resolve_temperature_log_suppress(const control_config_t *cfg);
 static void request_app_stop(void);
 static void set_pending_stop_reason(stop_reason_t reason);
 static uint8_t consume_pending_stop_reason(stop_reason_t *reason);
+static void Rk3576TelemetryFilter_Init(void *state, TickType_t now_tick);
+static void Rk3576TelemetryFilter_Reset(void *state, TickType_t now_tick);
+static void Rk3576TelemetryFilter_Update(void *state,
+                                         const volatile sensor_data_t *sensor,
+                                         TickType_t now_tick);
+static float Rk3576TelemetryFilter_GetPressureLeft(const void *state,
+                                                   const volatile sensor_data_t *sensor);
+static float Rk3576TelemetryFilter_GetTempLeft(const void *state,
+                                               const volatile sensor_data_t *sensor);
+static float Rk3576TelemetryFilter_GetTempRight(const void *state,
+                                                const volatile sensor_data_t *sensor);
 
 static PidDebugRxParser s_pid_debug_rx_parser;
 static volatile stop_reason_t s_pending_stop_reason = STOP_REASON_NONE;
 static volatile uint8_t s_pending_stop_reason_valid = 0U;
+
+typedef struct
+{
+    TargetWindowFilter press_left;
+    TargetWindowFilter temp_left;
+    TargetWindowFilter temp_right;
+    float press_left_value;
+    float temp_left_value;
+    float temp_right_value;
+    uint8_t press_left_valid;
+    uint8_t temp_left_valid;
+    uint8_t temp_right_valid;
+} Rk3576TelemetryFilterState;
 
 static void enqueue_tx_u8(uint16_t frame_id, uint8_t value)
 {
@@ -139,16 +174,24 @@ static void apply_mode_profile(control_config_t *cfg, uint8_t mode)
         return;
     }
 
-    cfg->mode = (mode <= 1U) ? 1U : 2U;
-    if (cfg->mode == 1U)
+    switch (mode)
     {
-        cfg->pulse_on_ms = MODE_1_PULSE_ON_MS;
-        cfg->pulse_off_ms = MODE_1_PULSE_OFF_MS;
-    }
-    else
-    {
-        cfg->pulse_on_ms = MODE_2_PULSE_ON_MS;
-        cfg->pulse_off_ms = MODE_2_PULSE_OFF_MS;
+    case MODE_SELECT_RELAX:
+        cfg->mode = MODE_SELECT_RELAX;
+        cfg->pulse_on_ms = MODE_RELAX_PULSE_ON_MS;
+        cfg->pulse_off_ms = MODE_RELAX_PULSE_OFF_MS;
+        break;
+    case MODE_SELECT_FAST:
+        cfg->mode = MODE_SELECT_FAST;
+        cfg->pulse_on_ms = MODE_FAST_PULSE_ON_MS;
+        cfg->pulse_off_ms = MODE_FAST_PULSE_OFF_MS;
+        break;
+    case MODE_SELECT_STANDARD:
+    default:
+        cfg->mode = MODE_SELECT_STANDARD;
+        cfg->pulse_on_ms = MODE_STANDARD_PULSE_ON_MS;
+        cfg->pulse_off_ms = MODE_STANDARD_PULSE_OFF_MS;
+        break;
     }
 }
 
@@ -247,6 +290,173 @@ static uint8_t consume_pending_stop_reason(stop_reason_t *reason)
     s_pending_stop_reason = STOP_REASON_NONE;
     s_pending_stop_reason_valid = 0U;
     return valid;
+}
+
+static void Rk3576TelemetryFilter_InitChannel(TargetWindowFilter *filter,
+                                              uint16_t sample_count_limit,
+                                              uint32_t period_ms,
+                                              uint32_t now_ms)
+{
+    TargetWindowFilterConfig config;
+
+    if (filter == NULL)
+    {
+        return;
+    }
+
+    (void)memset(&config, 0, sizeof(config));
+    config.sample_count_limit = sample_count_limit;
+    config.period_ms = period_ms;
+    TargetWindowFilter_Init(filter, &config);
+    TargetWindowFilter_Reset(filter, now_ms);
+}
+
+static void Rk3576TelemetryFilter_PushChannel(TargetWindowFilter *filter,
+                                              float sample,
+                                              uint32_t now_ms,
+                                              float *filtered_value,
+                                              uint8_t *valid)
+{
+    float output;
+
+    if ((filter == NULL) || (filtered_value == NULL) || (valid == NULL))
+    {
+        return;
+    }
+
+    if (filter->has_sample == 0U)
+    {
+        TargetWindowFilter_SetTarget(filter, sample);
+    }
+
+    if (TargetWindowFilter_Push(filter, sample, now_ms, NULL) == 0U)
+    {
+        return;
+    }
+
+    if (TargetWindowFilter_GetOutput(filter, &output) == 0U)
+    {
+        return;
+    }
+
+    TargetWindowFilter_SetTarget(filter, output);
+    *filtered_value = output;
+    *valid = 1U;
+}
+
+static void Rk3576TelemetryFilter_Init(void *state_ptr, TickType_t now_tick)
+{
+    Rk3576TelemetryFilterState *state = (Rk3576TelemetryFilterState *)state_ptr;
+    uint32_t now_ms = (uint32_t)(now_tick * portTICK_PERIOD_MS);
+
+    if (state == NULL)
+    {
+        return;
+    }
+
+    (void)memset(state, 0, sizeof(*state));
+    Rk3576TelemetryFilter_InitChannel(&state->press_left,
+                                      RK3576_PRESS_FILTER_SAMPLES,
+                                      RK3576_PRESS_FILTER_WINDOW_MS,
+                                      now_ms);
+    Rk3576TelemetryFilter_InitChannel(&state->temp_left,
+                                      RK3576_TEMP_FILTER_SAMPLES,
+                                      RK3576_TEMP_FILTER_WINDOW_MS,
+                                      now_ms);
+    Rk3576TelemetryFilter_InitChannel(&state->temp_right,
+                                      RK3576_TEMP_FILTER_SAMPLES,
+                                      RK3576_TEMP_FILTER_WINDOW_MS,
+                                      now_ms);
+}
+
+static void Rk3576TelemetryFilter_Reset(void *state_ptr, TickType_t now_tick)
+{
+    Rk3576TelemetryFilterState *state = (Rk3576TelemetryFilterState *)state_ptr;
+    uint32_t now_ms = (uint32_t)(now_tick * portTICK_PERIOD_MS);
+
+    if (state == NULL)
+    {
+        return;
+    }
+
+    state->press_left_value = 0.0f;
+    state->temp_left_value = 0.0f;
+    state->temp_right_value = 0.0f;
+    state->press_left_valid = 0U;
+    state->temp_left_valid = 0U;
+    state->temp_right_valid = 0U;
+    TargetWindowFilter_Reset(&state->press_left, now_ms);
+    TargetWindowFilter_Reset(&state->temp_left, now_ms);
+    TargetWindowFilter_Reset(&state->temp_right, now_ms);
+}
+
+static void Rk3576TelemetryFilter_Update(void *state_ptr,
+                                         const volatile sensor_data_t *sensor,
+                                         TickType_t now_tick)
+{
+    Rk3576TelemetryFilterState *state = (Rk3576TelemetryFilterState *)state_ptr;
+    uint32_t now_ms;
+
+    if ((state == NULL) || (sensor == NULL))
+    {
+        return;
+    }
+
+    now_ms = (uint32_t)(now_tick * portTICK_PERIOD_MS);
+    Rk3576TelemetryFilter_PushChannel(&state->press_left,
+                                      sensor->pressL,
+                                      now_ms,
+                                      &state->press_left_value,
+                                      &state->press_left_valid);
+    Rk3576TelemetryFilter_PushChannel(&state->temp_left,
+                                      sensor->tempL,
+                                      now_ms,
+                                      &state->temp_left_value,
+                                      &state->temp_left_valid);
+    Rk3576TelemetryFilter_PushChannel(&state->temp_right,
+                                      sensor->tempR,
+                                      now_ms,
+                                      &state->temp_right_value,
+                                      &state->temp_right_valid);
+}
+
+static float Rk3576TelemetryFilter_GetPressureLeft(const void *state_ptr,
+                                                   const volatile sensor_data_t *sensor)
+{
+    const Rk3576TelemetryFilterState *state = (const Rk3576TelemetryFilterState *)state_ptr;
+
+    if ((state != NULL) && (state->press_left_valid != 0U))
+    {
+        return state->press_left_value;
+    }
+
+    return (sensor != NULL) ? sensor->pressL : 0.0f;
+}
+
+static float Rk3576TelemetryFilter_GetTempLeft(const void *state_ptr,
+                                               const volatile sensor_data_t *sensor)
+{
+    const Rk3576TelemetryFilterState *state = (const Rk3576TelemetryFilterState *)state_ptr;
+
+    if ((state != NULL) && (state->temp_left_valid != 0U))
+    {
+        return state->temp_left_value;
+    }
+
+    return (sensor != NULL) ? sensor->tempL : 0.0f;
+}
+
+static float Rk3576TelemetryFilter_GetTempRight(const void *state_ptr,
+                                                const volatile sensor_data_t *sensor)
+{
+    const Rk3576TelemetryFilterState *state = (const Rk3576TelemetryFilterState *)state_ptr;
+
+    if ((state != NULL) && (state->temp_right_valid != 0U))
+    {
+        return state->temp_right_value;
+    }
+
+    return (sensor != NULL) ? sensor->tempR : 0.0f;
 }
 
 static void OnProtocolFrame(void *context,
@@ -510,6 +720,7 @@ static void ControlTask(void *argument)
 {
     TreatmentAppController controller;
     TreatmentAppRuntime runtime;
+    Rk3576TelemetryFilterState telemetry_filter;
     ctrl_cmd_t cmd;
     TickType_t now;
     TickType_t next_press_tx;
@@ -517,11 +728,13 @@ static void ControlTask(void *argument)
     TickType_t next_eye_shield_status;
     TickType_t next_control_log;
     TickType_t next_pid_debug_tx;
+    uint8_t telemetry_filter_active = 0U;
 
     (void)argument;
     TreatmentAppController_Init(&controller);
     EyeShieldStatus_Init();
     now = xTaskGetTickCount();
+    Rk3576TelemetryFilter_Init(&telemetry_filter, now);
     next_press_tx = now + pdMS_TO_TICKS(PRESS_TELEMETRY_MS);
     next_temp_tx = now + pdMS_TO_TICKS(TEMP_TELEMETRY_MS);
     next_eye_shield_status = now + pdMS_TO_TICKS(EYE_SHIELD_STATUS_MS);
@@ -552,6 +765,26 @@ static void ControlTask(void *argument)
         }
 
         TreatmentAppController_Run(&controller,&gSensorData,now,(float)CONTROL_PERIOD_MS / 1000.0f, &runtime);
+
+#if RK3576_TELEMETRY_FILTER_ENABLE
+        if (runtime.session_active != 0U)
+        {
+            if (telemetry_filter_active == 0U)
+            {
+                Rk3576TelemetryFilter_Reset(&telemetry_filter, now);
+                telemetry_filter_active = 1U;
+            }
+            Rk3576TelemetryFilter_Update(&telemetry_filter, &gSensorData, now);
+        }
+        else if (telemetry_filter_active != 0U)
+        {
+            Rk3576TelemetryFilter_Reset(&telemetry_filter, now);
+            telemetry_filter_active = 0U;
+        }
+#else
+        (void)telemetry_filter;
+        (void)telemetry_filter_active;
+#endif
 
         if ((controller.cfg.running != 0U) && (controller.cfg.treatment_minutes > 0U))
         {
@@ -596,16 +829,28 @@ static void ControlTask(void *argument)
             ((int32_t)(now - next_press_tx) >= 0))
         {
             next_press_tx = now + pdMS_TO_TICKS(PRESS_TELEMETRY_MS);
+#if RK3576_TELEMETRY_FILTER_ENABLE
+            enqueue_tx_f32(PROTOCOL_ID_F32_LEFT_PRESSURE_VALUE,
+                           Rk3576TelemetryFilter_GetPressureLeft(&telemetry_filter, &gSensorData));
+#else
             enqueue_tx_f32(PROTOCOL_ID_F32_LEFT_PRESSURE_VALUE, gSensorData.pressL);
+#endif
         }
 
         if ((runtime.session_active != 0U) &&
             ((int32_t)(now - next_temp_tx) >= 0))
         {
             next_temp_tx = now + pdMS_TO_TICKS(TEMP_TELEMETRY_MS);
+#if RK3576_TELEMETRY_FILTER_ENABLE
+            enqueue_tx_f32(PROTOCOL_ID_F32_LEFT_TEMP_VALUE,
+                           Rk3576TelemetryFilter_GetTempLeft(&telemetry_filter, &gSensorData));
+            enqueue_tx_f32(PROTOCOL_ID_F32_RIGHT_TEMP_VALUE,
+                           Rk3576TelemetryFilter_GetTempRight(&telemetry_filter, &gSensorData));
+#else
             enqueue_tx_f32(PROTOCOL_ID_F32_LEFT_TEMP_VALUE, gSensorData.tempL);
             enqueue_tx_f32(PROTOCOL_ID_F32_RIGHT_TEMP_VALUE, gSensorData.tempR);
-            enqueue_tx_u8(PROTOCOL_ID_U8_MODE_CURVES, runtime.phase_char);
+#endif
+            //enqueue_tx_u8(PROTOCOL_ID_U8_MODE_CURVES, runtime.phase_char);
         }
 
         if ((controller.pid_debug_stream_enabled != 0U) &&

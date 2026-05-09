@@ -57,6 +57,7 @@ typedef struct
     PidController heat_left_pid;
     PidController heat_right_pid;
     TreatmentPressurePidStage active_pressure_stage;
+    uint8_t active_pressure_profile_kind;
     uint32_t active_pressure_profile_version;
     uint32_t active_heat_left_profile_version;
     uint32_t active_heat_right_profile_version;
