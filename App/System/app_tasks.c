@@ -59,7 +59,7 @@
 #define RK3576_PRESS_FILTER_SAMPLES ((uint16_t)(RK3576_PRESS_FILTER_WINDOW_MS / CONTROL_PERIOD_MS))
 #define RK3576_TEMP_FILTER_SAMPLES  ((uint16_t)(RK3576_TEMP_FILTER_WINDOW_MS / CONTROL_PERIOD_MS))
 
-#define TEMP_MAX_C                 45.0f
+#define TEMP_MAX_C                 44.0f//软件过温保护
 #define PRESS_MAX_KPA              450.0f
 #define CONTROL_RUNTIME_LOG_ENABLE 0U
 /* RK3576 下发的三档模式值。 */
@@ -1029,6 +1029,9 @@ static void SafetyTask(void *argument)
         heat_otp_fault =
             (uint8_t)((heat_otp_fault_left != 0U) ||
                       (heat_otp_fault_right != 0U));
+#if (HEAT_OTP_FAULT_REPORT_ENABLE == 0U)
+        heat_otp_fault = 0U;
+#endif
         fault = (uint8_t)((over_temp_fault != 0U) ||
                           (over_pressure_fault != 0U) ||
                           (heat_otp_fault != 0U));

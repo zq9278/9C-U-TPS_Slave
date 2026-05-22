@@ -92,6 +92,16 @@ static void TreatmentHeatingControl_DelayMs(uint32_t delay_ms)
     }
 }
 
+static void TreatmentHeatingControl_ForceOtpHighAll(void)
+{
+#if (HEAT_OTP_FAULT_REPORT_ENABLE == 0U)
+    TreatmentHeatingControl_GpioSetModeOutput(OTP1_RESET_GPIO_Port, OTP1_RESET_Pin);
+    TreatmentHeatingControl_GpioSetModeOutput(OTP2_RESET_GPIO_Port, OTP2_RESET_Pin);
+    HAL_GPIO_WritePin(OTP1_RESET_GPIO_Port, OTP1_RESET_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(OTP2_RESET_GPIO_Port, OTP2_RESET_Pin, GPIO_PIN_SET);
+#endif
+}
+
 static uint16_t TreatmentHeatingControl_ClampU16(uint16_t value, uint16_t max_value)
 {
     return (value > max_value) ? max_value : value;
@@ -134,8 +144,12 @@ static void TreatmentHeatingControl_SetPower(TreatmentSide side, uint8_t enabled
             {
                 LOG_E("heater L pwm stop failed");
             }
+#if (HEAT_OTP_FAULT_REPORT_ENABLE != 0U)
             TreatmentHeatingControl_GpioSetModeOutput(OTP2_RESET_GPIO_Port, OTP2_RESET_Pin);
             HAL_GPIO_WritePin(OTP2_RESET_GPIO_Port, OTP2_RESET_Pin, GPIO_PIN_RESET);
+#else
+            TreatmentHeatingControl_ForceOtpHighAll();
+#endif
             if (s_heat_left_enabled != 0U)
             {
                 LOG_I("heater L power off");
@@ -165,8 +179,12 @@ static void TreatmentHeatingControl_SetPower(TreatmentSide side, uint8_t enabled
             {
                 LOG_E("heater R pwm stop failed");
             }
+#if (HEAT_OTP_FAULT_REPORT_ENABLE != 0U)
             TreatmentHeatingControl_GpioSetModeOutput(OTP1_RESET_GPIO_Port, OTP1_RESET_Pin);
             HAL_GPIO_WritePin(OTP1_RESET_GPIO_Port, OTP1_RESET_Pin, GPIO_PIN_RESET);
+#else
+            TreatmentHeatingControl_ForceOtpHighAll();
+#endif
             if (s_heat_right_enabled != 0U)
             {
                 LOG_I("heater R power off");
@@ -270,10 +288,15 @@ void TreatmentHeatingControl_InitHardware(void)
     (void)BspPwm_Start(&s_heat_left_pwm);
     (void)BspPwm_Start(&s_heat_right_pwm);
 
-    HAL_GPIO_WritePin(OTP1_RESET_GPIO_Port, OTP1_RESET_Pin, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(OTP2_RESET_GPIO_Port, OTP2_RESET_Pin, GPIO_PIN_RESET);
     TreatmentHeatingControl_GpioSetModeOutput(OTP1_RESET_GPIO_Port, OTP1_RESET_Pin);
     TreatmentHeatingControl_GpioSetModeOutput(OTP2_RESET_GPIO_Port, OTP2_RESET_Pin);
+#if (HEAT_OTP_FAULT_REPORT_ENABLE == 0U)
+    HAL_GPIO_WritePin(OTP1_RESET_GPIO_Port, OTP1_RESET_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(OTP2_RESET_GPIO_Port, OTP2_RESET_Pin, GPIO_PIN_SET);
+#else
+    HAL_GPIO_WritePin(OTP1_RESET_GPIO_Port, OTP1_RESET_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(OTP2_RESET_GPIO_Port, OTP2_RESET_Pin, GPIO_PIN_RESET);
+#endif
 
     s_heat_hw_initialized = 1U;
     s_heat_left_otp_reference_valid = 0U;
@@ -295,6 +318,15 @@ void TreatmentHeatingControl_DisableSide(TreatmentSide side)
 
 void TreatmentHeatingControl_ResetOtp(TreatmentSide side)
 {
+#if (HEAT_OTP_FAULT_REPORT_ENABLE == 0U)
+    (void)side;
+    TreatmentHeatingControl_ForceOtpHighAll();
+    s_heat_left_otp_reference = HEAT_OTP_NORMAL_LEVEL;
+    s_heat_right_otp_reference = HEAT_OTP_NORMAL_LEVEL;
+    s_heat_left_otp_reference_valid = 0U;
+    s_heat_right_otp_reference_valid = 0U;
+    return;
+#else
     GPIO_TypeDef *port = (side == TREATMENT_SIDE_LEFT) ? OTP2_RESET_GPIO_Port : OTP1_RESET_GPIO_Port;
     uint16_t pin = (side == TREATMENT_SIDE_LEFT) ? OTP2_RESET_Pin : OTP1_RESET_Pin;
 
@@ -316,6 +348,7 @@ void TreatmentHeatingControl_ResetOtp(TreatmentSide side)
     LOG_I("heater %c otp ready pin=%u",
           (side == TREATMENT_SIDE_LEFT) ? 'L' : 'R',
           (unsigned int)((HAL_GPIO_ReadPin(port, pin) == GPIO_PIN_SET) ? 1U : 0U));
+#endif
 }
 
 void TreatmentHeatingControl_GetOtpFaultFlags(uint8_t *left_fault, uint8_t *right_fault)
@@ -323,6 +356,9 @@ void TreatmentHeatingControl_GetOtpFaultFlags(uint8_t *left_fault, uint8_t *righ
     uint8_t left = 0U;
     uint8_t right = 0U;
 
+#if (HEAT_OTP_FAULT_REPORT_ENABLE == 0U)
+    TreatmentHeatingControl_ForceOtpHighAll();
+#else
     if ((s_heat_left_enabled != 0U) &&
         (s_heat_left_otp_reference_valid != 0U))
     {
@@ -336,6 +372,7 @@ void TreatmentHeatingControl_GetOtpFaultFlags(uint8_t *left_fault, uint8_t *righ
         right = (uint8_t)(((HAL_GPIO_ReadPin(OTP1_RESET_GPIO_Port, OTP1_RESET_Pin) == GPIO_PIN_SET) ? 1U : 0U) !=
                           HEAT_OTP_NORMAL_LEVEL);
     }
+#endif
 
     if (left_fault != NULL)
     {
@@ -410,6 +447,10 @@ void TreatmentHeatingControl_ApplyOutputs(TreatmentAppController *controller,
     {
         return;
     }
+
+#if (HEAT_OTP_FAULT_REPORT_ENABLE == 0U)
+    TreatmentHeatingControl_ForceOtpHighAll();
+#endif
 
     if (controller->active_heat_left_profile_version != s_heat_left_pid_version)
     {

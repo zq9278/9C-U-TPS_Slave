@@ -7,6 +7,10 @@
 extern "C" {
 #endif
 
+#ifndef HEAT_OTP_FAULT_REPORT_ENABLE
+#define HEAT_OTP_FAULT_REPORT_ENABLE 0U
+#endif
+
 typedef enum
 {
     TREATMENT_SIDE_LEFT = 0,
