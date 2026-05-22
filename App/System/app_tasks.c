@@ -60,7 +60,7 @@
 #define RK3576_TEMP_FILTER_SAMPLES  ((uint16_t)(RK3576_TEMP_FILTER_WINDOW_MS / CONTROL_PERIOD_MS))
 
 #define TEMP_MAX_C                 44.0f//软件过温保护
-#define PRESS_MAX_KPA              450.0f
+#define PRESS_MAX_KPA              450.0f//最大积分限幅
 #define CONTROL_RUNTIME_LOG_ENABLE 0U
 /* RK3576 下发的三档模式值。 */
 #define MODE_SELECT_RELAX          1U
