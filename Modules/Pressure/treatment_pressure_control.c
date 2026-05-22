@@ -162,11 +162,6 @@ static void TreatmentPressureControl_ApplyPressureRouteOutputs(uint8_t enable_le
     ValveControl_ApplyTreatmentRoute(enable_left, enable_right);
 }
 
-static void TreatmentPressureControl_SetPressureVentAllOutputs(void)
-{
-    ValveControl_SetVentAll();
-}
-
 static void TreatmentPressureControl_SetWaveValveOutput(uint8_t enabled)
 {
     ValveControl_SetWave(enabled);
@@ -198,7 +193,8 @@ void TreatmentPressureControl_SetIdleOutputs(void)
 {
     TreatmentPressureControl_SetPumpPwmOutput(0U);
     TreatmentPressureControl_SetWaveValveOutput(0U);
-    TreatmentPressureControl_SetPressureVentAllOutputs();
+    /* 空闲态下 PA0/PA1 统一回到双眼默认低电平。 */
+    TreatmentPressureControl_ApplyPressureRouteOutputs(0U, 0U);
 }
 
 /*
@@ -241,7 +237,14 @@ static void TreatmentPressureControl_UpdateHistory(TreatmentAppController *contr
     controller->pressure_cycle_seen = 1U;
 }
 
-/* 放气阶段的统一输出：阀路切换到放气，泵关闭。 */
+/*
+ * 放气阶段的统一输出：
+ * - PA0/PA1 保持当前单双眼模式选择；
+ * - 波形阀关闭；
+ * - 气泵关闭。
+ *
+ * 也就是放气/脉冲关闭阶段不再把 PA0/PA1 当成脉动执行阀使用。
+ */
 static void TreatmentPressureControl_ApplyVentOutputs(TreatmentAppController *controller,
                                                       const TreatmentPressurePlan *plan,
                                                       float feedback_kpa,
@@ -253,7 +256,8 @@ static void TreatmentPressureControl_ApplyVentOutputs(TreatmentAppController *co
     runtime->feedback_pressure_kpa = feedback_kpa;
     runtime->pump_pwm = 0U;
     runtime->running_outputs = 1U;
-    TreatmentPressureControl_SetPressureVentAllOutputs();
+    TreatmentPressureControl_ApplyPressureRouteOutputs(controller->cfg.press_enable_L,
+                                                       controller->cfg.press_enable_R);
     TreatmentPressureControl_SetWaveValveOutput(0U);
     TreatmentPressureControl_SetPumpPwmOutput(0U);
     TreatmentPressureControl_UpdateHistory(controller, plan);

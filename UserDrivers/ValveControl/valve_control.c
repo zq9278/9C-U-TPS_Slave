@@ -33,21 +33,15 @@ void ValveControl_ApplyTreatmentRoute(uint8_t enable_left, uint8_t enable_right)
         VALVE_LEFT(0);
         VALVE_RIGHT(0);
     } else if (enable_left) {
-        VALVE_LEFT(0);
-        VALVE_RIGHT(1);
-    } else if (enable_right) {
         VALVE_LEFT(1);
         VALVE_RIGHT(0);
+    } else if (enable_right) {
+        VALVE_LEFT(0);
+        VALVE_RIGHT(1);
     } else {
         VALVE_LEFT(0);
         VALVE_RIGHT(0);
     }
-}
-
-void ValveControl_SetVentAll(void)
-{
-    VALVE_LEFT(1);
-    VALVE_RIGHT(1);
 }
 
 void ValveControl_SetWave(uint8_t enabled)
@@ -58,7 +52,7 @@ void ValveControl_SetWave(uint8_t enabled)
 
 void ValveControl_SetIdle(void)
 {
-    /* 空闲态默认不选择任何特殊治疗通道，同时关闭波形阀。 */
+    /* 空闲态回到双眼默认路由，同时关闭波形阀。 */
     ValveControl_ApplyTreatmentRoute(0, 0);
     ValveControl_SetWave(0);
 }

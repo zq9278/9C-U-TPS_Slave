@@ -42,7 +42,7 @@
 #define SAFETY_TASK_STACK_WORDS    192U
 
 /* 各任务周期/节拍宏，集中定义便于统一调整。 */
-#define SENSOR_PERIOD_MS           2U
+#define SENSOR_PERIOD_MS           5U
 #define CONTROL_PERIOD_MS          2U
 #define COMM_RX_PERIOD_MS          1U
 #define SAFETY_PERIOD_MS           10U
@@ -51,13 +51,15 @@
 #define EYE_SHIELD_STATUS_MS       100U
 #define PID_DEBUG_TELEMETRY_MS     100U
 /* 是否启用“发送给 RK3576 的遥测值”窗口滤波。1=启用，0=直接发送原始采样值。 */
-#define RK3576_TELEMETRY_FILTER_ENABLE 1U
+#define RK3576_TELEMETRY_FILTER_ENABLE 0U
+#define RK3576_TEMP_UPLOAD_OFFSET_LEFT_C  (-0.0f)
+#define RK3576_TEMP_UPLOAD_OFFSET_RIGHT_C (-0.0f)
 #define RK3576_PRESS_FILTER_WINDOW_MS PRESS_TELEMETRY_MS
 #define RK3576_TEMP_FILTER_WINDOW_MS  TEMP_TELEMETRY_MS
 #define RK3576_PRESS_FILTER_SAMPLES ((uint16_t)(RK3576_PRESS_FILTER_WINDOW_MS / CONTROL_PERIOD_MS))
 #define RK3576_TEMP_FILTER_SAMPLES  ((uint16_t)(RK3576_TEMP_FILTER_WINDOW_MS / CONTROL_PERIOD_MS))
 
-#define TEMP_MAX_C                 50.0f
+#define TEMP_MAX_C                 45.0f
 #define PRESS_MAX_KPA              450.0f
 #define CONTROL_RUNTIME_LOG_ENABLE 0U
 /* RK3576 下发的三档模式值。 */
@@ -107,6 +109,8 @@ static void Rk3576TelemetryFilter_Update(void *state,
                                          TickType_t now_tick);
 static float Rk3576TelemetryFilter_GetPressureLeft(const void *state,
                                                    const volatile sensor_data_t *sensor);
+static float Rk3576TelemetryMapTempLeft(float raw_temp_c);
+static float Rk3576TelemetryMapTempRight(float raw_temp_c);
 static float Rk3576TelemetryFilter_GetTempLeft(const void *state,
                                                const volatile sensor_data_t *sensor);
 static float Rk3576TelemetryFilter_GetTempRight(const void *state,
@@ -254,7 +258,7 @@ static void config_defaults(control_config_t *cfg)
 
 /*
  * 根据左右眼使能和眼罩在位状态，决定温度采样任务是否需要工作。
- * 当前实现只区分“空闲停止采样”和“双路轮询采样”。
+ * 双眼时走双路轮询，单眼时锁定到对应单通道，避免另一侧无效通道影响读数。
  */
 static temp_acquire_mode_t resolve_temperature_mode(const control_config_t *cfg)
 {
@@ -269,9 +273,13 @@ static temp_acquire_mode_t resolve_temperature_mode(const control_config_t *cfg)
     {
         return TEMP_ACQUIRE_MODE_DUAL_SCAN;
     }
-    if ((left_enabled != 0U) || (right_enabled != 0U))
+    if (left_enabled != 0U)
     {
-        return TEMP_ACQUIRE_MODE_DUAL_SCAN;
+        return TEMP_ACQUIRE_MODE_SINGLE_LEFT;
+    }
+    if (right_enabled != 0U)
+    {
+        return TEMP_ACQUIRE_MODE_SINGLE_RIGHT;
     }
     return TEMP_ACQUIRE_MODE_IDLE;
 }
@@ -455,12 +463,12 @@ static void Rk3576TelemetryFilter_Update(void *state_ptr,
                                       &state->press_left_value,
                                       &state->press_left_valid);
     Rk3576TelemetryFilter_PushChannel(&state->temp_left,
-                                      sensor->tempL,
+                                      Rk3576TelemetryMapTempLeft(sensor->tempL),
                                       now_ms,
                                       &state->temp_left_value,
                                       &state->temp_left_valid);
     Rk3576TelemetryFilter_PushChannel(&state->temp_right,
-                                      sensor->tempR,
+                                      Rk3576TelemetryMapTempRight(sensor->tempR),
                                       now_ms,
                                       &state->temp_right_value,
                                       &state->temp_right_valid);
@@ -481,6 +489,26 @@ static float Rk3576TelemetryFilter_GetPressureLeft(const void *state_ptr,
 }
 
 /* 获取左温度滤波输出，若窗口尚未成熟则回退为当前原始采样。 */
+static float Rk3576TelemetryMapTempLeft(float raw_temp_c)
+{
+    if (raw_temp_c <= USER_ADS1248_INVALID_TEMP_C + 0.5f)
+    {
+        return raw_temp_c;
+    }
+
+    return raw_temp_c + RK3576_TEMP_UPLOAD_OFFSET_LEFT_C;
+}
+
+static float Rk3576TelemetryMapTempRight(float raw_temp_c)
+{
+    if (raw_temp_c <= USER_ADS1248_INVALID_TEMP_C + 0.5f)
+    {
+        return raw_temp_c;
+    }
+
+    return raw_temp_c + RK3576_TEMP_UPLOAD_OFFSET_RIGHT_C;
+}
+
 static float Rk3576TelemetryFilter_GetTempLeft(const void *state_ptr,
                                                const volatile sensor_data_t *sensor)
 {
@@ -491,7 +519,7 @@ static float Rk3576TelemetryFilter_GetTempLeft(const void *state_ptr,
         return state->temp_left_value;
     }
 
-    return (sensor != NULL) ? sensor->tempL : 0.0f;
+    return (sensor != NULL) ? Rk3576TelemetryMapTempLeft(sensor->tempL) : 0.0f;
 }
 
 /* 获取右温度滤波输出，若窗口尚未成熟则回退为当前原始采样。 */
@@ -505,7 +533,7 @@ static float Rk3576TelemetryFilter_GetTempRight(const void *state_ptr,
         return state->temp_right_value;
     }
 
-    return (sensor != NULL) ? sensor->tempR : 0.0f;
+    return (sensor != NULL) ? Rk3576TelemetryMapTempRight(sensor->tempR) : 0.0f;
 }
 
 /* 协议层回调：将 UART3 解析出的业务帧投递给 AppTask。 */
@@ -624,10 +652,10 @@ static void AppTask(void *argument)
             send_ctrl_command(CTRL_CMD_UPDATE_CFG, &cfg);
             break;
         case APP_CMD_LEFT_HEATER_FUSE_BLOW:
-            //EyeShieldStatus_RequestFuseBlow(1U, 0U);
+            EyeShieldStatus_RequestFuseBlow(1U, 0U);
             break;
         case APP_CMD_RIGHT_HEATER_FUSE_BLOW:
-            //EyeShieldStatus_RequestFuseBlow(0U, 1U);
+            EyeShieldStatus_RequestFuseBlow(0U, 1U);
             break;
         case APP_CMD_SET_TREATMENT_TIME:
             cfg.treatment_minutes = (cmd.v.u16 == 0U) ? 1U : cmd.v.u16;
@@ -940,8 +968,10 @@ static void ControlTask(void *argument)
             enqueue_tx_f32(PROTOCOL_ID_F32_RIGHT_TEMP_VALUE,
                            Rk3576TelemetryFilter_GetTempRight(&telemetry_filter, &gSensorData));
 #else
-            enqueue_tx_f32(PROTOCOL_ID_F32_LEFT_TEMP_VALUE, gSensorData.tempL);
-            enqueue_tx_f32(PROTOCOL_ID_F32_RIGHT_TEMP_VALUE, gSensorData.tempR);
+            enqueue_tx_f32(PROTOCOL_ID_F32_LEFT_TEMP_VALUE,
+                           Rk3576TelemetryMapTempLeft(gSensorData.tempL));
+            enqueue_tx_f32(PROTOCOL_ID_F32_RIGHT_TEMP_VALUE,
+                           Rk3576TelemetryMapTempRight(gSensorData.tempR));
 #endif
             //enqueue_tx_u8(PROTOCOL_ID_U8_MODE_CURVES, runtime.phase_char);
         }

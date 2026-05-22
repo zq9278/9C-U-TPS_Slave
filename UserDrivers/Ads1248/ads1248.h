@@ -53,19 +53,12 @@ void UserAds1248_SetDrdySemaphore(UserAds1248 *dev, SemaphoreHandle_t drdy_sem);
 void UserAds1248_Reset(UserAds1248 *dev);
 uint8_t UserAds1248_Init(UserAds1248 *dev);
 uint8_t UserAds1248_SelectChannel(UserAds1248 *dev, UserAds1248Channel channel);
+uint8_t UserAds1248_IsDataReady(UserAds1248 *dev);
 uint8_t UserAds1248_WaitDrdy(UserAds1248 *dev, uint32_t timeout_ms);
 uint8_t UserAds1248_ReadRaw(UserAds1248 *dev, uint32_t *raw_out);
 uint8_t UserAds1248_ReadRegister(UserAds1248 *dev, uint8_t reg, uint8_t *value_out);
 uint8_t UserAds1248_CodeToTemperatureC(uint32_t raw_code, float *temp_c_out);
-/*
- * Dual-channel mode API:
- * caller may alternate channel 0/1 outside, and this function will switch
- * ADS1248 channel when needed before waiting/reading one conversion.
- */
-uint8_t UserAds1248_ReadTemperatureC(UserAds1248 *dev,
-                                     UserAds1248Channel channel,
-                                     float *temp_c_out,
-                                     uint32_t *raw_out);
+
 
 #ifdef __cplusplus
 }

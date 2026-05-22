@@ -16,15 +16,15 @@ extern "C" {
  */
 
 /*
- * 根据左右治疗使能状态，配置当前治疗通道：
- * - 左眼单眼：VALVE_LEFT(0), VALVE_RIGHT(1)
- * - 右眼单眼：VALVE_LEFT(1), VALVE_RIGHT(0)
- * - 双眼：VALVE_LEFT(0), VALVE_RIGHT(0)
- * - 全禁用：VALVE_LEFT(0), VALVE_RIGHT(0)
+ * 根据左右治疗使能状态，配置当前治疗模式选择阀：
+ * - 双眼：PA0=0, PA1=0
+ * - 左眼单眼：PA0=1, PA1=0
+ * - 右眼单眼：PA0=0, PA1=1
+ * - 全禁用：PA0=0, PA1=0
+ *
+ * 这里的 PA0/PA1 只参与“单眼/双眼模式选择”，不参与脉动开关动作。
  */
 void ValveControl_ApplyTreatmentRoute(uint8_t enable_left, uint8_t enable_right);
-
-void ValveControl_SetVentAll(void);
 
 /*
  * 控制波形阀开关：

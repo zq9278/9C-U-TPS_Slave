@@ -421,7 +421,17 @@ uint8_t EyeShieldStatus_Process(control_config_t *cfg, stop_reason_t *stop_reaso
     }
 #endif
 
-    if ((left_required != 0U) && (s_left_present_stable != 0U))
+    /*
+     * 保护器件 ADC 故障只在“确认眼盾在线”时才允许触发：
+     * - 稳定态在线：避免去抖期间误报；
+     * - 原始态也在线：避免拔出瞬间 ADC 飘到满量程先报保护器件故障。
+     *
+     * 同时，若前面已经因为眼盾离线请求停机，则不再允许 5/6 覆盖离线原因。
+     */
+    if ((stop_requested == 0U) &&
+        (left_required != 0U) &&
+        (s_left_present_stable != 0U) &&
+        (left_present_raw != 0U))
     {
         left_adc_valid = EyeShieldStatus_ReadAdc(ADC_CHANNEL_8, &left_protector_adc);
         if ((left_adc_valid != 0U) && (left_protector_adc >= EYE_SHIELD_ADC_FAULT_TH))
@@ -435,7 +445,10 @@ uint8_t EyeShieldStatus_Process(control_config_t *cfg, stop_reason_t *stop_reaso
         }
     }
 
-    if ((right_required != 0U) && (s_right_present_stable != 0U))
+    if ((stop_requested == 0U) &&
+        (right_required != 0U) &&
+        (s_right_present_stable != 0U) &&
+        (right_present_raw != 0U))
     {
         right_adc_valid = EyeShieldStatus_ReadAdc(ADC_CHANNEL_5, &right_protector_adc);
         if ((right_adc_valid != 0U) && (right_protector_adc >= EYE_SHIELD_ADC_FAULT_TH))

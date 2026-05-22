@@ -11,22 +11,29 @@
 extern "C" {
 #endif
 
-/* 温度采样模块运行态。 */
+typedef enum
+{
+    TEMP_SCAN_STATE_IDLE = 0,
+    TEMP_SCAN_STATE_SWITCH_CHANNEL,
+    TEMP_SCAN_STATE_WAIT_DISCARD_SAMPLE,
+    TEMP_SCAN_STATE_WAIT_VALID_SAMPLE
+} treatment_temp_scan_state_t;
+
+/* 温度采样状态机。双通道模式下按“切换 -> 丢首样本 -> 取有效样本”循环推进。 */
 typedef struct
 {
     UserAds1248Channel next_channel;
+    UserAds1248Channel active_channel;
     temp_acquire_mode_t mode;
     uint8_t suppress_rtd_fail_log;
+    uint8_t scan_state;
 } TreatmentTemperatureSensor;
 
-/* 初始化 ADS1248 温度采样模块。 */
 void TreatmentTemperatureSensor_Init(TreatmentTemperatureSensor *sensor,
                                      SemaphoreHandle_t rtd_drdy_sem);
-/* 切换温度采样模式。 */
 void TreatmentTemperatureSensor_SetMode(TreatmentTemperatureSensor *sensor,
                                         temp_acquire_mode_t mode,
                                         uint8_t suppress_rtd_fail_log);
-/* 执行一次温度采样轮询。 */
 void TreatmentTemperatureSensor_Poll(TreatmentTemperatureSensor *sensor,
                                      volatile sensor_data_t *out);
 

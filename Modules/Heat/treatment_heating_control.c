@@ -9,13 +9,15 @@
 #include "tim.h"
 
 #define HEAT_PID_DEFAULT_DT_S 0.002f
-#define HEAT_PID_INTEGRAL_MAX 1000.0f
+#define HEAT_PID_INTEGRAL_MAX 600.0f
 #define HEAT_OTP_NORMAL_LEVEL  1U
+#define HEAT_TARGET_OFFSET_LEFT_C  0.0f
+#define HEAT_TARGET_OFFSET_RIGHT_C 0.0f
 
-static float s_heat_left_kp = 3.001f;
+static float s_heat_left_kp = 1.001f;
 static float s_heat_left_ki = 0.5000f;
 static float s_heat_left_kd = 0.0000f;
-static float s_heat_right_kp = 3.001f;
+static float s_heat_right_kp = 1.001f;
 static float s_heat_right_ki = 0.5000f;
 static float s_heat_right_kd = 0.0000f;
 static uint32_t s_heat_left_pid_version = 0U;
@@ -32,6 +34,21 @@ static uint8_t s_heat_left_otp_reference = 0U;
 static uint8_t s_heat_right_otp_reference = 0U;
 static uint8_t s_heat_left_otp_reference_valid = 0U;
 static uint8_t s_heat_right_otp_reference_valid = 0U;
+
+static float TreatmentHeatingControl_GetEffectiveTargetC(TreatmentSide side,
+                                                         const TreatmentAppController *controller)
+{
+    float base_target = 0.0f;
+
+    if (controller != NULL)
+    {
+        base_target = controller->cfg.temp_target;
+    }
+
+    return base_target +
+           ((side == TREATMENT_SIDE_LEFT) ? HEAT_TARGET_OFFSET_LEFT_C
+                                          : HEAT_TARGET_OFFSET_RIGHT_C);
+}
 
 static uint32_t TreatmentHeatingControl_PinToIndex(uint16_t pin)
 {
@@ -211,7 +228,8 @@ static void TreatmentHeatingControl_LoadPid(TreatmentAppController *controller,
                                s_heat_left_kd);
         PidController_Reset(&controller->heat_left_pid);
         PidController_SetSetpoint(&controller->heat_left_pid,
-                                  controller->cfg.temp_target * 100.0f);
+                                  TreatmentHeatingControl_GetEffectiveTargetC(TREATMENT_SIDE_LEFT,
+                                                                              controller) * 100.0f);
         controller->active_heat_left_profile_version = s_heat_left_pid_version;
         break;
 
@@ -222,7 +240,8 @@ static void TreatmentHeatingControl_LoadPid(TreatmentAppController *controller,
                                s_heat_right_kd);
         PidController_Reset(&controller->heat_right_pid);
         PidController_SetSetpoint(&controller->heat_right_pid,
-                                  controller->cfg.temp_target * 100.0f);
+                                  TreatmentHeatingControl_GetEffectiveTargetC(TREATMENT_SIDE_RIGHT,
+                                                                              controller) * 100.0f);
         controller->active_heat_right_profile_version = s_heat_right_pid_version;
         break;
 
@@ -374,8 +393,9 @@ void TreatmentHeatingControl_UpdateSetpoint(TreatmentAppController *controller)
         return;
     }
 
-    setpoint = controller->cfg.temp_target * 100.0f;
+    setpoint = TreatmentHeatingControl_GetEffectiveTargetC(TREATMENT_SIDE_LEFT, controller) * 100.0f;
     PidController_SetSetpoint(&controller->heat_left_pid, setpoint);
+    setpoint = TreatmentHeatingControl_GetEffectiveTargetC(TREATMENT_SIDE_RIGHT, controller) * 100.0f;
     PidController_SetSetpoint(&controller->heat_right_pid, setpoint);
 }
 

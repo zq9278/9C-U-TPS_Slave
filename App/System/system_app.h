@@ -98,6 +98,8 @@ typedef enum
 {
     TEMP_ACQUIRE_MODE_IDLE = 0,
     TEMP_ACQUIRE_MODE_DUAL_SCAN,
+    TEMP_ACQUIRE_MODE_SINGLE_LEFT,
+    TEMP_ACQUIRE_MODE_SINGLE_RIGHT,
 } temp_acquire_mode_t;
 
 /* AppTask 下发给 SensorTask 的采样控制命令。 */

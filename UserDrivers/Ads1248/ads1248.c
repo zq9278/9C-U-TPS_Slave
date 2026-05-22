@@ -21,7 +21,7 @@
 
 #define ADS1248_STARTUP_SETTLE_MS    20U
 #define ADS1248_STARTUP_DISCARD_CNT  3U
-#define ADS1248_SYS0_PGA1_DR80SPS    0x05U
+#define ADS1248_SYS0_PGA1_DR80SPS    0x04U
 
 static const uint16_t kTempTableHot[] = {
     5000, 5101, 5206, 5314, 5428, 5546, 5670, 5800, 5937, 6080,
@@ -257,6 +257,16 @@ uint8_t UserAds1248_WaitDrdy(UserAds1248 *dev, uint32_t timeout_ms)
     return 0U;
 }
 
+uint8_t UserAds1248_IsDataReady(UserAds1248 *dev)
+{
+    if ((dev == NULL) || (dev->drdy_pin == NULL))
+    {
+        return 0U;
+    }
+
+    return (uint8_t)(BspGpio_Read(dev->drdy_pin) == GPIO_PIN_RESET);
+}
+
 uint8_t UserAds1248_ReadRaw(UserAds1248 *dev, uint32_t *raw_out)
 {
     uint8_t tx[5] = { ADS1248_CMD_RDATA, ADS1248_CMD_NOP, ADS1248_CMD_NOP, ADS1248_CMD_NOP, ADS1248_CMD_NOP };
@@ -358,21 +368,5 @@ uint8_t UserAds1248_CodeToTemperatureC(uint32_t raw_code, float *temp_c_out)
     return (uint8_t)((*temp_c_out > -20.0f) && (*temp_c_out < 100.0f));
 }
 
-uint8_t UserAds1248_ReadTemperatureC(UserAds1248 *dev,
-                                     UserAds1248Channel channel,
-                                     float *temp_c_out,
-                                     uint32_t *raw_out)
-{    
-    if ((dev == NULL) || (temp_c_out == NULL))
-    {
-        return 0U;
-    }
 
-    if ((channel != dev->current_channel) && (UserAds1248_SelectChannel(dev, channel) == 0U))
-    {
-        return 0U;
-    }
-
-    return AdsReadTemperatureFromCurrentChannel(dev, temp_c_out, raw_out);
-}
 
