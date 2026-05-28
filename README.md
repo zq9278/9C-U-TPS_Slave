@@ -1,4 +1,4 @@
-# 9C-U-TPS_Slave Firmware (STM32G070 + FreeRTOS)
+# 9C-TPS100-Slave Firmware (STM32G070 + FreeRTOS)
 
 This repository contains the firmware for the SAT01 control board, targeting STM32G070 (Cortex‑M0+), built with FreeRTOS and a clean task‑oriented architecture. Business UART (USART2) communicates with the host (e.g., RK3576), while a debug UART (USART1) emits logs.
 
@@ -21,7 +21,7 @@ All new code and comments are UTF‑8.
 
 Build (VS Code):
 1. Open the folder and select CMake preset `Debug`.
-2. Build target `SAT01_Ctrl_V1_0`.
+2. Build target `9C-TPS100-Slave`.
 3. Flash with your usual STM32 method (ST‑Link, openocd, or CubeProgrammer).
 
 Build (CLI example):
@@ -178,4 +178,3 @@ Keep dispatch files free from direct HAL control; use queues to reach the right 
 ## License
 
 Internal project. Do not distribute without permission.
-
