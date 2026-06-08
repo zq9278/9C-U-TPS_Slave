@@ -10,8 +10,8 @@
 #define PRESS_VENT_ZERO_KPA 0.50f
 #define PRESS_VENT_MAX_MS 500U
 #define PRESS_PUMP_MIN_PWM 10U
-#define PRESS_PUMP_MAX_PWM 255U
-#define PRESS_PUMP_RAW_MAX 255.0f
+#define PRESS_PUMP_MAX_PWM 25U
+#define PRESS_PUMP_RAW_MAX 25.0f
 
 static BspPwmChannel s_pump_pwm;
 static uint8_t s_pressure_hw_initialized = 0U;
@@ -400,7 +400,7 @@ void TreatmentPressureControl_InitPid(TreatmentAppController *controller)
     cfg.output_min = 0.0f;
     cfg.output_max = 255.0f;
     cfg.integral_min = -200.0f;
-    cfg.integral_max = 200.0f;
+    cfg.integral_max = 12.0f;
     cfg.default_dt_s = PRESS_PID_DEFAULT_DT_S;
     cfg.derivative_filter_alpha = 0.80f;
     cfg.derivative_mode = PID_CONTROLLER_DERIVATIVE_ON_MEASUREMENT;

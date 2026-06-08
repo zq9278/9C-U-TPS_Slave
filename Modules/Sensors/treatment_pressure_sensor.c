@@ -9,6 +9,8 @@
 /* 压力采样周期与原始值到 kPa 的换算常量。 */
 #define TREATMENT_PRESSURE_SENSOR_SAMPLE_PERIOD_MS 10U
 #define TREATMENT_PRESSURE_SENSOR_SCALE_KPA 7.50062f
+#define TREATMENT_PRESSURE_SENSOR_GAIN 1.20f
+#define TREATMENT_PRESSURE_SENSOR_OFFSET 0.0f
 #define TREATMENT_PRESSURE_SENSOR_LEFT_CHANNEL 1U
 #define TREATMENT_PRESSURE_SENSOR_RIGHT_CHANNEL 0U
 
@@ -101,11 +103,15 @@ void TreatmentPressureSensor_Poll(TreatmentPressureSensor *sensor,
     {
         /* 原始值先转为 kPa，再做 3 点中值滤波。 */
         float left_kpa =
-            ((float)gUserPressureSensor.left.pressure_raw / 1000.0f) *
-            TREATMENT_PRESSURE_SENSOR_SCALE_KPA;
+            (((float)gUserPressureSensor.left.pressure_raw / 1000.0f) *
+             TREATMENT_PRESSURE_SENSOR_SCALE_KPA *
+             TREATMENT_PRESSURE_SENSOR_GAIN) +
+            TREATMENT_PRESSURE_SENSOR_OFFSET;
         float right_kpa =
-            ((float)gUserPressureSensor.right.pressure_raw / 1000.0f) *
-            TREATMENT_PRESSURE_SENSOR_SCALE_KPA;
+            (((float)gUserPressureSensor.right.pressure_raw / 1000.0f) *
+             TREATMENT_PRESSURE_SENSOR_SCALE_KPA *
+             TREATMENT_PRESSURE_SENSOR_GAIN) +
+            TREATMENT_PRESSURE_SENSOR_OFFSET;
         float filtered_left;
         float filtered_right;
 

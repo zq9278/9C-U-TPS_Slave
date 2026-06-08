@@ -60,7 +60,10 @@
 #define RK3576_TEMP_FILTER_SAMPLES  ((uint16_t)(RK3576_TEMP_FILTER_WINDOW_MS / CONTROL_PERIOD_MS))
 
 #define TEMP_MAX_C                 44.0f//软件过温保护
-#define PRESS_MAX_KPA              450.0f//最大积分限幅
+#define PRESS_OVER_LIMIT_MMHG      300.0f//软件过压保护
+#define PRESS_OVER_LIMIT_CONFIRM_MS 100U
+#define PRESS_OVER_LIMIT_CONFIRM_COUNT \
+    ((PRESS_OVER_LIMIT_CONFIRM_MS + SAFETY_PERIOD_MS - 1U) / SAFETY_PERIOD_MS)
 #define CONTROL_RUNTIME_LOG_ENABLE 0U
 /* RK3576 下发的三档模式值。 */
 #define MODE_SELECT_RELAX          1U
@@ -1000,6 +1003,7 @@ static void ControlTask(void *argument)
 static void SafetyTask(void *argument)
 {
     uint8_t fault_active = 0U;
+    uint8_t over_pressure_count = 0U;
     (void)argument;
 
     for (;;)
@@ -1010,6 +1014,7 @@ static void SafetyTask(void *argument)
         uint8_t heat_otp_level_left = 0U;
         uint8_t heat_otp_level_right = 0U;
         uint8_t over_temp_fault;
+        uint8_t over_pressure_sample;
         uint8_t over_pressure_fault;
         uint8_t heat_otp_fault;
         uint8_t fault =
@@ -1023,9 +1028,22 @@ static void SafetyTask(void *argument)
         over_temp_fault =
             (uint8_t)((gSensorData.tempL > TEMP_MAX_C) ||
                       (gSensorData.tempR > TEMP_MAX_C));
+        over_pressure_sample =
+            (uint8_t)((gSensorData.pressL > PRESS_OVER_LIMIT_MMHG) ||
+                      (gSensorData.pressR > PRESS_OVER_LIMIT_MMHG));
+        if (over_pressure_sample != 0U)
+        {
+            if (over_pressure_count < PRESS_OVER_LIMIT_CONFIRM_COUNT)
+            {
+                ++over_pressure_count;
+            }
+        }
+        else
+        {
+            over_pressure_count = 0U;
+        }
         over_pressure_fault =
-            (uint8_t)((gSensorData.pressL > PRESS_MAX_KPA) ||
-                      (gSensorData.pressR > PRESS_MAX_KPA));
+            (uint8_t)(over_pressure_count >= PRESS_OVER_LIMIT_CONFIRM_COUNT);
         heat_otp_fault =
             (uint8_t)((heat_otp_fault_left != 0U) ||
                       (heat_otp_fault_right != 0U));
