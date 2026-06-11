@@ -200,25 +200,9 @@ void EyeShieldStatus_Init(void)
 
 void EyeShieldStatus_RequestFuseBlow(uint8_t blow_left, uint8_t blow_right)
 {
-    if (s_initialized == 0U)
-    {
-        EyeShieldStatus_Init();
-    }
-
-    if (blow_left != 0U)
-    {
-        s_fuse_blow_pending_mask |= EYE_SHIELD_MASK_LEFT;
-    }
-
-    if (blow_right != 0U)
-    {
-        s_fuse_blow_pending_mask |= EYE_SHIELD_MASK_RIGHT;
-    }
-
-    LOG_I("eye shield fuse blow request L=%u R=%u mask=0x%02X",
-          blow_left,
-          blow_right,
-          s_fuse_blow_pending_mask);
+    (void)blow_left;
+    (void)blow_right;
+    LOG_W("eye shield fuse blow request ignored temporarily");
 }
 
 void EyeShieldStatus_Service(void)
@@ -255,8 +239,6 @@ uint8_t EyeShieldStatus_Process(control_config_t *cfg, stop_reason_t *stop_reaso
 {
     uint8_t left_present_raw;
     uint8_t right_present_raw;
-    uint8_t left_fuse_raw;
-    uint8_t right_fuse_raw;
     uint8_t stop_requested = 0U;
     uint8_t left_required = 0U;
     uint8_t right_required = 0U;
@@ -278,9 +260,6 @@ uint8_t EyeShieldStatus_Process(control_config_t *cfg, stop_reason_t *stop_reaso
     /* 采集原始 GPIO 状态，再通过去抖更新稳定态。 */
     left_present_raw = BspGpio_ReadActive(&s_left_present_pin);
     right_present_raw = BspGpio_ReadActive(&s_right_present_pin);
-    left_fuse_raw = BspGpio_ReadActive(&s_left_fuse_detect_pin);
-    right_fuse_raw = BspGpio_ReadActive(&s_right_fuse_detect_pin);
-
     EyeShieldStatus_Debounce(left_present_raw,
                              &s_left_present_stable,
                              &s_left_present_count,
@@ -289,14 +268,10 @@ uint8_t EyeShieldStatus_Process(control_config_t *cfg, stop_reason_t *stop_reaso
                              &s_right_present_stable,
                              &s_right_present_count,
                              EYE_SHIELD_PRESENT_DEBOUNCE_COUNT);
-    EyeShieldStatus_Debounce(left_fuse_raw,
-                             &s_left_fuse_stable,
-                             &s_left_fuse_count,
-                             EYE_SHIELD_FUSE_DEBOUNCE_COUNT);
-    EyeShieldStatus_Debounce(right_fuse_raw,
-                             &s_right_fuse_stable,
-                             &s_right_fuse_count,
-                             EYE_SHIELD_FUSE_DEBOUNCE_COUNT);
+    s_left_fuse_stable = 1U;
+    s_right_fuse_stable = 1U;
+    s_left_fuse_count = 0U;
+    s_right_fuse_count = 0U;
 
     {
         static uint8_t last_left_present = 0xFFU;
@@ -309,6 +284,14 @@ uint8_t EyeShieldStatus_Process(control_config_t *cfg, stop_reason_t *stop_reaso
             (last_left_fuse != s_left_fuse_stable) ||
             (last_right_fuse != s_right_fuse_stable))
         {
+            if ((last_left_present != 0xFFU) && (last_left_present != s_left_present_stable))
+            {
+                LOG_I("eye shield L %s", (s_left_present_stable != 0U) ? "online" : "offline");
+            }
+            if ((last_right_present != 0xFFU) && (last_right_present != s_right_present_stable))
+            {
+                LOG_I("eye shield R %s", (s_right_present_stable != 0U) ? "online" : "offline");
+            }
             last_left_present = s_left_present_stable;
             last_right_present = s_right_present_stable;
             last_left_fuse = s_left_fuse_stable;
@@ -320,8 +303,8 @@ uint8_t EyeShieldStatus_Process(control_config_t *cfg, stop_reason_t *stop_reaso
                   s_right_fuse_stable,
                   left_present_raw,
                   right_present_raw,
-                  left_fuse_raw,
-                  right_fuse_raw);
+                  1U,
+                  1U);
         }
     }
 
@@ -359,15 +342,8 @@ uint8_t EyeShieldStatus_Process(control_config_t *cfg, stop_reason_t *stop_reaso
                 left_missing_warned = 1U;
                 LOG_W("eye shield L not present, disable L heat");
             }
-            if (left_required != 0U)
-            {
-                stop_requested = 1U;
-                if (stop_reason != NULL)
-                {
-                    *stop_reason = STOP_REASON_EYE_SHIELD_OFFLINE;
-                }
-            }
-            EyeShieldStatus_DisableSide(TREATMENT_SIDE_LEFT, &cfg->press_enable_L);
+            (void)left_required;
+            EyeShieldStatus_DisableSide(TREATMENT_SIDE_LEFT, NULL);
         }
     }
 
@@ -385,41 +361,10 @@ uint8_t EyeShieldStatus_Process(control_config_t *cfg, stop_reason_t *stop_reaso
                 right_missing_warned = 1U;
                 LOG_W("eye shield R not present, disable R heat");
             }
-            if (right_required != 0U)
-            {
-                stop_requested = 1U;
-                if (stop_reason != NULL)
-                {
-                    *stop_reason = STOP_REASON_EYE_SHIELD_OFFLINE;
-                }
-            }
-            EyeShieldStatus_DisableSide(TREATMENT_SIDE_RIGHT, &cfg->press_enable_R);
+            (void)right_required;
+            EyeShieldStatus_DisableSide(TREATMENT_SIDE_RIGHT, NULL);
         }
     }
-
-#if EYE_SHIELD_IGNORE_FUSE_PROTECTION_DEBUG
-    {
-        static uint8_t fuse_warned = 0U;
-        if ((fuse_warned == 0U) &&
-            ((s_left_fuse_stable == 0U) || (s_right_fuse_stable == 0U)))
-        {
-            fuse_warned = 1U;
-            LOG_W("DEBUG: eye shield fuse ignored L=%u R=%u",
-                  s_left_fuse_stable,
-                  s_right_fuse_stable);
-        }
-    }
-#else
-    if (s_left_fuse_stable == 0U)
-    {
-        EyeShieldStatus_DisableSide(TREATMENT_SIDE_LEFT, &cfg->press_enable_L);
-    }
-
-    if (s_right_fuse_stable == 0U)
-    {
-        EyeShieldStatus_DisableSide(TREATMENT_SIDE_RIGHT, &cfg->press_enable_R);
-    }
-#endif
 
     /*
      * 保护器件 ADC 故障只在“确认眼盾在线”时才允许触发：

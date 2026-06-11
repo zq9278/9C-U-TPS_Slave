@@ -5,19 +5,21 @@
 #include "main.h"
 #define MODULE_LOG_ENABLED MODULE_LOG_ACTUATOR_ENABLE
 #include "Modules/Log/module_log.h"
+#include "UserDrivers/Ads1248/ads1248.h"
 #include "task.h"
 #include "tim.h"
 
 #define HEAT_PID_DEFAULT_DT_S 0.002f
 #define HEAT_PID_INTEGRAL_MAX 600.0f
+#define HEAT_ONLINE_TARGET_C 42.5f
 #define HEAT_OTP_NORMAL_LEVEL  1U
 #define HEAT_TARGET_OFFSET_LEFT_C  0.0f
 #define HEAT_TARGET_OFFSET_RIGHT_C 0.0f
 
-static float s_heat_left_kp = 1.001f;
+static float s_heat_left_kp = 1.000f;
 static float s_heat_left_ki = 0.5000f;
 static float s_heat_left_kd = 0.0000f;
-static float s_heat_right_kp = 1.001f;
+static float s_heat_right_kp = 1.000f;
 static float s_heat_right_ki = 0.5000f;
 static float s_heat_right_kd = 0.0000f;
 static uint32_t s_heat_left_pid_version = 0U;
@@ -34,20 +36,22 @@ static uint8_t s_heat_left_otp_reference = 0U;
 static uint8_t s_heat_right_otp_reference = 0U;
 static uint8_t s_heat_left_otp_reference_valid = 0U;
 static uint8_t s_heat_right_otp_reference_valid = 0U;
+static uint8_t s_heat_external_inhibit = 0U;
 
 static float TreatmentHeatingControl_GetEffectiveTargetC(TreatmentSide side,
                                                          const TreatmentAppController *controller)
 {
-    float base_target = 0.0f;
-
-    if (controller != NULL)
-    {
-        base_target = controller->cfg.temp_target;
-    }
+    float base_target = HEAT_ONLINE_TARGET_C;
+    (void)controller;
 
     return base_target +
            ((side == TREATMENT_SIDE_LEFT) ? HEAT_TARGET_OFFSET_LEFT_C
                                           : HEAT_TARGET_OFFSET_RIGHT_C);
+}
+
+static uint8_t TreatmentHeatingControl_IsTempValid(float temp_c)
+{
+    return (uint8_t)(temp_c > (USER_ADS1248_INVALID_TEMP_C + 0.5f));
 }
 
 static uint32_t TreatmentHeatingControl_PinToIndex(uint16_t pin)
@@ -133,7 +137,7 @@ static void TreatmentHeatingControl_SetPower(TreatmentSide side, uint8_t enabled
             }
             if (s_heat_left_enabled == 0U)
             {
-                LOG_I("heater L power on");
+                LOG_I("heater L heating start");
             }
             s_heat_left_enabled = 1U;
         }
@@ -152,7 +156,7 @@ static void TreatmentHeatingControl_SetPower(TreatmentSide side, uint8_t enabled
 #endif
             if (s_heat_left_enabled != 0U)
             {
-                LOG_I("heater L power off");
+                LOG_I("heater L heating stop");
             }
             s_heat_left_enabled = 0U;
             s_heat_left_otp_reference_valid = 0U;
@@ -168,7 +172,7 @@ static void TreatmentHeatingControl_SetPower(TreatmentSide side, uint8_t enabled
             }
             if (s_heat_right_enabled == 0U)
             {
-                LOG_I("heater R power on");
+                LOG_I("heater R heating start");
             }
             s_heat_right_enabled = 1U;
         }
@@ -187,7 +191,7 @@ static void TreatmentHeatingControl_SetPower(TreatmentSide side, uint8_t enabled
 #endif
             if (s_heat_right_enabled != 0U)
             {
-                LOG_I("heater R power off");
+                LOG_I("heater R heating stop");
             }
             s_heat_right_enabled = 0U;
             s_heat_right_otp_reference_valid = 0U;
@@ -227,6 +231,43 @@ static void TreatmentHeatingControl_SetPwm(TreatmentSide side, uint16_t pwm)
         }
         s_heat_right_last_pwm = clamped_pwm;
     }
+}
+
+static void TreatmentHeatingControl_ResetPidSide(TreatmentAppController *controller,
+                                                 TreatmentSide side)
+{
+    if (controller == NULL)
+    {
+        return;
+    }
+
+    if (side == TREATMENT_SIDE_LEFT)
+    {
+        PidController_Reset(&controller->heat_left_pid);
+    }
+    else
+    {
+        PidController_Reset(&controller->heat_right_pid);
+    }
+}
+
+static void TreatmentHeatingControl_DisableOfflineSide(TreatmentAppController *controller,
+                                                       TreatmentSide side,
+                                                       uint16_t *runtime_pwm,
+                                                       float *mapped_output)
+{
+    if (runtime_pwm != NULL)
+    {
+        *runtime_pwm = 0U;
+    }
+    if (mapped_output != NULL)
+    {
+        *mapped_output = 0.0f;
+    }
+
+    TreatmentHeatingControl_ResetPidSide(controller, side);
+    TreatmentHeatingControl_SetPwm(side, 0U);
+    TreatmentHeatingControl_SetPower(side, 0U);
 }
 
 static void TreatmentHeatingControl_LoadPid(TreatmentAppController *controller,
@@ -314,6 +355,15 @@ void TreatmentHeatingControl_DisableSide(TreatmentSide side)
 {
     TreatmentHeatingControl_SetPwm(side, 0U);
     TreatmentHeatingControl_SetPower(side, 0U);
+}
+
+void TreatmentHeatingControl_SetExternalInhibit(uint8_t enabled)
+{
+    s_heat_external_inhibit = (enabled != 0U) ? 1U : 0U;
+    if (s_heat_external_inhibit != 0U)
+    {
+        TreatmentHeatingControl_SetIdleOutputs();
+    }
 }
 
 void TreatmentHeatingControl_ResetOtp(TreatmentSide side)
@@ -442,6 +492,10 @@ void TreatmentHeatingControl_ApplyOutputs(TreatmentAppController *controller,
                                           TreatmentAppRuntime *runtime)
 {
     float heat_output;
+    uint8_t left_heat_active;
+    uint8_t right_heat_active;
+    uint8_t left_temp_valid;
+    uint8_t right_temp_valid;
 
     if ((controller == NULL) || (sensor == NULL) || (runtime == NULL))
     {
@@ -461,7 +515,27 @@ void TreatmentHeatingControl_ApplyOutputs(TreatmentAppController *controller,
         TreatmentHeatingControl_LoadPid(controller, PID_DEBUG_TARGET_HEAT_RIGHT);
     }
 
-    if (controller->cfg.press_enable_L != 0U)
+    if (s_heat_external_inhibit != 0U)
+    {
+        TreatmentHeatingControl_DisableOfflineSide(controller,
+                                                   TREATMENT_SIDE_LEFT,
+                                                   &runtime->heat_left_pwm,
+                                                   &controller->heat_left_pid.debug.mapped_output);
+        TreatmentHeatingControl_DisableOfflineSide(controller,
+                                                   TREATMENT_SIDE_RIGHT,
+                                                   &runtime->heat_right_pwm,
+                                                   &controller->heat_right_pid.debug.mapped_output);
+        return;
+    }
+
+    left_temp_valid = TreatmentHeatingControl_IsTempValid(sensor->tempL);
+    right_temp_valid = TreatmentHeatingControl_IsTempValid(sensor->tempR);
+    left_heat_active = (uint8_t)((sensor->heaterPresentL != 0U) &&
+                                 (left_temp_valid != 0U));
+    right_heat_active = (uint8_t)((sensor->heaterPresentR != 0U) &&
+                                  (right_temp_valid != 0U));
+
+    if (left_heat_active != 0U)
     {
         if (s_heat_left_otp_reference_valid == 0U)
         {
@@ -477,12 +551,13 @@ void TreatmentHeatingControl_ApplyOutputs(TreatmentAppController *controller,
     }
     else
     {
-        TreatmentHeatingControl_SetPwm(TREATMENT_SIDE_LEFT, 0U);
-        controller->heat_left_pid.debug.mapped_output = 0.0f;
-        TreatmentHeatingControl_SetPower(TREATMENT_SIDE_LEFT, 0U);
+        TreatmentHeatingControl_DisableOfflineSide(controller,
+                                                   TREATMENT_SIDE_LEFT,
+                                                   &runtime->heat_left_pwm,
+                                                   &controller->heat_left_pid.debug.mapped_output);
     }
 
-    if (controller->cfg.press_enable_R != 0U)
+    if (right_heat_active != 0U)
     {
         if (s_heat_right_otp_reference_valid == 0U)
         {
@@ -498,9 +573,10 @@ void TreatmentHeatingControl_ApplyOutputs(TreatmentAppController *controller,
     }
     else
     {
-        TreatmentHeatingControl_SetPwm(TREATMENT_SIDE_RIGHT, 0U);
-        controller->heat_right_pid.debug.mapped_output = 0.0f;
-        TreatmentHeatingControl_SetPower(TREATMENT_SIDE_RIGHT, 0U);
+        TreatmentHeatingControl_DisableOfflineSide(controller,
+                                                   TREATMENT_SIDE_RIGHT,
+                                                   &runtime->heat_right_pwm,
+                                                   &controller->heat_right_pid.debug.mapped_output);
     }
 }
 

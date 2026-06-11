@@ -260,44 +260,36 @@ static void config_defaults(control_config_t *cfg)
 }
 
 /*
- * 根据左右眼使能和眼罩在位状态，决定温度采样任务是否需要工作。
- * 双眼时走双路轮询，单眼时锁定到对应单通道，避免另一侧无效通道影响读数。
+ * 温度采样模式跟随眼盾在线状态：
+ * - 任一侧在线就保持对应温度通道工作，保证“在线即加热”有实时温度反馈；
+ * - 双侧都离线时才进入 IDLE。
  */
 static temp_acquire_mode_t resolve_temperature_mode(const control_config_t *cfg)
 {
-    const uint8_t left_enabled = (uint8_t)((cfg != NULL) &&
-                                           (cfg->press_enable_L != 0U) &&
-                                           (gSensorData.heaterPresentL != 0U));
-    const uint8_t right_enabled = (uint8_t)((cfg != NULL) &&
-                                            (cfg->press_enable_R != 0U) &&
-                                            (gSensorData.heaterPresentR != 0U));
+    (void)cfg;
 
-    if ((left_enabled != 0U) && (right_enabled != 0U))
+    if ((gSensorData.heaterPresentL != 0U) && (gSensorData.heaterPresentR != 0U))
     {
         return TEMP_ACQUIRE_MODE_DUAL_SCAN;
     }
-    if (left_enabled != 0U)
+    if (gSensorData.heaterPresentL != 0U)
     {
         return TEMP_ACQUIRE_MODE_SINGLE_LEFT;
     }
-    if (right_enabled != 0U)
+    if (gSensorData.heaterPresentR != 0U)
     {
         return TEMP_ACQUIRE_MODE_SINGLE_RIGHT;
     }
     return TEMP_ACQUIRE_MODE_IDLE;
 }
 
-/* 单眼治疗时，允许抑制另一侧 RTD 可能产生的读数失败告警。 */
+/* 单侧在线时，允许抑制另一侧 RTD 可能产生的读数失败告警。 */
 static uint8_t resolve_temperature_log_suppress(const control_config_t *cfg)
 {
-    const uint8_t left_enabled = (uint8_t)((cfg != NULL) &&
-                                           (cfg->press_enable_L != 0U) &&
-                                           (gSensorData.heaterPresentL != 0U));
-    const uint8_t right_enabled = (uint8_t)((cfg != NULL) &&
-                                            (cfg->press_enable_R != 0U) &&
-                                            (gSensorData.heaterPresentR != 0U));
+    (void)cfg;
 
-    return (uint8_t)(((left_enabled != 0U) ^ (right_enabled != 0U)) ? 1U : 0U);
+    return (uint8_t)(((gSensorData.heaterPresentL != 0U) ^
+                      (gSensorData.heaterPresentR != 0U)) ? 1U : 0U);
 }
 
 /* 把“停机请求”重新投递给 AppTask，统一走 APP_CMD_STOP 分支收口。 */
@@ -655,10 +647,10 @@ static void AppTask(void *argument)
             send_ctrl_command(CTRL_CMD_UPDATE_CFG, &cfg);
             break;
         case APP_CMD_LEFT_HEATER_FUSE_BLOW:
-            EyeShieldStatus_RequestFuseBlow(1U, 0U);
+            LOG_W("left heater fuse blow command ignored temporarily");
             break;
         case APP_CMD_RIGHT_HEATER_FUSE_BLOW:
-            EyeShieldStatus_RequestFuseBlow(0U, 1U);
+            LOG_W("right heater fuse blow command ignored temporarily");
             break;
         case APP_CMD_SET_TREATMENT_TIME:
             cfg.treatment_minutes = (cmd.v.u16 == 0U) ? 1U : cmd.v.u16;
@@ -840,6 +832,8 @@ static void ControlTask(void *argument)
     TickType_t next_pid_debug_tx;
     uint8_t telemetry_filter_active = 0U;
     uint8_t telemetry_tx_enabled = 0U;
+    temp_acquire_mode_t active_temp_mode = TEMP_ACQUIRE_MODE_IDLE;
+    uint8_t active_temp_log_suppress = 0U;
 
     (void)argument;
     TreatmentAppController_Init(&controller);
@@ -875,6 +869,18 @@ static void ControlTask(void *argument)
                 send_ctrl_command(CTRL_CMD_STOP, NULL);
                 gTreatmentRunning = 0U;
                 request_app_stop();
+            }
+        }
+        {
+            temp_acquire_mode_t desired_temp_mode = resolve_temperature_mode(&controller.cfg);
+            uint8_t desired_temp_log_suppress = resolve_temperature_log_suppress(&controller.cfg);
+
+            if ((desired_temp_mode != active_temp_mode) ||
+                (desired_temp_log_suppress != active_temp_log_suppress))
+            {
+                send_sensor_mode(desired_temp_mode, desired_temp_log_suppress);
+                active_temp_mode = desired_temp_mode;
+                active_temp_log_suppress = desired_temp_log_suppress;
             }
         }
 
@@ -1053,6 +1059,7 @@ static void SafetyTask(void *argument)
         fault = (uint8_t)((over_temp_fault != 0U) ||
                           (over_pressure_fault != 0U) ||
                           (heat_otp_fault != 0U));
+        TreatmentHeatingControl_SetExternalInhibit(fault);
 
         if ((fault != 0U) && (fault_active == 0U))
         {

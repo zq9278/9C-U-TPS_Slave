@@ -23,6 +23,8 @@ void TreatmentHeatingControl_InitHardware(void);
 void TreatmentHeatingControl_SetIdleOutputs(void);
 /* 关闭单侧加热输出，供眼罩保护等逻辑复用。 */
 void TreatmentHeatingControl_DisableSide(TreatmentSide side);
+/* 外部安全逻辑可临时抑制全部加热输出。 */
+void TreatmentHeatingControl_SetExternalInhibit(uint8_t enabled);
 /* 复位单侧加热 OTP 锁存。 */
 void TreatmentHeatingControl_ResetOtp(TreatmentSide side);
 /* 检查左右眼 OTP 状态线是否相对复位后的基线发生变化。 */

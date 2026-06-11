@@ -49,7 +49,7 @@ void TreatmentAppController_HandleCommand(TreatmentAppController *controller,
         controller->paused_elapsed_ticks = 0U;
         TreatmentPressureControl_ResetPid(controller);
         TreatmentHeatingControl_ResetPid(controller);
-        TreatmentAppController_SetSystemIdleOutputs();
+        TreatmentPressureControl_SetIdleOutputs();
         break;
 
     case CTRL_CMD_START:
@@ -84,7 +84,7 @@ void TreatmentAppController_HandleCommand(TreatmentAppController *controller,
         controller->pause_log_emitted = 0U;
         controller->paused_elapsed_ticks = now_tick - controller->wave_anchor_tick;
         LOG_I("treat ctrl pause tick=%lu", (unsigned long)now_tick);
-        TreatmentAppController_SetSystemIdleOutputs();
+        TreatmentPressureControl_SetIdleOutputs();
         break;
 
     case CTRL_CMD_RESUME:
@@ -198,7 +198,8 @@ void TreatmentAppController_Run(TreatmentAppController *controller,
         runtime->phase_name = TreatmentPressureControl_PhaseName(TREATMENT_PHASE_PAUSE);
         runtime->phase_char = (uint8_t)'p';
         runtime->session_active = 1U;
-        TreatmentAppController_SetSystemIdleOutputs();
+        TreatmentPressureControl_SetIdleOutputs();
+        TreatmentHeatingControl_ApplyOutputs(controller, sensor, dt_s, runtime);
         return;
     }
 
@@ -220,7 +221,8 @@ void TreatmentAppController_Run(TreatmentAppController *controller,
                   controller->cfg.press_enable_L,
                   controller->cfg.press_enable_R);
         }
-        TreatmentAppController_SetSystemIdleOutputs();
+        TreatmentPressureControl_SetIdleOutputs();
+        TreatmentHeatingControl_ApplyOutputs(controller, sensor, dt_s, runtime);
         return;
     }
 
