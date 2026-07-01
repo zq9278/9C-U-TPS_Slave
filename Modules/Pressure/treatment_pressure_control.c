@@ -13,6 +13,14 @@
 #define PRESS_PUMP_MAX_PWM 25U
 #define PRESS_PUMP_RAW_MAX 25.0f
 
+/* Power-on pump PWM test. Frequency is clamped to 1 kHz .. 50 kHz. */
+#define PRESS_PUMP_POWER_ON_TEST_ENABLE      1U
+#define PRESS_PUMP_POWER_ON_TEST_FREQ_HZ     20000U
+#define PRESS_PUMP_POWER_ON_TEST_POWER_LEVEL 0U
+#define PRESS_PUMP_TEST_FREQ_MIN_HZ          1000U
+#define PRESS_PUMP_TEST_FREQ_MAX_HZ          50000U
+#define PRESS_PUMP_TEST_POWER_LEVEL_MAX      1000U
+
 static BspPwmChannel s_pump_pwm;
 static uint8_t s_pressure_hw_initialized = 0U;
 
@@ -156,6 +164,94 @@ static uint16_t TreatmentPressureControl_ClampPwm(float value, uint16_t max_valu
     return (uint16_t)scaled_value;
 }
 
+static uint32_t TreatmentPressureControl_ClampU32(uint32_t value,
+                                                  uint32_t min_value,
+                                                  uint32_t max_value)
+{
+    if (value < min_value)
+    {
+        return min_value;
+    }
+    if (value > max_value)
+    {
+        return max_value;
+    }
+
+    return value;
+}
+
+static uint32_t TreatmentPressureControl_GetApb1TimerClockHz(void)
+{
+    RCC_ClkInitTypeDef clock_config;
+    uint32_t flash_latency;
+    uint32_t pclk1_hz;
+
+    HAL_RCC_GetClockConfig(&clock_config, &flash_latency);
+    pclk1_hz = HAL_RCC_GetPCLK1Freq();
+
+    if (clock_config.APB1CLKDivider == RCC_HCLK_DIV1)
+    {
+        return pclk1_hz;
+    }
+
+    return pclk1_hz * 2UL;
+}
+
+static void TreatmentPressureControl_SetPumpPwmFrequencyHz(uint32_t frequency_hz)
+{
+    uint32_t clamped_frequency_hz;
+    uint32_t timer_clock_hz;
+    uint32_t timer_divider;
+    uint32_t denominator;
+    uint32_t period_ticks;
+
+    clamped_frequency_hz = TreatmentPressureControl_ClampU32(
+        frequency_hz,
+        PRESS_PUMP_TEST_FREQ_MIN_HZ,
+        PRESS_PUMP_TEST_FREQ_MAX_HZ);
+    timer_clock_hz = TreatmentPressureControl_GetApb1TimerClockHz();
+    timer_divider = (uint32_t)htim15.Init.Prescaler + 1UL;
+    denominator = timer_divider * clamped_frequency_hz;
+
+    if (denominator == 0UL)
+    {
+        return;
+    }
+
+    period_ticks = (timer_clock_hz + (denominator / 2UL)) / denominator;
+    period_ticks = TreatmentPressureControl_ClampU32(period_ticks, 1UL, 65536UL);
+    BspPwm_SetPeriodTicks(&s_pump_pwm, period_ticks);
+}
+
+static uint16_t TreatmentPressureControl_PowerLevelToPulse(uint16_t power_level)
+{
+    uint32_t clamped_level;
+    uint32_t period_ticks;
+    uint32_t pulse_ticks;
+
+    if (power_level == 0U)
+    {
+        return 0U;
+    }
+
+    clamped_level = (power_level > PRESS_PUMP_TEST_POWER_LEVEL_MAX) ?
+                    PRESS_PUMP_TEST_POWER_LEVEL_MAX :
+                    power_level;
+    period_ticks = BspPwm_GetPeriodTicks(&s_pump_pwm);
+    pulse_ticks = (period_ticks * clamped_level) / PRESS_PUMP_TEST_POWER_LEVEL_MAX;
+    pulse_ticks = TreatmentPressureControl_ClampU32(pulse_ticks, 0UL, 65535UL);
+
+    return (uint16_t)pulse_ticks;
+}
+
+static void TreatmentPressureControl_ApplyPowerOnPumpTestOutput(void)
+{
+    TreatmentPressureControl_SetPumpPwmFrequencyHz(PRESS_PUMP_POWER_ON_TEST_FREQ_HZ);
+    BspPwm_SetPulse(
+        &s_pump_pwm,
+        TreatmentPressureControl_PowerLevelToPulse(PRESS_PUMP_POWER_ON_TEST_POWER_LEVEL));
+}
+
 static void TreatmentPressureControl_ApplyPressureRouteOutputs(uint8_t enable_left,
                                                                uint8_t enable_right)
 {
@@ -185,13 +281,20 @@ void TreatmentPressureControl_InitHardware(void)
     cfg.channel = TIM_CHANNEL_1;
     BspPwm_Init(&s_pump_pwm, &cfg);
     (void)BspPwm_Start(&s_pump_pwm);
+#if (PRESS_PUMP_POWER_ON_TEST_ENABLE != 0U)
+    TreatmentPressureControl_ApplyPowerOnPumpTestOutput();
+#endif
     s_pressure_hw_initialized = 1U;
     TreatmentPressureControl_SetIdleOutputs();
 }
 
 void TreatmentPressureControl_SetIdleOutputs(void)
 {
+#if (PRESS_PUMP_POWER_ON_TEST_ENABLE != 0U)
+    TreatmentPressureControl_ApplyPowerOnPumpTestOutput();
+#else
     TreatmentPressureControl_SetPumpPwmOutput(0U);
+#endif
     TreatmentPressureControl_SetWaveValveOutput(0U);
     /* 空闲态下 PA0/PA1 统一回到双眼默认低电平。 */
     TreatmentPressureControl_ApplyPressureRouteOutputs(0U, 0U);
