@@ -9,9 +9,11 @@
 #define PRESS_PID_DEFAULT_DT_S 0.002f
 #define PRESS_VENT_ZERO_KPA 0.50f
 #define PRESS_VENT_MAX_MS 1000U
-#define PRESS_PUMP_MIN_PWM 1U
-#define PRESS_PUMP_MAX_PWM 25U
+#define PRESS_PUMP_MIN_PWM 0U
+#define PRESS_PUMP_MAX_PWM 1000U
 #define PRESS_PUMP_RAW_MAX 25.0f
+#define PRESS_PUMP_EFFECTIVE_DUTY_MIN_PERMILLE 0U
+#define PRESS_PUMP_EFFECTIVE_DUTY_MAX_PERMILLE 25U
 
 static BspPwmChannel s_pump_pwm;
 static uint8_t s_pressure_hw_initialized = 0U;
@@ -46,8 +48,8 @@ static TreatmentPressurePidProfile s_press_pid_single_eye = {
 
 /* 双眼治疗 PID 参数组。 */
 static TreatmentPressurePidProfile s_press_pid_dual_eye = {
-    {0.1f, 0.1f, 0.0f},
-    {0.20f, 0.2f, 0.00f},
+    {1.0f, 0.1f, 0.0f},
+    {1.5f, 0.5f, 0.00f},
     {0.1f, 0.000f, 0.000f},
 };
 
@@ -156,6 +158,32 @@ static uint16_t TreatmentPressureControl_ClampPwm(float value, uint16_t max_valu
     return (uint16_t)scaled_value;
 }
 
+static uint16_t TreatmentPressureControl_PwmLevelToDutyPermille(uint16_t pwm_level)
+{
+    uint32_t clamped_level;
+    uint32_t duty_permille;
+
+    if (pwm_level == 0U)
+    {
+        return 0U;
+    }
+
+    clamped_level = (pwm_level > PRESS_PUMP_MAX_PWM) ? PRESS_PUMP_MAX_PWM : pwm_level;
+    duty_permille =
+        PRESS_PUMP_EFFECTIVE_DUTY_MIN_PERMILLE +
+        ((uint32_t)(PRESS_PUMP_EFFECTIVE_DUTY_MAX_PERMILLE -
+                    PRESS_PUMP_EFFECTIVE_DUTY_MIN_PERMILLE) *
+         clamped_level) /
+            PRESS_PUMP_MAX_PWM;
+
+    if (duty_permille > PRESS_PUMP_EFFECTIVE_DUTY_MAX_PERMILLE)
+    {
+        duty_permille = PRESS_PUMP_EFFECTIVE_DUTY_MAX_PERMILLE;
+    }
+
+    return (uint16_t)duty_permille;
+}
+
 static void TreatmentPressureControl_ApplyPressureRouteOutputs(uint8_t enable_left,
                                                                uint8_t enable_right)
 {
@@ -169,7 +197,7 @@ static void TreatmentPressureControl_SetWaveValveOutput(uint8_t enabled)
 
 static void TreatmentPressureControl_SetPumpPwmOutput(uint16_t pwm)
 {
-    BspPwm_SetPulse(&s_pump_pwm, (pwm > PRESS_PUMP_MAX_PWM) ? PRESS_PUMP_MAX_PWM : pwm);
+    BspPwm_SetDutyPermille(&s_pump_pwm, TreatmentPressureControl_PwmLevelToDutyPermille(pwm));
 }
 
 void TreatmentPressureControl_InitHardware(void)
