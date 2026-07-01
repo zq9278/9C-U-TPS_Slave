@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <string.h>
+#include "App/System/app_safety_config.h"
 #define MODULE_LOG_ENABLED MODULE_LOG_APP_TASK_ENABLE
 #include "App/System/system_app.h"
 #include "Modules/Log/module_log.h"
@@ -59,11 +60,8 @@
 #define RK3576_PRESS_FILTER_SAMPLES ((uint16_t)(RK3576_PRESS_FILTER_WINDOW_MS / CONTROL_PERIOD_MS))
 #define RK3576_TEMP_FILTER_SAMPLES  ((uint16_t)(RK3576_TEMP_FILTER_WINDOW_MS / CONTROL_PERIOD_MS))
 
-#define TEMP_MAX_C                 44.0f//软件过温保护
-#define PRESS_OVER_LIMIT_MMHG      300.0f//软件过压保护
-#define PRESS_OVER_LIMIT_CONFIRM_MS 100U
-#define PRESS_OVER_LIMIT_CONFIRM_COUNT \
-    ((PRESS_OVER_LIMIT_CONFIRM_MS + SAFETY_PERIOD_MS - 1U) / SAFETY_PERIOD_MS)
+#define SAFETY_OVER_PRESSURE_CONFIRM_COUNT \
+    APP_SAFETY_OVER_PRESSURE_CONFIRM_COUNT(SAFETY_PERIOD_MS)
 #define CONTROL_RUNTIME_LOG_ENABLE 0U
 /* RK3576 下发的三档模式值。 */
 #define MODE_SELECT_RELAX          1U
@@ -1025,15 +1023,20 @@ static void SafetyTask(void *argument)
         heat_otp_level_right =
             (uint8_t)((HAL_GPIO_ReadPin(OTP1_RESET_GPIO_Port, OTP1_RESET_Pin) == GPIO_PIN_SET) ? 1U : 0U);
         TreatmentHeatingControl_GetOtpFaultFlags(&heat_otp_fault_left, &heat_otp_fault_right);
+#if (APP_SAFETY_OVER_TEMP_ENABLE != 0U)
         over_temp_fault =
-            (uint8_t)((gSensorData.tempL > TEMP_MAX_C) ||
-                      (gSensorData.tempR > TEMP_MAX_C));
+            (uint8_t)((gSensorData.tempL > APP_SAFETY_OVER_TEMP_LIMIT_C) ||
+                      (gSensorData.tempR > APP_SAFETY_OVER_TEMP_LIMIT_C));
+#else
+        over_temp_fault = 0U;
+#endif
+#if (APP_SAFETY_OVER_PRESSURE_ENABLE != 0U)
         over_pressure_sample =
-            (uint8_t)((gSensorData.pressL > PRESS_OVER_LIMIT_MMHG) ||
-                      (gSensorData.pressR > PRESS_OVER_LIMIT_MMHG));
+            (uint8_t)((gSensorData.pressL > APP_SAFETY_OVER_PRESSURE_LIMIT_MMHG) ||
+                      (gSensorData.pressR > APP_SAFETY_OVER_PRESSURE_LIMIT_MMHG));
         if (over_pressure_sample != 0U)
         {
-            if (over_pressure_count < PRESS_OVER_LIMIT_CONFIRM_COUNT)
+            if (over_pressure_count < SAFETY_OVER_PRESSURE_CONFIRM_COUNT)
             {
                 ++over_pressure_count;
             }
@@ -1043,11 +1046,17 @@ static void SafetyTask(void *argument)
             over_pressure_count = 0U;
         }
         over_pressure_fault =
-            (uint8_t)(over_pressure_count >= PRESS_OVER_LIMIT_CONFIRM_COUNT);
+            (uint8_t)(over_pressure_count >= SAFETY_OVER_PRESSURE_CONFIRM_COUNT);
+#else
+        over_pressure_sample = 0U;
+        over_pressure_count = 0U;
+        over_pressure_fault = 0U;
+#endif
+#if (APP_SAFETY_HEAT_OTP_FAULT_ENABLE != 0U)
         heat_otp_fault =
             (uint8_t)((heat_otp_fault_left != 0U) ||
                       (heat_otp_fault_right != 0U));
-#if (HEAT_OTP_FAULT_REPORT_ENABLE == 0U)
+#else
         heat_otp_fault = 0U;
 #endif
         fault = (uint8_t)((over_temp_fault != 0U) ||

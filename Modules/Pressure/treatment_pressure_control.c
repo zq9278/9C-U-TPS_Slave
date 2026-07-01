@@ -8,8 +8,8 @@
 /* 压力 PID 缺省参数与执行器映射常量。 */
 #define PRESS_PID_DEFAULT_DT_S 0.002f
 #define PRESS_VENT_ZERO_KPA 0.50f
-#define PRESS_VENT_MAX_MS 500U
-#define PRESS_PUMP_MIN_PWM 10U
+#define PRESS_VENT_MAX_MS 1000U
+#define PRESS_PUMP_MIN_PWM 1U
 #define PRESS_PUMP_MAX_PWM 25U
 #define PRESS_PUMP_RAW_MAX 25.0f
 
@@ -47,7 +47,7 @@ static TreatmentPressurePidProfile s_press_pid_single_eye = {
 /* 双眼治疗 PID 参数组。 */
 static TreatmentPressurePidProfile s_press_pid_dual_eye = {
     {0.1f, 0.1f, 0.0f},
-    {0.50f, 0.1f, 0.00f},
+    {0.20f, 0.2f, 0.00f},
     {0.1f, 0.000f, 0.000f},
 };
 

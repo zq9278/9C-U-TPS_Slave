@@ -1,14 +1,11 @@
 #ifndef MODULES_HEAT_TREATMENT_HEATING_CONTROL_H
 #define MODULES_HEAT_TREATMENT_HEATING_CONTROL_H
 
+#include "App/System/app_safety_config.h"
 #include "treatment_app_controller.h"
 
 #ifdef __cplusplus
 extern "C" {
-#endif
-
-#ifndef HEAT_OTP_FAULT_REPORT_ENABLE
-#define HEAT_OTP_FAULT_REPORT_ENABLE 0U
 #endif
 
 typedef enum

@@ -13,7 +13,6 @@
 #include "task.h"
 
 /* 保险丝击穿脉冲宽度与左右侧 bit mask。 */
-#define EYE_SHIELD_FUSE_BLOW_PULSE_MS 10U
 #define EYE_SHIELD_MASK_LEFT          0x01U
 #define EYE_SHIELD_MASK_RIGHT         0x02U
 #define EYE_SHIELD_ADC_FULL_SCALE     4095U
