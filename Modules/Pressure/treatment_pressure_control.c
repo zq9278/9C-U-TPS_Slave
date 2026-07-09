@@ -6,14 +6,16 @@
 #include "tim.h"
 
 /* 压力 PID 缺省参数与执行器映射常量。 */
-#define PRESS_PID_DEFAULT_DT_S 0.002f
+#define PRESS_PID_DEFAULT_DT_S 0.02f
 #define PRESS_VENT_ZERO_KPA 0.50f
 #define PRESS_VENT_MAX_MS 1000U
 #define PRESS_PUMP_MIN_PWM 0U
-#define PRESS_PUMP_MAX_PWM 1000U
+#define PRESS_PUMP_MAX_PWM 25U
 #define PRESS_PUMP_RAW_MAX 25.0f
-#define PRESS_PUMP_EFFECTIVE_DUTY_MIN_PERMILLE 0U
-#define PRESS_PUMP_EFFECTIVE_DUTY_MAX_PERMILLE 25U
+#define PRESS_RISE_SINGLE_EYE_RATED_PWM 18U//单眼rise阶段电机功率
+#define PRESS_RISE_DUAL_EYE_RATED_PWM 19U//双眼rise阶段电机功率
+#define PRESS_HOLD_SINGLE_EYE_RATED_PWM 18U//单眼hold阶段电机功率
+#define PRESS_HOLD_DUAL_EYE_RATED_PWM 20U//双眼hold阶段电机功率
 
 static BspPwmChannel s_pump_pwm;
 static uint8_t s_pressure_hw_initialized = 0U;
@@ -42,15 +44,15 @@ typedef struct
 /* 单眼治疗 PID 参数组。 */
 static TreatmentPressurePidProfile s_press_pid_single_eye = {
     {0.1f, 0.1f, 0.0f},
-    {0.30f, 0.1f, 0.00f},
-    {0.06f, 0.000f, 0.000f},
+    {1.2f, 0.2f, 0.00f},
+    {0.4f, 0.000f, 0.000f},
 };
 
 /* 双眼治疗 PID 参数组。 */
 static TreatmentPressurePidProfile s_press_pid_dual_eye = {
     {1.0f, 0.1f, 0.0f},
-    {1.5f, 0.5f, 0.00f},
-    {0.1f, 0.000f, 0.000f},
+    {1.2f, 0.1f, 0.00f},
+    {0.5f, 0.000f, 0.000f},
 };
 
 /* 参数版本号，供运行中热切换 PID 配置时判断是否需要重载。 */
@@ -158,30 +160,18 @@ static uint16_t TreatmentPressureControl_ClampPwm(float value, uint16_t max_valu
     return (uint16_t)scaled_value;
 }
 
-static uint16_t TreatmentPressureControl_PwmLevelToDutyPermille(uint16_t pwm_level)
+static uint16_t TreatmentPressureControl_GetRiseRatedPwm(TreatmentPressureProfileKind profile_kind)
 {
-    uint32_t clamped_level;
-    uint32_t duty_permille;
+    return (profile_kind == TREATMENT_PRESS_PROFILE_DUAL_EYE) ?
+           PRESS_RISE_DUAL_EYE_RATED_PWM :
+           PRESS_RISE_SINGLE_EYE_RATED_PWM;
+}
 
-    if (pwm_level == 0U)
-    {
-        return 0U;
-    }
-
-    clamped_level = (pwm_level > PRESS_PUMP_MAX_PWM) ? PRESS_PUMP_MAX_PWM : pwm_level;
-    duty_permille =
-        PRESS_PUMP_EFFECTIVE_DUTY_MIN_PERMILLE +
-        ((uint32_t)(PRESS_PUMP_EFFECTIVE_DUTY_MAX_PERMILLE -
-                    PRESS_PUMP_EFFECTIVE_DUTY_MIN_PERMILLE) *
-         clamped_level) /
-            PRESS_PUMP_MAX_PWM;
-
-    if (duty_permille > PRESS_PUMP_EFFECTIVE_DUTY_MAX_PERMILLE)
-    {
-        duty_permille = PRESS_PUMP_EFFECTIVE_DUTY_MAX_PERMILLE;
-    }
-
-    return (uint16_t)duty_permille;
+static uint16_t TreatmentPressureControl_GetHoldRatedPwm(TreatmentPressureProfileKind profile_kind)
+{
+    return (profile_kind == TREATMENT_PRESS_PROFILE_DUAL_EYE) ?
+           PRESS_HOLD_DUAL_EYE_RATED_PWM :
+           PRESS_HOLD_SINGLE_EYE_RATED_PWM;
 }
 
 static void TreatmentPressureControl_ApplyPressureRouteOutputs(uint8_t enable_left,
@@ -197,7 +187,7 @@ static void TreatmentPressureControl_SetWaveValveOutput(uint8_t enabled)
 
 static void TreatmentPressureControl_SetPumpPwmOutput(uint16_t pwm)
 {
-    BspPwm_SetDutyPermille(&s_pump_pwm, TreatmentPressureControl_PwmLevelToDutyPermille(pwm));
+    BspPwm_SetDutyPermille(&s_pump_pwm, (pwm > PRESS_PUMP_MAX_PWM) ? PRESS_PUMP_MAX_PWM : pwm);
 }
 
 void TreatmentPressureControl_InitHardware(void)
@@ -426,7 +416,7 @@ void TreatmentPressureControl_InitPid(TreatmentAppController *controller)
     cfg.kd = gains->kd;
     cfg.setpoint = 0.0f;
     cfg.output_min = 0.0f;
-    cfg.output_max = 255.0f;
+    cfg.output_max = PRESS_PUMP_RAW_MAX;
     cfg.integral_min = -200.0f;
     cfg.integral_max = 12.0f;
     cfg.default_dt_s = PRESS_PID_DEFAULT_DT_S;
@@ -597,6 +587,29 @@ void TreatmentPressureControl_ApplyPlan(TreatmentAppController *controller,
     if (pulse_rise_started != 0U)
     {
         PidController_Reset(&controller->pressure_pid);
+    }
+
+    if (plan->phase == TREATMENT_PHASE_RISE)
+    {
+        runtime->pump_pwm = TreatmentPressureControl_GetRiseRatedPwm(profile_kind);
+        controller->pressure_pid.debug.mapped_output = (float)runtime->pump_pwm;
+        TreatmentPressureControl_SetWaveValveOutput(1U);
+        TreatmentPressureControl_SetPumpPwmOutput(runtime->pump_pwm);
+        TreatmentPressureControl_UpdateHistory(controller, plan);
+        return;
+    }
+
+    if (plan->phase == TREATMENT_PHASE_HOLD)
+    {
+        TreatmentPressureControl_SetWaveValveOutput(1U);
+        PidController_SetSetpoint(&controller->pressure_pid, plan->target_pressure_kpa);
+        pressure_output = PidController_ComputeDt(&controller->pressure_pid, feedback_kpa, dt_s);
+        (void)pressure_output;
+        runtime->pump_pwm = TreatmentPressureControl_GetHoldRatedPwm(profile_kind);
+        controller->pressure_pid.debug.mapped_output = (float)runtime->pump_pwm;
+        TreatmentPressureControl_SetPumpPwmOutput(runtime->pump_pwm);
+        TreatmentPressureControl_UpdateHistory(controller, plan);
+        return;
     }
 
     if (plan->inflating != 0U)

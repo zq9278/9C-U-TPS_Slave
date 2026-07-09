@@ -19,6 +19,7 @@
 #include "main.h"
 #include "semphr.h"
 #include "task.h"
+#include "UserDrivers/Ads1248/ads1248.h"
 
 /*
  * 本文件是应用层任务编排中心：
@@ -52,9 +53,10 @@
 #define EYE_SHIELD_STATUS_MS       100U
 #define PID_DEBUG_TELEMETRY_MS     100U
 /* 是否启用“发送给 RK3576 的遥测值”窗口滤波。1=启用，0=直接发送原始采样值。 */
-#define RK3576_TELEMETRY_FILTER_ENABLE 0U
+#define RK3576_TELEMETRY_FILTER_ENABLE 1U//滤波
 #define RK3576_TEMP_UPLOAD_OFFSET_LEFT_C  (-0.0f)
 #define RK3576_TEMP_UPLOAD_OFFSET_RIGHT_C (-0.0f)
+#define RK3576_PRESS_UPLOAD_IIR_ALPHA 0.99f
 #define RK3576_PRESS_FILTER_WINDOW_MS PRESS_TELEMETRY_MS
 #define RK3576_TEMP_FILTER_WINDOW_MS  TEMP_TELEMETRY_MS
 #define RK3576_PRESS_FILTER_SAMPLES ((uint16_t)(RK3576_PRESS_FILTER_WINDOW_MS / CONTROL_PERIOD_MS))
@@ -62,6 +64,8 @@
 
 #define SAFETY_OVER_PRESSURE_CONFIRM_COUNT \
     APP_SAFETY_OVER_PRESSURE_CONFIRM_COUNT(SAFETY_PERIOD_MS)
+#define SAFETY_INVALID_TEMP_CONFIRM_COUNT \
+    APP_SAFETY_INVALID_TEMP_CONFIRM_COUNT(SAFETY_PERIOD_MS)
 #define CONTROL_RUNTIME_LOG_ENABLE 0U
 /* RK3576 下发的三档模式值。 */
 #define MODE_SELECT_RELAX          1U
@@ -121,6 +125,7 @@ static float Rk3576TelemetryFilter_GetTempRight(const void *state,
 static PidDebugRxParser s_pid_debug_rx_parser;
 static volatile stop_reason_t s_pending_stop_reason = STOP_REASON_NONE;
 static volatile uint8_t s_pending_stop_reason_valid = 0U;
+static volatile temp_acquire_mode_t s_current_temp_mode = TEMP_ACQUIRE_MODE_IDLE;
 
 /* 发送侧滤波仅作用于当前实际上传给 RK3576 的测点，不影响控制闭环输入。 */
 typedef struct
@@ -129,9 +134,11 @@ typedef struct
     TargetWindowFilter temp_left;
     TargetWindowFilter temp_right;
     float press_left_value;
+    float press_left_iir_value;
     float temp_left_value;
     float temp_right_value;
     uint8_t press_left_valid;
+    uint8_t press_left_iir_valid;
     uint8_t temp_left_valid;
     uint8_t temp_right_valid;
 } Rk3576TelemetryFilterState;
@@ -239,6 +246,7 @@ static void send_sensor_mode(temp_acquire_mode_t mode, uint8_t suppress_rtd_fail
 
     cmd.mode = mode;
     cmd.suppress_rtd_fail_log = suppress_rtd_fail_log;
+    s_current_temp_mode = mode;
     (void)xQueueOverwrite(gSensorCmdQueue, &cmd);
 }
 
@@ -396,6 +404,40 @@ static void Rk3576TelemetryFilter_PushChannel(TargetWindowFilter *filter,
     *valid = 1U;
 }
 
+static void Rk3576TelemetryFilter_PushPressureLeft(Rk3576TelemetryFilterState *state,
+                                                   float sample)
+{
+    float alpha = RK3576_PRESS_UPLOAD_IIR_ALPHA;
+
+    if (state == NULL)
+    {
+        return;
+    }
+
+    if (alpha < 0.0f)
+    {
+        alpha = 0.0f;
+    }
+    else if (alpha > 0.98f)
+    {
+        alpha = 0.98f;
+    }
+
+    if (state->press_left_iir_valid == 0U)
+    {
+        state->press_left_iir_value = sample;
+        state->press_left_iir_valid = 1U;
+    }
+    else
+    {
+        state->press_left_iir_value =
+            (alpha * state->press_left_iir_value) + ((1.0f - alpha) * sample);
+    }
+
+    state->press_left_value = state->press_left_iir_value;
+    state->press_left_valid = 1U;
+}
+
 /* 初始化发送侧滤波状态。 */
 static void Rk3576TelemetryFilter_Init(void *state_ptr, TickType_t now_tick)
 {
@@ -437,6 +479,7 @@ static void Rk3576TelemetryFilter_Reset(void *state_ptr, TickType_t now_tick)
     state->temp_left_value = 0.0f;
     state->temp_right_value = 0.0f;
     state->press_left_valid = 0U;
+    state->press_left_iir_valid = 0U;
     state->temp_left_valid = 0U;
     state->temp_right_valid = 0U;
     TargetWindowFilter_Reset(&state->press_left, now_ms);
@@ -458,11 +501,7 @@ static void Rk3576TelemetryFilter_Update(void *state_ptr,
     }
 
     now_ms = (uint32_t)(now_tick * portTICK_PERIOD_MS);
-    Rk3576TelemetryFilter_PushChannel(&state->press_left,
-                                      sensor->pressL,
-                                      now_ms,
-                                      &state->press_left_value,
-                                      &state->press_left_valid);
+    Rk3576TelemetryFilter_PushPressureLeft(state, sensor->pressL);
     Rk3576TelemetryFilter_PushChannel(&state->temp_left,
                                       Rk3576TelemetryMapTempLeft(sensor->tempL),
                                       now_ms,
@@ -1002,6 +1041,7 @@ static void SafetyTask(void *argument)
 {
     uint8_t fault_active = 0U;
     uint8_t over_pressure_count = 0U;
+    uint8_t invalid_temp_count = 0U;
     (void)argument;
 
     for (;;)
@@ -1012,6 +1052,8 @@ static void SafetyTask(void *argument)
         uint8_t heat_otp_level_left = 0U;
         uint8_t heat_otp_level_right = 0U;
         uint8_t over_temp_fault;
+        uint8_t invalid_temp_sample;
+        uint8_t invalid_temp_fault;
         uint8_t over_pressure_sample;
         uint8_t over_pressure_fault;
         uint8_t heat_otp_fault;
@@ -1029,6 +1071,49 @@ static void SafetyTask(void *argument)
                       (gSensorData.tempR > APP_SAFETY_OVER_TEMP_LIMIT_C));
 #else
         over_temp_fault = 0U;
+#endif
+#if (APP_SAFETY_INVALID_TEMP_ENABLE != 0U)
+        switch (s_current_temp_mode)
+        {
+        case TEMP_ACQUIRE_MODE_DUAL_SCAN:
+            invalid_temp_sample =
+                (uint8_t)((gSensorData.tempL <= (USER_ADS1248_INVALID_TEMP_C + 0.5f)) ||
+                          (gSensorData.tempR <= (USER_ADS1248_INVALID_TEMP_C + 0.5f)));
+            break;
+        case TEMP_ACQUIRE_MODE_SINGLE_LEFT:
+            invalid_temp_sample =
+                (uint8_t)(gSensorData.tempL <= (USER_ADS1248_INVALID_TEMP_C + 0.5f));
+            break;
+        case TEMP_ACQUIRE_MODE_SINGLE_RIGHT:
+            invalid_temp_sample =
+                (uint8_t)(gSensorData.tempR <= (USER_ADS1248_INVALID_TEMP_C + 0.5f));
+            break;
+        case TEMP_ACQUIRE_MODE_IDLE:
+        default:
+            invalid_temp_sample = 0U;
+            break;
+        }
+        if (gTreatmentRunning == 0U)
+        {
+            invalid_temp_sample = 0U;
+        }
+        if (invalid_temp_sample != 0U)
+        {
+            if (invalid_temp_count < SAFETY_INVALID_TEMP_CONFIRM_COUNT)
+            {
+                ++invalid_temp_count;
+            }
+        }
+        else
+        {
+            invalid_temp_count = 0U;
+        }
+        invalid_temp_fault =
+            (uint8_t)(invalid_temp_count >= SAFETY_INVALID_TEMP_CONFIRM_COUNT);
+#else
+        invalid_temp_sample = 0U;
+        invalid_temp_count = 0U;
+        invalid_temp_fault = 0U;
 #endif
 #if (APP_SAFETY_OVER_PRESSURE_ENABLE != 0U)
         over_pressure_sample =
@@ -1059,7 +1144,8 @@ static void SafetyTask(void *argument)
 #else
         heat_otp_fault = 0U;
 #endif
-        fault = (uint8_t)((over_temp_fault != 0U) ||
+        fault = (uint8_t)((invalid_temp_fault != 0U) ||
+                          (over_temp_fault != 0U) ||
                           (over_pressure_fault != 0U) ||
                           (heat_otp_fault != 0U));
 
@@ -1078,7 +1164,11 @@ static void SafetyTask(void *argument)
                   heat_otp_level_right,
                   heat_otp_fault_left,
                   heat_otp_fault_right);
-            if ((over_temp_fault != 0U) || (heat_otp_fault != 0U))
+            if (invalid_temp_fault != 0U)
+            {
+                stop_reason = STOP_REASON_TEMP_SENSOR_INVALID;
+            }
+            else if ((over_temp_fault != 0U) || (heat_otp_fault != 0U))
             {
                 stop_reason = STOP_REASON_OVER_TEMP;
             }
