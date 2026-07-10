@@ -945,7 +945,9 @@ static void ControlTask(void *argument)
             next_temp_tx = now + pdMS_TO_TICKS(TEMP_TELEMETRY_MS);
         }
 
-        if ((controller.cfg.running != 0U) && (controller.cfg.treatment_minutes > 0U))
+        if ((controller.cfg.running != 0U) &&
+            (controller.paused == 0U) &&
+            (controller.cfg.treatment_minutes > 0U))
         {
             /* 达到总治疗时长后，通过统一停机链路结束治疗。 */
             uint32_t elapsed_ms =
