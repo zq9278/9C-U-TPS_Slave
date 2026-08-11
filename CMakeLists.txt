@@ -63,6 +63,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     UserDrivers/Ads1248/ads1248.c
     UserDrivers/Ds18b20/ds18b20_driver.c
     UserDrivers/Eeprom24cxx/eeprom24cxx.c
+    UserDrivers/Oled/oled_driver.c
     UserDrivers/PressureSensor/pressure_sensor_driver.c
     UserDrivers/ValveControl/valve_control.c
 
@@ -77,6 +78,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Modules/Sensors/treatment_temperature_sensor.c
     Modules/Sensors/treatment_pressure_sensor.c
     Modules/EyeShield/eye_shield_status.c
+    Modules/Display/treatment_oled_display.c
     Modules/App/treatment_app_controller.c
     Modules/Pressure/treatment_pressure_control.c
     Modules/Heat/treatment_heating_control.c
@@ -100,6 +102,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     UserDrivers/Ads1248
     UserDrivers/Ds18b20
     UserDrivers/Eeprom24cxx
+    UserDrivers/Oled
     UserDrivers/PressureSensor
     UserDrivers/ValveControl
     Modules
@@ -110,6 +113,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Modules/Filter
     Modules/Sensors
     Modules/EyeShield
+    Modules/Display
     Modules/App
     Modules/Pressure
     Modules/Heat

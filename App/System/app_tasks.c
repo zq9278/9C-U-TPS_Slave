@@ -8,6 +8,7 @@
 #include "Modules/communication/communication.h"
 #include "Modules/communication/Protocol/pid_debug_protocol.h"
 #include "Modules/communication/Protocol/rk3576_protocol.h"
+#include "Modules/Display/treatment_oled_display.h"
 #include "Modules/EyeShield/eye_shield_status.h"
 #include "Modules/Filter/target_window_filter.h"
 #include "Modules/Heat/treatment_heating_control.h"
@@ -40,6 +41,7 @@
 #define SENSOR_TASK_STACK_WORDS    320U
 #define CONTROL_TASK_STACK_WORDS   448U
 #define SAFETY_TASK_STACK_WORDS    192U
+#define OLED_TASK_STACK_WORDS      256U
 
 /* 各任务周期/节拍宏，集中定义便于统一调整。 */
 #define SENSOR_PERIOD_MS           5U
@@ -50,6 +52,8 @@
 #define TEMP_TELEMETRY_MS          20U
 #define EYE_SHIELD_STATUS_MS       100U
 #define PID_DEBUG_TELEMETRY_MS     100U
+#define OLED_SNAPSHOT_MS           100U
+#define OLED_REFRESH_MS            500U
 /* 是否启用“发送给 RK3576 的遥测值”窗口滤波。1=启用，0=直接发送原始采样值。 */
 #define RK3576_TELEMETRY_FILTER_ENABLE 0U
 #define RK3576_TEMP_UPLOAD_OFFSET_LEFT_C  (-0.0f)
@@ -82,6 +86,7 @@ static TaskHandle_t s_comm_tx_task = NULL;
 static TaskHandle_t s_sensor_task = NULL;
 static TaskHandle_t s_control_task = NULL;
 static TaskHandle_t s_safety_task = NULL;
+static TaskHandle_t s_oled_task = NULL;
 
 /* ADS1248 数据就绪中断通过该信号量驱动温度采样。 */
 static SemaphoreHandle_t s_rtd_drdy_sem = NULL;
@@ -92,6 +97,7 @@ static void CommTxTask(void *argument);
 static void SensorTask(void *argument);
 static void ControlTask(void *argument);
 static void SafetyTask(void *argument);
+static void OledTask(void *argument);
 static void OnProtocolFrame(void *context,
                             CommunicationInterfaceId interface_id,
                             const CommunicationFrameView *frame);
@@ -123,6 +129,7 @@ static float Rk3576TelemetryFilter_GetTempRight(const void *state,
 static PidDebugRxParser s_pid_debug_rx_parser;
 static volatile stop_reason_t s_pending_stop_reason = STOP_REASON_NONE;
 static volatile uint8_t s_pending_stop_reason_valid = 0U;
+static TreatmentOledSnapshot s_oled_snapshot;
 
 /* 发送侧滤波仅作用于当前实际上传给 RK3576 的测点，不影响控制闭环输入。 */
 typedef struct
@@ -830,6 +837,7 @@ static void ControlTask(void *argument)
     TickType_t next_eye_shield_status;
     TickType_t next_control_log;
     TickType_t next_pid_debug_tx;
+    TickType_t next_oled_snapshot;
     uint8_t telemetry_filter_active = 0U;
     uint8_t telemetry_tx_enabled = 0U;
     temp_acquire_mode_t active_temp_mode = TEMP_ACQUIRE_MODE_IDLE;
@@ -845,6 +853,7 @@ static void ControlTask(void *argument)
     next_eye_shield_status = now + pdMS_TO_TICKS(EYE_SHIELD_STATUS_MS);
     next_control_log = now + pdMS_TO_TICKS(1000U);
     next_pid_debug_tx = now + pdMS_TO_TICKS(PID_DEBUG_TELEMETRY_MS);
+    next_oled_snapshot = now;
 
     for (;;)
     {
@@ -887,6 +896,41 @@ static void ControlTask(void *argument)
         TreatmentAppController_Run(&controller,&gSensorData,now,(float)CONTROL_PERIOD_MS / 1000.0f, &runtime);
         telemetry_tx_enabled = (uint8_t)((runtime.session_active != 0U) &&
                                          (controller.paused == 0U));
+
+        if ((int32_t)(now - next_oled_snapshot) >= 0)
+        {
+            TreatmentOledSnapshot snapshot;
+
+            next_oled_snapshot = now + pdMS_TO_TICKS(OLED_SNAPSHOT_MS);
+            if (controller.emergency_stop != 0U)
+            {
+                snapshot.state = TREATMENT_OLED_STATUS_FAULT;
+            }
+            else if (controller.paused != 0U)
+            {
+                snapshot.state = TREATMENT_OLED_STATUS_PAUSED;
+            }
+            else if ((runtime.session_active != 0U) && (runtime.running_outputs != 0U))
+            {
+                snapshot.state = TREATMENT_OLED_STATUS_HEATING;
+            }
+            else
+            {
+                snapshot.state = TREATMENT_OLED_STATUS_STOPPED;
+            }
+            snapshot.temp_left_c = gSensorData.tempL;
+            snapshot.temp_right_c = gSensorData.tempR;
+            snapshot.target_temp_c = controller.cfg.temp_target;
+            snapshot.pwm_left = runtime.heat_left_pwm;
+            snapshot.pwm_right = runtime.heat_right_pwm;
+            snapshot.sensor_valid = (gSensorData.tick != 0U) ? 1U : 0U;
+            snapshot.left_enabled = controller.cfg.press_enable_L;
+            snapshot.right_enabled = controller.cfg.press_enable_R;
+
+            taskENTER_CRITICAL();
+            s_oled_snapshot = snapshot;
+            taskEXIT_CRITICAL();
+        }
 
 #if RK3576_TELEMETRY_FILTER_ENABLE
         /* 发送侧滤波只影响上位机曲线，不参与控制闭环。 */
@@ -1005,6 +1049,26 @@ static void ControlTask(void *argument)
     }
 }
 
+/* OLED runs at low priority so the software-I2C full-screen transfer cannot delay control. */
+static void OledTask(void *argument)
+{
+    TreatmentOledSnapshot snapshot;
+
+    (void)argument;
+    vTaskDelay(pdMS_TO_TICKS(100U));
+    TreatmentOledDisplay_Init();
+
+    for (;;)
+    {
+        taskENTER_CRITICAL();
+        snapshot = s_oled_snapshot;
+        taskEXIT_CRITICAL();
+
+        TreatmentOledDisplay_Render(&snapshot);
+        vTaskDelay(pdMS_TO_TICKS(OLED_REFRESH_MS));
+    }
+}
+
 /* 独立安全任务：检测超温/超压并触发应用层停机。 */
 static void SafetyTask(void *argument)
 {
@@ -1115,6 +1179,7 @@ void AppTasks_Init(void)
     (void)xTaskCreate(SensorTask, "sensor", SENSOR_TASK_STACK_WORDS, NULL,tskIDLE_PRIORITY + 4U, &s_sensor_task);
     (void)xTaskCreate(ControlTask, "control", CONTROL_TASK_STACK_WORDS, NULL,tskIDLE_PRIORITY + 5U, &s_control_task);
     (void)xTaskCreate(SafetyTask, "safety", SAFETY_TASK_STACK_WORDS, NULL,tskIDLE_PRIORITY + 6U, &s_safety_task);
+    (void)xTaskCreate(OledTask, "oled", OLED_TASK_STACK_WORDS, NULL, tskIDLE_PRIORITY + 1U, &s_oled_task);
 
     (void)s_app_task;
     (void)s_comm_rx_task;
@@ -1122,6 +1187,7 @@ void AppTasks_Init(void)
     (void)s_sensor_task;
     (void)s_control_task;
     (void)s_safety_task;
+    (void)s_oled_task;
 }
 
 void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)

@@ -16,11 +16,11 @@
 #define HEAT_TARGET_OFFSET_LEFT_C  0.0f
 #define HEAT_TARGET_OFFSET_RIGHT_C 0.0f
 
-static float s_heat_left_kp = 1.000f;
-static float s_heat_left_ki = 0.5000f;
+static float s_heat_left_kp = 0.700f;
+static float s_heat_left_ki = 0.3000f;
 static float s_heat_left_kd = 0.0000f;
-static float s_heat_right_kp = 1.000f;
-static float s_heat_right_ki = 0.5000f;
+static float s_heat_right_kp = 0.700f;
+static float s_heat_right_ki = 0.3000f;
 static float s_heat_right_kd = 0.0000f;
 static uint32_t s_heat_left_pid_version = 0U;
 static uint32_t s_heat_right_pid_version = 0U;

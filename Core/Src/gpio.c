@@ -57,11 +57,17 @@ void MX_GPIO_Init(void)
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, Fan1_Pin|Fan3_Pin|LED1_Pin|LED0_Pin
-                          |OLED_SCL_Pin|WaterValve1_Pin, GPIO_PIN_RESET);
+                          |WaterValve1_Pin, GPIO_PIN_RESET);
+
+  /*Configure OLED software-I2C idle level */
+  HAL_GPIO_WritePin(OLED_SCL_GPIO_Port, OLED_SCL_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, AirValve1_Pin|AirValve2_Pin|AirPump2_Pin|OTP1_RESET_Pin
-                          |EE_SCL_Pin|EE_SDA_Pin|OLED_SDA_Pin, GPIO_PIN_RESET);
+                          |EE_SCL_Pin|EE_SDA_Pin, GPIO_PIN_RESET);
+
+  /*Configure OLED software-I2C idle level */
+  HAL_GPIO_WritePin(OLED_SDA_GPIO_Port, OLED_SDA_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, OTP2_RESET_Pin|RTD_CS_Pin|RTD_START_Pin|TS1_Pin
@@ -79,22 +85,33 @@ void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /*Configure GPIO pins : Fan1_Pin Fan3_Pin LED1_Pin LED0_Pin
-                           OLED_SCL_Pin WaterValve1_Pin */
+                           WaterValve1_Pin */
   GPIO_InitStruct.Pin = Fan1_Pin|Fan3_Pin|LED1_Pin|LED0_Pin
-                          |OLED_SCL_Pin|WaterValve1_Pin;
+                          |WaterValve1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /*Configure GPIO pins : AirValve1_Pin AirValve2_Pin OTP1_RESET_Pin EE_SCL_Pin
-                           EE_SDA_Pin OLED_SDA_Pin */
+                           EE_SDA_Pin */
   GPIO_InitStruct.Pin = AirValve1_Pin|AirValve2_Pin|OTP1_RESET_Pin|EE_SCL_Pin
-                          |EE_SDA_Pin|OLED_SDA_Pin;
+                          |EE_SDA_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : OLED_SCL_Pin */
+  GPIO_InitStruct.Pin = OLED_SCL_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(OLED_SCL_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : OLED_SDA_Pin */
+  GPIO_InitStruct.Pin = OLED_SDA_Pin;
+  HAL_GPIO_Init(OLED_SDA_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : AirPump2_Pin */
   GPIO_InitStruct.Pin = AirPump2_Pin;

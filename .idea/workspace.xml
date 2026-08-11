@@ -1,0 +1,424 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="BackendCodeEditorMiscSettings">
+    <option name="/Default/Housekeeping/FeatureSuggestion/FeatureSuggestionManager/DisabledSuggesters/=SwitchToGoToActionSuggester/@EntryIndexedValue" value="true" type="bool" />
+    <option name="/Default/Housekeeping/GlobalSettingsUpgraded/IsUpgraded/@EntryValue" value="true" type="bool" />
+    <option name="/Default/RiderDebugger/RiderRestoreDecompile/RestoreDecompileSetting/@EntryValue" value="false" type="bool" />
+  </component>
+  <component name="CMakePresetLoader">{
+  &quot;useNewFormat&quot;: true
+}</component>
+  <component name="CMakeProjectFlavorService">
+    <option name="flavorId" value="CMakePlainProjectFlavor" />
+  </component>
+  <component name="CMakeReloadState">
+    <option name="reloaded" value="true" />
+  </component>
+  <component name="CMakeRunConfigurationManager">
+    <generated>
+      <config projectName="9C-TPS100-Slave" targetName="9C-TPS100-Slave" />
+      <config projectName="9C-TPS100-Slave" targetName="STM32_Drivers" />
+      <config projectName="9C-TPS100-Slave" targetName="FreeRTOS" />
+    </generated>
+  </component>
+  <component name="CMakeSettings">
+    <configurations>
+      <configuration PROFILE_NAME="Debug" ENABLED="false" CONFIG_NAME="Debug" />
+      <configuration PROFILE_NAME="Debug - Debug" ENABLED="true" FROM_PRESET="true" GENERATION_DIR="$PROJECT_DIR$/build/Debug" />
+      <configuration PROFILE_NAME="Release - Release" ENABLED="true" FROM_PRESET="true" GENERATION_DIR="$PROJECT_DIR$/build/Release" />
+      <configuration PROFILE_NAME="Release" ENABLED="false" FROM_PRESET="true" GENERATION_DIR="$PROJECT_DIR$/build/Release" />
+    </configurations>
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="29547954-47b5-42d0-be8a-40f9c2a53d0c" name="更改" comment="修复暂停功能" />
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ClangdSettings">
+    <option name="formatViaClangd" value="false" />
+  </component>
+  <component name="CopilotChats">
+    <option name="panelChat">
+      <chat>
+        <option name="activeSessionId" value="f32f7325-e315-4f5c-b42a-69d5e76c1179" />
+        <option name="sessions">
+          <session>
+            <option name="chatType" value="PANEL" />
+            <option name="id" value="41dc0d79-9a41-4fdf-be11-b4c7e875fee6" />
+            <option name="modeId" value="Ask" />
+            <option name="modelType" value="builtin_family" />
+            <option name="modelValue" value="auto" />
+            <option name="targetType" value="LOCAL" />
+          </session>
+          <session>
+            <option name="chatType" value="PANEL" />
+            <option name="id" value="f32f7325-e315-4f5c-b42a-69d5e76c1179" />
+            <option name="modeId" value="Ask" />
+            <option name="modelType" value="builtin_family" />
+            <option name="modelValue" value="auto" />
+            <option name="targetType" value="LOCAL" />
+          </session>
+        </option>
+        <option name="type" value="PANEL" />
+      </chat>
+    </option>
+  </component>
+  <component name="CopilotPersistence">
+    <persistenceIdMap>
+      <entry key="_/Users/zq/project/9C-U-TPS/software/9C-U-TPS_Slave" value="3ELfiJpD0FCvJ9O3qSHiQkZHNcg" />
+      <entry key="_/Users/zq/project/9C-U-TPS/software/9C-U-TPS_Slave/.idea" value="3DRBJ1Dq4LpiRQ28WelzT68K7WO" />
+    </persistenceIdMap>
+  </component>
+  <component name="ExecutionTargetManager" SELECTED_TARGET="CMakeBuildProfile:Release - Release" />
+  <component name="Git.Settings">
+    <option name="PUSH_TAGS">
+      <GitPushTagMode>
+        <option name="argument" value="--tags" />
+        <option name="title" value="All" />
+      </GitPushTagMode>
+    </option>
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="perssure-pid" />
+      </map>
+    </option>
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;zq9278&quot;
+  }
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/zq9278/9C-U-TPS_Slave.git&quot;,
+    &quot;accountId&quot;: &quot;8734b008-da81-4320-b7bd-13d1b989e9cc&quot;
+  }
+}</component>
+  <component name="HierarchyBrowserManager">
+    <option name="IS_AUTOSCROLL_TO_SOURCE" value="true" />
+  </component>
+  <component name="LiveWatchesService">
+    <items>
+      <expr name="gSensorData">gSensorData</expr>
+    </items>
+    <columns>
+      <column name="livewatches.column.name.watch" width="404" />
+      <column name="livewatches.column.name.type" width="404" />
+      <column name="livewatches.column.name.value" width="404" />
+      <column name="livewatches.column.name.max" width="404" />
+      <column name="livewatches.column.name.min" width="404" />
+      <column name="livewatches.column.name.changes" width="403" />
+    </columns>
+  </component>
+  <component name="MacroExpansionManager">
+    <option name="directoryName" value="wSchKKJe" />
+  </component>
+  <component name="ProblemsViewState">
+    <option name="selectedTabId" value="CurrentFile" />
+  </component>
+  <component name="ProjectApplicationVersion">
+    <option name="ide" value="CLion" />
+    <option name="majorVersion" value="2026" />
+    <option name="minorVersion" value="2" />
+    <option name="productBranch" value="Classic" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 7,
+  &quot;fromUser&quot;: false
+}</component>
+  <component name="ProjectId" id="3DRBJ1Dq4LpiRQ28WelzT68K7WO" />
+  <component name="ProjectStatusUIService">{
+  &quot;uiKindId&quot;: &quot;Widget&quot;
+}</component>
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "CMake 应用程序.9C-TPS100-Slave.executor": "Run",
+    "CMake 应用程序.SAT01_Ctrl_V1_0.executor": "Run",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.RadMigrateCodeStyle": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.cidr.known.project.marker": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.readMode.enableVisualFormatting": "true",
+    "RunOnceActivity.stm32.stlink.auto.setup": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "RunOnceActivity.west.config.association.type.startup.service": "true",
+    "cf.first.check.clang-format": "false",
+    "cidr.known.project.marker": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "git-widget-placeholder": "master",
+    "last_opened_file_path": "D:/Project/9C-U-TPS/software/9C-U-TPS_Slave",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "org.rust.first.attach.projects": "true",
+    "settings.editor.selected.configurable": "com.jetbrains.cidr.cpp.execution.gdbserver.debugtargets.NamedDebugTargetConfigurable",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
+  <component name="RunManager" selected="CMake 应用程序.9C-TPS100-Slave">
+    <configuration name="9C-TPS100-Slave" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="9C-TPS100-Slave" TARGET_NAME="9C-TPS100-Slave" CONFIG_NAME="Debug - Debug" RUN_TARGET_PROJECT_NAME="9C-TPS100-Slave" RUN_TARGET_NAME="9C-TPS100-Slave">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="FreeRTOS" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="9C-TPS100-Slave" TARGET_NAME="FreeRTOS" CONFIG_NAME="Debug - Debug">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="STM32_Drivers" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="9C-TPS100-Slave" TARGET_NAME="STM32_Drivers" CONFIG_NAME="Debug - Debug">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <list>
+      <item itemvalue="CMake 应用程序.9C-TPS100-Slave" />
+      <item itemvalue="CMake 应用程序.FreeRTOS" />
+      <item itemvalue="CMake 应用程序.STM32_Drivers" />
+    </list>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="默认任务">
+      <changelist id="29547954-47b5-42d0-be8a-40f9c2a53d0c" name="更改" comment="" />
+      <created>1778234926278</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1778234926278</updated>
+      <workItem from="1778234927329" duration="30844000" />
+      <workItem from="1778493047496" duration="12725000" />
+      <workItem from="1779071140087" duration="52006000" />
+      <workItem from="1779458200862" duration="171000" />
+      <workItem from="1779959438778" duration="3059000" />
+      <workItem from="1779962898982" duration="7588000" />
+      <workItem from="1780144649626" duration="37000" />
+      <workItem from="1780536853921" duration="6388000" />
+      <workItem from="1780674805214" duration="929000" />
+      <workItem from="1780990942976" duration="9416000" />
+      <workItem from="1781601269907" duration="3533000" />
+      <workItem from="1781663811347" duration="143000" />
+      <workItem from="1782181249757" duration="8236000" />
+      <workItem from="1782295569039" duration="30000" />
+      <workItem from="1782799952875" duration="1443000" />
+      <workItem from="1782804242228" duration="722000" />
+      <workItem from="1782812064025" duration="345000" />
+      <workItem from="1782812431862" duration="323000" />
+      <workItem from="1782813609357" duration="126000" />
+      <workItem from="1782883684947" duration="12036000" />
+      <workItem from="1783042666067" duration="1649000" />
+      <workItem from="1783323932435" duration="19471000" />
+      <workItem from="1783413217296" duration="5000" />
+      <workItem from="1783564087623" duration="13085000" />
+    </task>
+    <task id="LOCAL-00001" summary="Refactor code structure for improved readability and maintainability&#10;feat: Implement UART communication and protocol handling&#10;&#10;- Added Uart_Communicate.cpp and Uart_Communicate.h for host protocol dispatch and command handling.&#10;- Introduced HostCommandPublisher and HostTelemetryPublisher classes for managing commands and telemetry data.&#10;- Implemented HostProtocol class to dispatch incoming UART frames to appropriate commands.&#10;- Created uart_driver.cpp for UART driver functionality, including DMA handling and frame parsing.&#10;- Updated uart_driver.h to define UART port structures and function prototypes.&#10;- Modified wave_control.h and pid.c to include C++ compatibility.&#10;- Enhanced CMakeLists.txt to support C++17 and mixed C/C++ compilation.&#10;- Adjusted FreeRTOSConfig.h to optimize heap size for better memory management.&#10;- Revised program architecture documentation to reflect new C++ structure and design goals.">
+      <option name="closed" value="true" />
+      <created>1778291925022</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1778291925022</updated>
+    </task>
+    <task id="LOCAL-00002" summary="Refactor code structure for improved readability and maintainability&#10;feat: Implement UART communication and protocol handling&#10;&#10;- Added Uart_Communicate.cpp and Uart_Communicate.h for host protocol dispatch and command handling.&#10;- Introduced HostCommandPublisher and HostTelemetryPublisher classes for managing commands and telemetry data.&#10;- Implemented HostProtocol class to dispatch incoming UART frames to appropriate commands.&#10;- Created uart_driver.cpp for UART driver functionality, including DMA handling and frame parsing.&#10;- Updated uart_driver.h to define UART port structures and function prototypes.&#10;- Modified wave_control.h and pid.c to include C++ compatibility.&#10;- Enhanced CMakeLists.txt to support C++17 and mixed C/C++ compilation.&#10;- Adjusted FreeRTOSConfig.h to optimize heap size for better memory management.&#10;- Revised program architecture documentation to reflect new C++ structure and design goals.">
+      <option name="closed" value="true" />
+      <created>1778291935068</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1778291935068</updated>
+    </task>
+    <task id="LOCAL-00003" summary="Refactor code structure for improved readability and maintainability&#10;feat: Implement UART communication and protocol handling&#10;&#10;- Added Uart_Communicate.cpp and Uart_Communicate.h for host protocol dispatch and command handling.&#10;- Introduced HostCommandPublisher and HostTelemetryPublisher classes for managing commands and telemetry data.&#10;- Implemented HostProtocol class to dispatch incoming UART frames to appropriate commands.&#10;- Created uart_driver.cpp for UART driver functionality, including DMA handling and frame parsing.&#10;- Updated uart_driver.h to define UART port structures and function prototypes.&#10;- Modified wave_control.h and pid.c to include C++ compatibility.&#10;- Enhanced CMakeLists.txt to support C++17 and mixed C/C++ compilation.&#10;- Adjusted FreeRTOSConfig.h to optimize heap size for better memory management.&#10;- Revised program architecture documentation to reflect new C++ structure and design goals.">
+      <option name="closed" value="true" />
+      <created>1778291941222</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1778291941222</updated>
+    </task>
+    <task id="LOCAL-00004" summary="Refactor code structure for improved readability and maintainability&#10;feat: Implement UART communication and protocol handling&#10;&#10;- Added Uart_Communicate.cpp and Uart_Communicate.h for host protocol dispatch and command handling.&#10;- Introduced HostCommandPublisher and HostTelemetryPublisher classes for managing commands and telemetry data.&#10;- Implemented HostProtocol class to dispatch incoming UART frames to appropriate commands.&#10;- Created uart_driver.cpp for UART driver functionality, including DMA handling and frame parsing.&#10;- Updated uart_driver.h to define UART port structures and function prototypes.&#10;- Modified wave_control.h and pid.c to include C++ compatibility.&#10;- Enhanced CMakeLists.txt to support C++17 and mixed C/C++ compilation.&#10;- Adjusted FreeRTOSConfig.h to optimize heap size for better memory management.&#10;- Revised program architecture documentation to reflect new C++ structure and design goals.">
+      <option name="closed" value="true" />
+      <created>1778291951096</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1778291951096</updated>
+    </task>
+    <task id="LOCAL-00005" summary="feat(pressure): Add eye-specific target window filtering&#10;&#10;- Add target window filtering for treatment pressure control&#10;- Support separate pressure profiles for single-eye and dual-eye modes&#10;- Update treatment task flow to apply filtered target behavior">
+      <option name="closed" value="true" />
+      <created>1778293721766</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1778293721766</updated>
+    </task>
+    <task id="LOCAL-00006" summary="docs(system): Document application runtime setup&#10;&#10;- Add comments for shared runtime state and FreeRTOS queues&#10;- Describe application initialization and task creation responsibilities&#10;- Document RTOS failure hooks and safety shutdown behavior">
+      <option name="closed" value="true" />
+      <created>1778309530185</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1778309530185</updated>
+    </task>
+    <task id="LOCAL-00007" summary="docs(system): Document application runtime setup&#10;&#10;- Add comments for shared runtime state and FreeRTOS queues&#10;- Describe application initialization and task creation responsibilities&#10;- Document RTOS failure hooks and safety shutdown behavior">
+      <option name="closed" value="true" />
+      <created>1779240279832</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1779240279832</updated>
+    </task>
+    <task id="LOCAL-00008" summary="docs(system): Document application runtime setup&#10;&#10;- Add comments for shared runtime state and FreeRTOS queues&#10;- Describe application initialization and task creation responsibilities&#10;- Document RTOS failure hooks and safety shutdown behavior">
+      <option name="closed" value="true" />
+      <created>1779420650711</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1779420650711</updated>
+    </task>
+    <task id="LOCAL-00009" summary="docs(system): Document application runtime setup&#10;&#10;- Add comments for shared runtime state and FreeRTOS queues&#10;- Describe application initialization and task creation responsibilities&#10;- Document RTOS failure hooks and safety shutdown behavior">
+      <option name="closed" value="true" />
+      <created>1779458064538</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1779458064538</updated>
+    </task>
+    <task id="LOCAL-00010" summary="docs(system): Document application runtime setup&#10;&#10;- Add comments for shared runtime state and FreeRTOS queues&#10;- Describe application initialization and task creation responsibilities&#10;- Document RTOS failure hooks and safety shutdown behavior">
+      <option name="closed" value="true" />
+      <created>1779458094247</created>
+      <option name="number" value="00010" />
+      <option name="presentableId" value="LOCAL-00010" />
+      <option name="project" value="LOCAL" />
+      <updated>1779458094247</updated>
+    </task>
+    <task id="LOCAL-00011" summary="fix(pressure): Add overpressure protection limits&#10;&#10;- Add confirmation window for pressure over-limit detection&#10;- Reduce pump PWM range and PID integral cap for safer control&#10;- Apply pressure sensor gain calibration before control feedback">
+      <option name="closed" value="true" />
+      <created>1780885093623</created>
+      <option name="number" value="00011" />
+      <option name="presentableId" value="LOCAL-00011" />
+      <option name="project" value="LOCAL" />
+      <updated>1780885093623</updated>
+    </task>
+    <task id="LOCAL-00012" summary="fix(heating): Keep online eye shields temperature controlled&#10;&#10;- Drive temperature acquisition from eye shield presence instead of pressure&#10;  enable flags&#10;- Keep heating feedback active whenever either side is online&#10;- Apply heating outputs during idle pressure states&#10;- Temporarily ignore eye shield fuse blow requests">
+      <option name="closed" value="true" />
+      <created>1781143987916</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1781143987916</updated>
+    </task>
+    <task id="LOCAL-00013" summary="fix(heating): Keep online eye shields temperature controlled&#10;&#10;- Drive temperature acquisition from eye shield presence instead of pressure&#10;  enable flags&#10;- Keep heating feedback active whenever either side is online&#10;- Apply heating outputs during idle pressure states&#10;- Temporarily ignore eye shield fuse blow requests">
+      <option name="closed" value="true" />
+      <created>1782888922625</created>
+      <option name="number" value="00013" />
+      <option name="presentableId" value="LOCAL-00013" />
+      <option name="project" value="LOCAL" />
+      <updated>1782888922625</updated>
+    </task>
+    <task id="LOCAL-00014" summary="fix(heating): Keep online eye shields temperature controlled&#10;&#10;- Drive temperature acquisition from eye shield presence instead of pressure&#10;  enable flags&#10;- Keep heating feedback active whenever either side is online&#10;- Apply heating outputs during idle pressure states&#10;- Temporarily ignore eye shield fuse blow requests">
+      <option name="closed" value="true" />
+      <created>1782893325487</created>
+      <option name="number" value="00014" />
+      <option name="presentableId" value="LOCAL-00014" />
+      <option name="project" value="LOCAL" />
+      <updated>1782893325487</updated>
+    </task>
+    <task id="LOCAL-00015" summary="fix(heating): Keep online eye shields temperature controlled&#10;&#10;- Drive temperature acquisition from eye shield presence instead of pressure&#10;  enable flags&#10;- Keep heating feedback active whenever either side is online&#10;- Apply heating outputs during idle pressure states&#10;- Temporarily ignore eye shield fuse blow requests">
+      <option name="closed" value="true" />
+      <created>1782895195752</created>
+      <option name="number" value="00015" />
+      <option name="presentableId" value="LOCAL-00015" />
+      <option name="project" value="LOCAL" />
+      <updated>1782895195752</updated>
+    </task>
+    <task id="LOCAL-00016" summary="fix(heating): Keep online eye shields temperature controlled&#10;&#10;- Drive temperature acquisition from eye shield presence instead of pressure&#10;  enable flags&#10;- Keep heating feedback active whenever either side is online&#10;- Apply heating outputs during idle pressure states&#10;- Temporarily ignore eye shield fuse blow requests">
+      <option name="closed" value="true" />
+      <created>1783566974231</created>
+      <option name="number" value="00016" />
+      <option name="presentableId" value="LOCAL-00016" />
+      <option name="project" value="LOCAL" />
+      <updated>1783566974231</updated>
+    </task>
+    <task id="LOCAL-00017" summary="用pid控制rise和hold模式">
+      <option name="closed" value="true" />
+      <created>1783672917696</created>
+      <option name="number" value="00017" />
+      <option name="presentableId" value="LOCAL-00017" />
+      <option name="project" value="LOCAL" />
+      <updated>1783672917696</updated>
+    </task>
+    <task id="LOCAL-00018" summary="修复暂停功能">
+      <option name="closed" value="true" />
+      <created>1783676936286</created>
+      <option name="number" value="00018" />
+      <option name="presentableId" value="LOCAL-00018" />
+      <option name="project" value="LOCAL" />
+      <updated>1783676936286</updated>
+    </task>
+    <option name="localTasksCounter" value="19" />
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="VCPKGProject">
+    <isAutomaticCheckingOnLaunch value="false" />
+    <isAutomaticFoundErrors value="true" />
+    <isAutomaticReloadCMake value="true" />
+    <isAutomaticBootstrapAfterUpdate value="false" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State>
+              <option name="FILTERS">
+                <map>
+                  <entry key="branch">
+                    <value>
+                      <list>
+                        <option value="master" />
+                      </list>
+                    </value>
+                  </entry>
+                </map>
+              </option>
+            </State>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="Refactor code structure for improved readability and maintainability&#10;feat: Implement UART communication and protocol handling&#10;&#10;- Added Uart_Communicate.cpp and Uart_Communicate.h for host protocol dispatch and command handling.&#10;- Introduced HostCommandPublisher and HostTelemetryPublisher classes for managing commands and telemetry data.&#10;- Implemented HostProtocol class to dispatch incoming UART frames to appropriate commands.&#10;- Created uart_driver.cpp for UART driver functionality, including DMA handling and frame parsing.&#10;- Updated uart_driver.h to define UART port structures and function prototypes.&#10;- Modified wave_control.h and pid.c to include C++ compatibility.&#10;- Enhanced CMakeLists.txt to support C++17 and mixed C/C++ compilation.&#10;- Adjusted FreeRTOSConfig.h to optimize heap size for better memory management.&#10;- Revised program architecture documentation to reflect new C++ structure and design goals." />
+    <MESSAGE value="feat(pressure): Add eye-specific target window filtering&#10;&#10;- Add target window filtering for treatment pressure control&#10;- Support separate pressure profiles for single-eye and dual-eye modes&#10;- Update treatment task flow to apply filtered target behavior" />
+    <MESSAGE value="docs(system): Document application runtime setup&#10;&#10;- Add comments for shared runtime state and FreeRTOS queues&#10;- Describe application initialization and task creation responsibilities&#10;- Document RTOS failure hooks and safety shutdown behavior" />
+    <MESSAGE value="fix(pressure): Add overpressure protection limits&#10;&#10;- Add confirmation window for pressure over-limit detection&#10;- Reduce pump PWM range and PID integral cap for safer control&#10;- Apply pressure sensor gain calibration before control feedback" />
+    <MESSAGE value="fix(heating): Keep online eye shields temperature controlled&#10;&#10;- Drive temperature acquisition from eye shield presence instead of pressure&#10;  enable flags&#10;- Keep heating feedback active whenever either side is online&#10;- Apply heating outputs during idle pressure states&#10;- Temporarily ignore eye shield fuse blow requests" />
+    <MESSAGE value="用pid控制rise和hold模式" />
+    <MESSAGE value="修复暂停功能" />
+    <option name="LAST_COMMIT_MESSAGE" value="修复暂停功能" />
+  </component>
+  <component name="github-copilot-workspace">
+    <instructionFileLocations>
+      <option value=".github/instructions" />
+    </instructionFileLocations>
+    <promptFileLocations>
+      <option value=".github/prompts" />
+    </promptFileLocations>
+  </component>
+</project>
