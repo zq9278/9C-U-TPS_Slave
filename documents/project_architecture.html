@@ -1,0 +1,1190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>9C-U-TPS Slave 项目架构文档</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --panel-2: #f8fafc;
+      --text: #1f2937;
+      --muted: #667085;
+      --line: #d9e2ef;
+      --head: #0f172a;
+      --blue: #2563eb;
+      --blue-2: #1d4ed8;
+      --blue-bg: #eff6ff;
+      --green: #166534;
+      --green-bg: #ecfdf5;
+      --orange: #c2410c;
+      --orange-bg: #fff7ed;
+      --red: #b42318;
+      --red-bg: #fef3f2;
+      --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+      --radius: 14px;
+      --mono: Consolas, "Courier New", monospace;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    html {
+      scroll-behavior: smooth;
+    }
+    body {
+      margin: 0;
+      font-family: "Microsoft YaHei", Arial, sans-serif;
+      color: var(--text);
+      background: linear-gradient(180deg, #f8fbff 0%, #f5f7fb 100%);
+      line-height: 1.7;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 300px minmax(0, 1fr);
+      max-width: 1560px;
+      margin: 0 auto;
+      gap: 24px;
+      padding: 24px;
+    }
+    .sidebar {
+      position: sticky;
+      top: 16px;
+      align-self: start;
+      max-height: calc(100vh - 32px);
+      overflow: auto;
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px 18px 20px;
+    }
+    .brand {
+      margin-bottom: 18px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    .brand h1 {
+      margin: 0 0 8px;
+      font-size: 22px;
+      line-height: 1.35;
+      color: var(--head);
+    }
+    .brand p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .nav-group {
+      margin-top: 14px;
+    }
+    .nav-title {
+      margin: 0 0 8px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .nav {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .nav a {
+      text-decoration: none;
+      color: #334155;
+      padding: 8px 10px;
+      border-radius: 10px;
+      transition: 0.18s ease;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    .nav a:hover {
+      background: #eef4ff;
+      color: var(--blue-2);
+    }
+    .nav a.active {
+      background: var(--blue);
+      color: #fff;
+      font-weight: 600;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
+    }
+    .content {
+      min-width: 0;
+    }
+    .hero,
+    .section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 28px 32px;
+    }
+    .section {
+      margin-top: 20px;
+    }
+    .hero {
+      background:
+        radial-gradient(circle at right top, rgba(37, 99, 235, 0.10), transparent 28%),
+        linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+    }
+    .hero h2 {
+      margin: 0 0 12px;
+      font-size: 34px;
+      line-height: 1.25;
+      color: var(--head);
+    }
+    .hero p {
+      margin: 0;
+      color: #475467;
+      max-width: 980px;
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 22px;
+    }
+    .metric {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .metric .label {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .metric .value {
+      margin-top: 4px;
+      font-weight: 700;
+      font-size: 20px;
+      color: var(--head);
+    }
+    h2.section-title {
+      margin: 0 0 14px;
+      font-size: 26px;
+      color: var(--head);
+    }
+    h3 {
+      margin: 20px 0 10px;
+      font-size: 18px;
+      color: var(--head);
+    }
+    p {
+      margin: 10px 0;
+    }
+    ul, ol {
+      margin: 10px 0;
+      padding-left: 22px;
+    }
+    li {
+      margin: 5px 0;
+    }
+    code, pre {
+      font-family: var(--mono);
+    }
+    code {
+      background: #f3f4f6;
+      padding: 2px 6px;
+      border-radius: 5px;
+      word-break: break-word;
+    }
+    pre {
+      margin: 12px 0;
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: #0f172a;
+      color: #e5e7eb;
+      overflow-x: auto;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 20px;
+      table-layout: fixed;
+      border: 1px solid var(--line);
+      overflow: hidden;
+      border-radius: 12px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+      word-break: break-word;
+      background: #fff;
+    }
+    th {
+      background: #eff4ff;
+      color: #0f172a;
+      font-weight: 700;
+    }
+    .note, .warn, .ok, .danger {
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin: 14px 0;
+      border: 1px solid;
+    }
+    .note {
+      background: var(--blue-bg);
+      border-color: #bfdbfe;
+    }
+    .warn {
+      background: var(--orange-bg);
+      border-color: #fdba74;
+    }
+    .ok {
+      background: var(--green-bg);
+      border-color: #86efac;
+    }
+    .danger {
+      background: var(--red-bg);
+      border-color: #fda29b;
+    }
+    .path {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .card {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .card h4 {
+      margin: 0 0 10px;
+      font-size: 16px;
+      color: var(--head);
+    }
+    .small {
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid #cdd6e1;
+      background: #f8fafc;
+      color: #334155;
+      margin-right: 6px;
+      margin-bottom: 6px;
+    }
+    .flow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-top: 12px;
+    }
+    .flow .node {
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: #fff;
+      min-width: 120px;
+      text-align: center;
+      font-weight: 600;
+      color: #1e293b;
+    }
+    .flow .arrow {
+      color: var(--blue-2);
+      font-weight: 700;
+    }
+    .svg-wrap {
+      margin-top: 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: hidden;
+      background: #fcfdff;
+    }
+    svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .footer {
+      margin-top: 20px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    @media (max-width: 1280px) {
+      .layout {
+        grid-template-columns: 260px minmax(0, 1fr);
+      }
+      .metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 960px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+      .sidebar {
+        position: relative;
+        top: 0;
+        max-height: none;
+      }
+      .grid-2, .grid-3 {
+        grid-template-columns: 1fr;
+      }
+      .hero,
+      .section {
+        padding: 22px 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1>9C-U-TPS Slave</h1>
+        <p>单文件架构文档。按当前代码整理，重点覆盖 <code>app_tasks.c</code>、命令映射、队列流向、协议号和控制链路。</p>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">章节导航</div>
+        <nav class="nav" id="side-nav">
+          <a href="#overview">0. 总览</a>
+          <a href="#layers">1. 分层与目录职责</a>
+          <a href="#diagram">2. 架构图与数据流</a>
+          <a href="#shared">3. 共享结构与全局对象</a>
+          <a href="#macros">4. 关键宏定义</a>
+          <a href="#tasks">5. 任务架构</a>
+          <a href="#queues">6. 队列与主数据流</a>
+          <a href="#protocol">7. 实际十六进制协议</a>
+          <a href="#appcmd">8. App 命令处理逻辑</a>
+          <a href="#ctrlcmd">9. 控制命令与控制器</a>
+          <a href="#config">10. 配置更新机制</a>
+          <a href="#sensor">11. 传感器采样与交互</a>
+          <a href="#control">12. 控制闭环</a>
+          <a href="#telemetry">13. 遥测与滤波</a>
+          <a href="#safety">14. 安全保护与停机</a>
+          <a href="#scenes">15. 典型流程</a>
+          <a href="#index">16. 关键文件索引</a>
+        </nav>
+      </div>
+    </aside>
+
+    <main class="content">
+      <section class="hero" id="overview">
+        <h2>项目架构总览</h2>
+        <p>当前工程采用 <code>App/System</code> 负责任务编排，<code>Modules/*</code> 按业务职责拆分，协议层统一把 RK3576 帧转换成 <code>app_cmd_t</code>，再由 <code>AppTask</code> 统一收口成配置更新、控制命令和采样命令。所有上行遥测统一进 <code>gTxQueue</code>，由 <code>CommTxTask</code> 独占串口发送。</p>
+        <div class="metrics">
+          <div class="metric">
+            <div class="label">核心任务数</div>
+            <div class="value">6</div>
+          </div>
+          <div class="metric">
+            <div class="label">主要命令队列</div>
+            <div class="value">4</div>
+          </div>
+          <div class="metric">
+            <div class="label">温度采样模式</div>
+            <div class="value">4</div>
+          </div>
+          <div class="metric">
+            <div class="label">协议主方向</div>
+            <div class="value">0x10xx / 0x11xx</div>
+          </div>
+        </div>
+        <div class="note">
+          <strong>当前代码里的关键事实：</strong>
+          <ul>
+            <li><code>SensorTask</code> 周期是 <code>5ms</code>，温度采样是非阻塞状态机。</li>
+            <li><code>ControlTask</code> 周期是 <code>2ms</code>，负责闭环和遥测节拍。</li>
+            <li>控制温度目标值带 <code>+1°C</code> 偏移，上传给 RK3576 的温度带 <code>-1°C</code> 偏移。</li>
+            <li>发送侧滤波开关 <code>RK3576_TELEMETRY_FILTER_ENABLE</code> 当前为 <code>0U</code>。</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section" id="layers">
+        <h2 class="section-title">1. 分层与目录职责</h2>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 18%;">目录</th>
+              <th style="width: 28%;">职责</th>
+              <th>当前典型文件</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>App/System</code></td>
+              <td>任务编排中心。创建 FreeRTOS 任务、管理队列、转发协议命令、统一停机和遥测。</td>
+              <td><code>app_tasks.c</code>、<code>system_app.h</code></td>
+            </tr>
+            <tr>
+              <td><code>Modules/App</code></td>
+              <td>应用控制器。统一管理治疗配置、状态机、PID 实例和运行时。</td>
+              <td><code>treatment_app_controller.*</code></td>
+            </tr>
+            <tr>
+              <td><code>Modules/Heat</code></td>
+              <td>温控 PID、加热输出、OTP 保护、热控目标设置。</td>
+              <td><code>treatment_heating_control.*</code></td>
+            </tr>
+            <tr>
+              <td><code>Modules/Pressure</code></td>
+              <td>压力计划、压力 PID、气泵与阀控制。</td>
+              <td><code>treatment_pressure_control.*</code></td>
+            </tr>
+            <tr>
+              <td><code>Modules/Sensors</code></td>
+              <td>温度和压力采样。当前温度链路用 ADS1248 状态机。</td>
+              <td><code>treatment_temperature_sensor.*</code>、<code>treatment_pressure_sensor.*</code></td>
+            </tr>
+            <tr>
+              <td><code>Modules/EyeShield</code></td>
+              <td>眼盾在线、保险丝、保护器件 ADC 检测。</td>
+              <td><code>eye_shield_status.*</code></td>
+            </tr>
+            <tr>
+              <td><code>Modules/communication</code></td>
+              <td>UART3 与 RK3576 协议收发、协议号、帧解析。</td>
+              <td><code>communication.*</code>、<code>Protocol/*</code></td>
+            </tr>
+            <tr>
+              <td><code>Modules/Pid</code></td>
+              <td>通用 PID 算法与调试快照。</td>
+              <td><code>pid_controller.*</code></td>
+            </tr>
+            <tr>
+              <td><code>Modules/Filter</code></td>
+              <td>发给 RK3576 的窗口滤波器。</td>
+              <td><code>target_window_filter.*</code></td>
+            </tr>
+            <tr>
+              <td><code>UserDrivers</code></td>
+              <td>器件寄存器级驱动。</td>
+              <td><code>UserDrivers/Ads1248/ads1248.*</code></td>
+            </tr>
+            <tr>
+              <td><code>BSP</code></td>
+              <td>GPIO、PWM、SPI、I2C、UART 等基础硬件封装。</td>
+              <td><code>BSP/Pwm</code>、<code>BSP/Spi</code></td>
+            </tr>
+            <tr>
+              <td><code>Core</code></td>
+              <td>CubeMX 生成的底层初始化层。</td>
+              <td><code>gpio.c</code>、<code>tim.c</code>、<code>adc.c</code>、<code>usart.c</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="section" id="diagram">
+        <h2 class="section-title">2. 架构图与数据流</h2>
+        <div class="svg-wrap">
+          <svg viewBox="0 0 1280 520" xmlns="http://www.w3.org/2000/svg" aria-label="整体架构图">
+            <defs>
+              <style>
+                .b{fill:#fff;stroke:#cfd8e3;stroke-width:2}
+                .h{fill:#eef4ff;stroke:#b8cdfa;stroke-width:2}
+                .t{font: 600 16px Microsoft YaHei, Arial, sans-serif; fill:#0f172a}
+                .s{font: 13px Microsoft YaHei, Arial, sans-serif; fill:#475467}
+                .l{stroke:#2563eb;stroke-width:3;fill:none;marker-end:url(#m)}
+              </style>
+              <marker id="m" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                <path d="M0,0 L10,3 L0,6 Z" fill="#2563eb"/>
+              </marker>
+            </defs>
+            <rect x="40" y="40" width="210" height="76" rx="14" class="h"/>
+            <text x="145" y="72" text-anchor="middle" class="t">RK3576 / UART3</text>
+            <text x="145" y="96" text-anchor="middle" class="s">协议帧输入 / 遥测输出</text>
+
+            <rect x="320" y="40" width="260" height="76" rx="14" class="b"/>
+            <text x="450" y="72" text-anchor="middle" class="t">communication + Protocol</text>
+            <text x="450" y="96" text-anchor="middle" class="s">解析 frame_id / payload，映射 app_cmd_t</text>
+
+            <rect x="650" y="40" width="230" height="76" rx="14" class="b"/>
+            <text x="765" y="72" text-anchor="middle" class="t">gAppCommandQueue</text>
+            <text x="765" y="96" text-anchor="middle" class="s">协议命令入口队列</text>
+
+            <rect x="950" y="40" width="250" height="76" rx="14" class="h"/>
+            <text x="1075" y="72" text-anchor="middle" class="t">AppTask</text>
+            <text x="1075" y="96" text-anchor="middle" class="s">配置汇总 / 命令分发 / 状态收口</text>
+
+            <rect x="700" y="190" width="220" height="80" rx="14" class="b"/>
+            <text x="810" y="222" text-anchor="middle" class="t">gCtrlCmdQueue</text>
+            <text x="810" y="246" text-anchor="middle" class="s">发送 ctrl_cmd_t</text>
+
+            <rect x="970" y="190" width="230" height="80" rx="14" class="h"/>
+            <text x="1085" y="222" text-anchor="middle" class="t">ControlTask</text>
+            <text x="1085" y="246" text-anchor="middle" class="s">控制器 Run / 遥测节拍</text>
+
+            <rect x="700" y="320" width="220" height="80" rx="14" class="b"/>
+            <text x="810" y="352" text-anchor="middle" class="t">gSensorCmdQueue</text>
+            <text x="810" y="376" text-anchor="middle" class="s">发送 sensor_cmd_t</text>
+
+            <rect x="970" y="320" width="230" height="80" rx="14" class="h"/>
+            <text x="1085" y="352" text-anchor="middle" class="t">SensorTask</text>
+            <text x="1085" y="376" text-anchor="middle" class="s">温度状态机 / 压力采样</text>
+
+            <rect x="320" y="320" width="260" height="80" rx="14" class="b"/>
+            <text x="450" y="352" text-anchor="middle" class="t">gSensorData</text>
+            <text x="450" y="376" text-anchor="middle" class="s">全局只读采样快照</text>
+
+            <rect x="40" y="190" width="260" height="80" rx="14" class="b"/>
+            <text x="170" y="222" text-anchor="middle" class="t">SafetyTask</text>
+            <text x="170" y="246" text-anchor="middle" class="s">过温 / 过压 / OTP / 眼盾保护</text>
+
+            <rect x="320" y="440" width="260" height="54" rx="14" class="b"/>
+            <text x="450" y="473" text-anchor="middle" class="t">gTxQueue</text>
+
+            <rect x="650" y="440" width="230" height="54" rx="14" class="h"/>
+            <text x="765" y="473" text-anchor="middle" class="t">CommTxTask</text>
+
+            <path d="M250 78 H320" class="l"/>
+            <path d="M580 78 H650" class="l"/>
+            <path d="M880 78 H950" class="l"/>
+            <path d="M1075 116 V190 H920" class="l"/>
+            <path d="M1075 116 V320 H920" class="l"/>
+            <path d="M970 360 H580" class="l"/>
+            <path d="M580 360 H700" class="l"/>
+            <path d="M920 230 H970" class="l"/>
+            <path d="M920 360 H970" class="l"/>
+            <path d="M450 400 V440" class="l"/>
+            <path d="M580 470 H650" class="l"/>
+            <path d="M880 470 H1010 V116 H1200" class="l"/>
+            <path d="M300 230 H700" class="l"/>
+            <text x="506" y="216" class="s">stop / update cfg</text>
+          </svg>
+        </div>
+
+        <div class="grid-3">
+          <div class="card">
+            <h4>命令收口原则</h4>
+            <p>协议层只做帧解析，不直接动硬件。真正的业务分发都在 <code>AppTask</code> 收口。</p>
+          </div>
+          <div class="card">
+            <h4>传感器解耦原则</h4>
+            <p>采样模式通过 <code>sensor_cmd_t</code> 下发，<code>SensorTask</code> 不直接依赖控制器内部状态。</p>
+          </div>
+          <div class="card">
+            <h4>串口出口唯一</h4>
+            <p>所有上行状态与遥测都先进 <code>gTxQueue</code>，由 <code>CommTxTask</code> 独占发送。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="shared">
+        <h2 class="section-title">3. 共享结构与全局对象</h2>
+        <p class="path">主要定义文件：<code>App/System/system_app.h</code></p>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 24%;">结构 / 对象</th>
+              <th>职责</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>sensor_data_t</code></td>
+              <td>共享传感器快照，包含左右温度、左右压力、眼罩在位、保险丝状态和 tick。</td>
+            </tr>
+            <tr>
+              <td><code>control_config_t</code></td>
+              <td>当前治疗配置。包含目标温度、目标压力、治疗时间、左右眼使能、Pulse 参数和 mode。</td>
+            </tr>
+            <tr>
+              <td><code>app_cmd_t</code></td>
+              <td>协议帧翻译后的应用层命令，进入 <code>gAppCommandQueue</code>。</td>
+            </tr>
+            <tr>
+              <td><code>ctrl_cmd_t</code></td>
+              <td>应用层发给控制任务的命令包，承载配置更新、启动/停止、PID 调参和调试流开关。</td>
+            </tr>
+            <tr>
+              <td><code>sensor_cmd_t</code></td>
+              <td>应用层发给传感器任务的采样策略命令，当前重点是温度采样模式。</td>
+            </tr>
+            <tr>
+              <td><code>tx_frame_t</code></td>
+              <td>统一上行发送帧描述，包含 <code>frame_id</code>、数据类型和具体数据值。</td>
+            </tr>
+            <tr>
+              <td><code>gSensorData</code></td>
+              <td>由 <code>SensorTask</code> 周期刷新，由 <code>ControlTask</code> 和 <code>SafetyTask</code> 只读使用。</td>
+            </tr>
+            <tr>
+              <td><code>gTreatmentRunning</code></td>
+              <td>全局运行标志。部分任务用它决定是否执行运行期逻辑。</td>
+            </tr>
+            <tr>
+              <td><code>gAppCommandQueue / gCtrlCmdQueue / gSensorCmdQueue / gTxQueue</code></td>
+              <td>四条主队列，分别负责协议命令、控制命令、采样命令和上行发送。</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="section" id="macros">
+        <h2 class="section-title">4. 关键宏定义</h2>
+        <div class="grid-2">
+          <div>
+            <h3>4.1 任务周期与系统阈值</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 42%;">宏</th>
+                  <th style="width: 18%;">值</th>
+                  <th>说明</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td><code>SENSOR_PERIOD_MS</code></td><td><code>5U</code></td><td>传感器任务节拍。</td></tr>
+                <tr><td><code>CONTROL_PERIOD_MS</code></td><td><code>2U</code></td><td>控制任务节拍。</td></tr>
+                <tr><td><code>COMM_RX_PERIOD_MS</code></td><td><code>1U</code></td><td>协议接收轮询节拍。</td></tr>
+                <tr><td><code>SAFETY_PERIOD_MS</code></td><td><code>10U</code></td><td>安全检查节拍。</td></tr>
+                <tr><td><code>PRESS_TELEMETRY_MS</code></td><td><code>10U</code></td><td>压力遥测节拍。</td></tr>
+                <tr><td><code>TEMP_TELEMETRY_MS</code></td><td><code>20U</code></td><td>温度遥测节拍。</td></tr>
+                <tr><td><code>TEMP_MAX_C</code></td><td><code>50.0f</code></td><td>软件过温阈值。</td></tr>
+                <tr><td><code>PRESS_MAX_KPA</code></td><td><code>450.0f</code></td><td>软件超压阈值。</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div>
+            <h3>4.2 温度相关宏</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 48%;">宏</th>
+                  <th style="width: 18%;">值</th>
+                  <th>用途</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td><code>HEAT_TARGET_OFFSET_LEFT_C</code></td><td><code>1.0f</code></td><td>左眼 PID 实际目标偏移。</td></tr>
+                <tr><td><code>HEAT_TARGET_OFFSET_RIGHT_C</code></td><td><code>1.0f</code></td><td>右眼 PID 实际目标偏移。</td></tr>
+                <tr><td><code>RK3576_TEMP_UPLOAD_OFFSET_LEFT_C</code></td><td><code>-1.0f</code></td><td>左温上报偏移。</td></tr>
+                <tr><td><code>RK3576_TEMP_UPLOAD_OFFSET_RIGHT_C</code></td><td><code>-1.0f</code></td><td>右温上报偏移。</td></tr>
+                <tr><td><code>RK3576_TELEMETRY_FILTER_ENABLE</code></td><td><code>0U</code></td><td>发送侧滤波总开关。</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="warn">
+          <strong>当前温度语义必须区分三件事：</strong>
+          <ul>
+            <li>采样值：<code>gSensorData.tempL/tempR</code>，来自 ADC 温度链路。</li>
+            <li>控制目标：<code>cfg.temp_target + HEAT_TARGET_OFFSET_*_C</code>。</li>
+            <li>上报值：<code>ADC 原值 + RK3576_TEMP_UPLOAD_OFFSET_*_C</code>。</li>
+          </ul>
+        </div>
+
+        <h3>4.3 模式与 Pulse 节奏宏</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 28%;">宏</th>
+              <th style="width: 18%;">值</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>MODE_SELECT_RELAX</code></td><td><code>1U</code></td><td>舒缓档。</td></tr>
+            <tr><td><code>MODE_SELECT_STANDARD</code></td><td><code>2U</code></td><td>标准档。</td></tr>
+            <tr><td><code>MODE_SELECT_FAST</code></td><td><code>3U</code></td><td>快速档。</td></tr>
+            <tr><td><code>MODE_RELAX_PULSE_ON_MS / OFF_MS</code></td><td>2000 / 2000</td><td>舒缓档开关时间。</td></tr>
+            <tr><td><code>MODE_STANDARD_PULSE_ON_MS / OFF_MS</code></td><td>1500 / 1500</td><td>标准档开关时间。</td></tr>
+            <tr><td><code>MODE_FAST_PULSE_ON_MS / OFF_MS</code></td><td>1000 / 1000</td><td>快速档开关时间。</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="section" id="tasks">
+        <h2 class="section-title">5. 任务架构</h2>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 18%;">任务</th>
+              <th style="width: 14%;">周期 / 触发</th>
+              <th>职责</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>AppTask</code></td>
+              <td>队列阻塞接收</td>
+              <td>消费 <code>gAppCommandQueue</code>，汇总配置、控制运行状态、向控制和采样任务分发命令。</td>
+            </tr>
+            <tr>
+              <td><code>CommRxTask</code></td>
+              <td>1ms</td>
+              <td>驱动通信模块轮询接收，推进 RK3576 协议解析。</td>
+            </tr>
+            <tr>
+              <td><code>CommTxTask</code></td>
+              <td>队列阻塞接收</td>
+              <td>从 <code>gTxQueue</code> 取上行帧并打包发串口。</td>
+            </tr>
+            <tr>
+              <td><code>SensorTask</code></td>
+              <td>5ms</td>
+              <td>推进 ADS1248 温度采样状态机、读取压力、刷新 <code>gSensorData</code>。</td>
+            </tr>
+            <tr>
+              <td><code>ControlTask</code></td>
+              <td>2ms</td>
+              <td>处理控制命令、运行压力和加热闭环、发送遥测和 PID 调试。</td>
+            </tr>
+            <tr>
+              <td><code>SafetyTask</code></td>
+              <td>10ms</td>
+              <td>检查过温、过压、OTP 故障、眼盾保护器件故障并触发停机。</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="flow">
+          <div class="node">CommRxTask</div><div class="arrow">→</div>
+          <div class="node">AppTask</div><div class="arrow">→</div>
+          <div class="node">ControlTask</div>
+          <div class="arrow">|</div>
+          <div class="node">SensorTask</div>
+          <div class="arrow">|</div>
+          <div class="node">SafetyTask</div>
+        </div>
+      </section>
+
+      <section class="section" id="queues">
+        <h2 class="section-title">6. 队列与主数据流</h2>
+        <h3>6.1 四条核心队列</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 24%;">队列</th>
+              <th style="width: 24%;">写入方</th>
+              <th style="width: 24%;">读取方</th>
+              <th>承载内容</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>gAppCommandQueue</code></td><td>协议回调</td><td><code>AppTask</code></td><td><code>app_cmd_t</code></td></tr>
+            <tr><td><code>gCtrlCmdQueue</code></td><td><code>AppTask</code></td><td><code>ControlTask</code></td><td><code>ctrl_cmd_t</code></td></tr>
+            <tr><td><code>gSensorCmdQueue</code></td><td><code>AppTask</code></td><td><code>SensorTask</code></td><td><code>sensor_cmd_t</code></td></tr>
+            <tr><td><code>gTxQueue</code></td><td>业务任务</td><td><code>CommTxTask</code></td><td><code>tx_frame_t</code></td></tr>
+          </tbody>
+        </table>
+
+        <h3>6.2 主数据流</h3>
+        <pre>UART3 RX
+-> communication / protocol parser
+-> Rk3576Protocol_FrameToAppCommand()
+-> gAppCommandQueue
+-> AppTask
+-> gCtrlCmdQueue / gSensorCmdQueue
+-> ControlTask / SensorTask
+
+SensorTask
+-> gSensorData
+-> ControlTask / SafetyTask
+-> enqueue_tx_f32 / enqueue_tx_u8
+-> gTxQueue
+-> CommTxTask
+-> UART3 TX</pre>
+      </section>
+
+      <section class="section" id="protocol">
+        <h2 class="section-title">7. 实际十六进制协议</h2>
+        <p class="path">协议号定义文件：<code>Modules/communication/Protocol/protocol_ids.h</code><br>协议翻译文件：<code>Modules/communication/Protocol/rk3576_protocol.c</code></p>
+
+        <h3>7.1 RK3576 → STM32 下行控制协议</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 16%;">16进制 ID</th>
+              <th style="width: 26%;">协议名</th>
+              <th style="width: 16%;">payload</th>
+              <th style="width: 18%;">映射 app_cmd_t</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>0x1000</code></td><td><code>PROTOCOL_ID_U8_HEARTBEAT_REQ</code></td><td><code>u8</code></td><td><code>APP_CMD_HEARTBEAT</code></td><td>心跳请求。当前只回 ACK，不改配置。</td></tr>
+            <tr><td><code>0x1001</code></td><td><code>PROTOCOL_ID_F32_PRESSURE_SET_KPA</code></td><td><code>float</code></td><td><code>APP_CMD_SET_PRESSURE_KPA</code></td><td>目标压力，单位 kPa。</td></tr>
+            <tr><td><code>0x1002</code></td><td><code>PROTOCOL_ID_F32_LEFT_TEMP_SET_C</code></td><td><code>float</code></td><td><code>APP_CMD_SET_TEMP</code></td><td>温度目标值。当前系统左右眼共用这一路温度设定。</td></tr>
+            <tr><td><code>0x1004</code></td><td><code>PROTOCOL_ID_U8_LEFT_EYE_ENABLE</code></td><td><code>u8</code></td><td><code>APP_CMD_LEFT_ENABLE</code></td><td>左眼使能。<code>0=关</code>，<code>非0=开</code>。</td></tr>
+            <tr><td><code>0x1005</code></td><td><code>PROTOCOL_ID_U8_RIGHT_EYE_ENABLE</code></td><td><code>u8</code></td><td><code>APP_CMD_RIGHT_ENABLE</code></td><td>右眼使能。<code>0=关</code>，<code>非0=开</code>。</td></tr>
+            <tr><td><code>0x1006</code></td><td><code>PROTOCOL_ID_U16_TREAT_TIME_MIN</code></td><td><code>u16</code></td><td><code>APP_CMD_SET_TREATMENT_TIME</code></td><td>治疗总时长，单位分钟。</td></tr>
+            <tr><td><code>0x1007</code></td><td><code>PROTOCOL_ID_U8_LEFT_HEATER_FUSE_BLOW_CMD</code></td><td>无效载荷</td><td><code>APP_CMD_LEFT_HEATER_FUSE_BLOW</code></td><td>请求触发左眼保险丝动作流程。</td></tr>
+            <tr><td><code>0x1008</code></td><td><code>PROTOCOL_ID_U8_RIGHT_HEATER_FUSE_BLOW_CMD</code></td><td>无效载荷</td><td><code>APP_CMD_RIGHT_HEATER_FUSE_BLOW</code></td><td>请求触发右眼保险丝动作流程。</td></tr>
+            <tr><td><code>0x10C0</code></td><td><code>PROTOCOL_ID_U8_MODE_SELECT</code></td><td><code>u8</code></td><td><code>APP_CMD_MODE_SELECT</code></td><td><code>1=舒缓</code>，<code>2=标准</code>，<code>3=快速</code>。</td></tr>
+            <tr><td><code>0x10C1</code></td><td><code>PROTOCOL_ID_U8_START_TREATMENT</code></td><td>可忽略</td><td><code>APP_CMD_START</code></td><td>启动治疗。</td></tr>
+            <tr><td><code>0x10C2</code></td><td><code>PROTOCOL_ID_U8_STOP_TREATMENT</code></td><td>可忽略</td><td><code>APP_CMD_STOP</code></td><td>停止治疗。</td></tr>
+            <tr><td><code>0x10C3</code></td><td><code>PROTOCOL_ID_U8_SAVE_SETTINGS</code></td><td>可忽略</td><td><code>APP_CMD_SAVE_PARAM</code></td><td>保存参数命令，当前业务里保留但未深入实现。</td></tr>
+            <tr><td><code>0x10C4</code></td><td><code>PROTOCOL_ID_U8_PAUSE_RESUME_TREATMENT</code></td><td><code>u8</code></td><td><code>APP_CMD_PAUSE_RESUME</code></td><td><code>0=暂停</code>，<code>非0=恢复</code>。</td></tr>
+          </tbody>
+        </table>
+
+        <h3>7.2 STM32 → RK3576 上行状态 / 遥测协议</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 16%;">16进制 ID</th>
+              <th style="width: 28%;">协议名</th>
+              <th style="width: 16%;">payload</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>0x1100</code></td><td><code>PROTOCOL_ID_U8_HEARTBEAT_ACK</code></td><td><code>u8</code></td><td>心跳应答。</td></tr>
+            <tr><td><code>0x1101</code></td><td><code>PROTOCOL_ID_F32_LEFT_PRESSURE_VALUE</code></td><td><code>float</code></td><td>左压力值。当前代码实际发送这一项。</td></tr>
+            <tr><td><code>0x1102</code></td><td><code>PROTOCOL_ID_F32_RIGHT_PRESSURE_VALUE</code></td><td><code>float</code></td><td>右压力值协议号已定义，但当前主链路未发送。</td></tr>
+            <tr><td><code>0x1103</code></td><td><code>PROTOCOL_ID_F32_LEFT_TEMP_VALUE</code></td><td><code>float</code></td><td>左温值，使用“上传温度偏移后”的值。</td></tr>
+            <tr><td><code>0x1104</code></td><td><code>PROTOCOL_ID_F32_RIGHT_TEMP_VALUE</code></td><td><code>float</code></td><td>右温值，使用“上传温度偏移后”的值。</td></tr>
+            <tr><td><code>0x1107</code></td><td><code>PROTOCOL_ID_U8_LEFT_HEATER_PRESENT</code></td><td><code>u8</code></td><td>左眼眼罩在位状态。</td></tr>
+            <tr><td><code>0x1108</code></td><td><code>PROTOCOL_ID_U8_RIGHT_HEATER_PRESENT</code></td><td><code>u8</code></td><td>右眼眼罩在位状态。</td></tr>
+            <tr><td><code>0x1109</code></td><td><code>PROTOCOL_ID_U8_LEFT_HEATER_FUSE</code></td><td><code>u8</code></td><td>左眼保险丝状态。</td></tr>
+            <tr><td><code>0x110A</code></td><td><code>PROTOCOL_ID_U8_RIGHT_HEATER_FUSE</code></td><td><code>u8</code></td><td>右眼保险丝状态。</td></tr>
+            <tr><td><code>0x110B</code></td><td><code>PROTOCOL_ID_U8_MODE_CURVES</code></td><td><code>u8</code></td><td>模式曲线或阶段状态信息。</td></tr>
+            <tr><td><code>0x110C</code></td><td><code>PROTOCOL_ID_U8_STOP_REASON</code></td><td><code>u8</code></td><td>停机原因上报。</td></tr>
+          </tbody>
+        </table>
+
+        <div class="danger">
+          <strong>协议文档里需要特别标出的实际约定：</strong>
+          <ul>
+            <li><code>0x10C0</code> 的值不是任意枚举，而是当前代码固定的 <code>1/2/3</code> 三档。</li>
+            <li><code>0x10C4</code> 的值不是布尔意义的“开启/关闭”，而是当前代码硬编码的 <code>0=暂停，非0=恢复</code>。</li>
+            <li><code>0x1102</code> 虽然定义了右压力上报，但当前主发送链路没有实际发这帧。</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section" id="appcmd">
+        <h2 class="section-title">8. App 命令处理逻辑</h2>
+        <p class="path">核心文件：<code>App/System/app_tasks.c</code>，应用命令枚举：<code>App/System/system_app.h</code></p>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 24%;">App 命令</th>
+              <th style="width: 18%;">参数</th>
+              <th>处理逻辑</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>APP_CMD_HEARTBEAT</code></td><td>无</td><td>直接回 <code>0x1100</code> ACK，不改本地配置。</td></tr>
+            <tr><td><code>APP_CMD_SET_PRESSURE_KPA</code></td><td><code>float</code></td><td>更新 <code>cfg.press_target_max</code>，做范围夹紧，再下发 <code>CTRL_CMD_UPDATE_CFG</code>。</td></tr>
+            <tr><td><code>APP_CMD_SET_TEMP</code></td><td><code>float</code></td><td>更新 <code>cfg.temp_target</code>，下发 <code>CTRL_CMD_UPDATE_CFG</code>。</td></tr>
+            <tr><td><code>APP_CMD_LEFT_ENABLE</code></td><td><code>u8</code></td><td>更新左眼使能；若系统运行中，还会立即刷新温度采样模式。</td></tr>
+            <tr><td><code>APP_CMD_RIGHT_ENABLE</code></td><td><code>u8</code></td><td>更新右眼使能；逻辑与左眼对称。</td></tr>
+            <tr><td><code>APP_CMD_LEFT_HEATER_FUSE_BLOW</code></td><td>无</td><td>调用 <code>EyeShieldStatus_RequestFuseBlow(1,0)</code>。</td></tr>
+            <tr><td><code>APP_CMD_RIGHT_HEATER_FUSE_BLOW</code></td><td>无</td><td>调用 <code>EyeShieldStatus_RequestFuseBlow(0,1)</code>。</td></tr>
+            <tr><td><code>APP_CMD_SET_TREATMENT_TIME</code></td><td><code>u16</code></td><td>更新治疗分钟数，为 0 时会回退到 1 分钟。</td></tr>
+            <tr><td><code>APP_CMD_MODE_SELECT</code></td><td><code>u8</code></td><td>调用 <code>apply_mode_profile()</code> 写入 Pulse 开关时间，再下发配置。</td></tr>
+            <tr><td><code>APP_CMD_START</code></td><td>无</td><td>若左右眼都没显式开启，则默认双眼启用；更新运行状态、下发温度采样模式、下发控制启动命令。</td></tr>
+            <tr><td><code>APP_CMD_STOP</code></td><td>无</td><td>停止运行，清 <code>gTreatmentRunning</code>，把采样模式切到 <code>IDLE</code>，上报停机原因。</td></tr>
+            <tr><td><code>APP_CMD_PAUSE_RESUME</code></td><td><code>u8</code></td><td><code>0=暂停</code>：停温压遥测并采样空闲；<code>非0=恢复</code>：恢复采样模式和控制命令。</td></tr>
+            <tr><td><code>APP_CMD_SAVE_PARAM</code></td><td>无</td><td>当前保留入口，未做复杂持久化逻辑。</td></tr>
+          </tbody>
+        </table>
+
+        <h3>8.1 <code>APP_CMD_START</code> 的真实动作顺序</h3>
+        <ol>
+          <li>如果左右眼都未选，默认把 <code>press_enable_L</code> 和 <code>press_enable_R</code> 设为 1。</li>
+          <li>把 <code>paused</code> 清零，设置 <code>cfg.running = 1</code> 和 <code>gTreatmentRunning = 1</code>。</li>
+          <li>调用 <code>send_sensor_mode(resolve_temperature_mode(&amp;cfg), ...)</code>。</li>
+          <li>下发 <code>CTRL_CMD_UPDATE_CFG</code>。</li>
+          <li>下发 <code>CTRL_CMD_START</code>。</li>
+        </ol>
+
+        <h3>8.2 <code>APP_CMD_STOP</code> 的真实动作顺序</h3>
+        <ol>
+          <li>读取并消费挂起的 <code>stop_reason</code>。</li>
+          <li>清运行态和暂停态。</li>
+          <li>发送 <code>TEMP_ACQUIRE_MODE_IDLE</code> 给 <code>SensorTask</code>。</li>
+          <li>如果没有故障停机原因，则默认上报手动停止。</li>
+          <li>调用 <code>enqueue_tx_u8(0x110C, stop_reason)</code>。</li>
+          <li>再发送 <code>CTRL_CMD_STOP</code> 让控制器收口。</li>
+        </ol>
+      </section>
+
+      <section class="section" id="ctrlcmd">
+        <h2 class="section-title">9. 控制命令与控制器</h2>
+        <p class="path">控制器文件：<code>Modules/App/treatment_app_controller.c</code></p>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 22%;">ctrl_cmd_id_t</th>
+              <th>控制器侧动作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>CTRL_CMD_UPDATE_CFG</code></td><td>覆盖控制器内部 <code>cfg</code>，重载目标温度、压力计划和相关状态。</td></tr>
+            <tr><td><code>CTRL_CMD_START</code></td><td>启动治疗状态机，初始化阶段和运行时。</td></tr>
+            <tr><td><code>CTRL_CMD_STOP</code></td><td>停止治疗并清空执行输出。</td></tr>
+            <tr><td><code>CTRL_CMD_PAUSE</code></td><td>暂停运行但保留配置。</td></tr>
+            <tr><td><code>CTRL_CMD_RESUME</code></td><td>恢复运行态。</td></tr>
+            <tr><td><code>CTRL_CMD_PID_SET_GAINS</code></td><td>按 <code>pid_target</code> 改某一类 PID 参数。</td></tr>
+            <tr><td><code>CTRL_CMD_PID_STREAM_ENABLE</code></td><td>控制 PID 调试流开关。</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="section" id="config">
+        <h2 class="section-title">10. 配置更新机制</h2>
+        <div class="flow">
+          <div class="node">协议帧</div><div class="arrow">→</div>
+          <div class="node">app_cmd_t</div><div class="arrow">→</div>
+          <div class="node">AppTask 修改 cfg</div><div class="arrow">→</div>
+          <div class="node">CTRL_CMD_UPDATE_CFG</div><div class="arrow">→</div>
+          <div class="node">Controller 生效</div>
+        </div>
+        <ul>
+          <li>配置源头统一来自 <code>AppTask</code> 的本地 <code>cfg</code> 副本。</li>
+          <li>控制器不直接读协议解析结果，而是只接收 <code>ctrl_cmd_t</code>。</li>
+          <li>采样模式不直接从控制器内部推导，而是由 <code>AppTask</code> 通过 <code>sensor_cmd_t</code> 明确下发。</li>
+        </ul>
+      </section>
+
+      <section class="section" id="sensor">
+        <h2 class="section-title">11. 传感器采样与交互</h2>
+        <h3>11.1 温度采样模式</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 26%;">模式</th>
+              <th>含义</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>TEMP_ACQUIRE_MODE_IDLE</code></td><td>空闲，不做正常温度采样。</td></tr>
+            <tr><td><code>TEMP_ACQUIRE_MODE_DUAL_SCAN</code></td><td>双眼交替采样左右温度。</td></tr>
+            <tr><td><code>TEMP_ACQUIRE_MODE_SINGLE_LEFT</code></td><td>只采左眼温度，对应锁定 Heat2 温度通道。</td></tr>
+            <tr><td><code>TEMP_ACQUIRE_MODE_SINGLE_RIGHT</code></td><td>只采右眼温度，对应锁定 Heat1 温度通道。</td></tr>
+          </tbody>
+        </table>
+
+        <h3>11.2 ADS1248 当前采样状态机</h3>
+        <pre>SWITCH_CHANNEL
+-> 写 MUX0 / MUX1 / SYS0 / IDAC0 / IDAC1
+-> WAIT_DISCARD_SAMPLE
+-> DRDY 就绪后读首样本并丢弃
+-> WAIT_VALID_SAMPLE
+-> DRDY 就绪后读有效样本
+-> 写入 gSensorData.tempL / tempR
+-> 切换下一目标通道</pre>
+
+        <h3>11.3 状态机与任务节拍关系</h3>
+        <ul>
+          <li><code>SensorTask</code> 每 5ms 只推进一步，不再阻塞等待 <code>WaitDrdy()</code>。</li>
+          <li>单眼模式下不再来回切换无关通道。</li>
+          <li>双眼模式下每次换道都会丢弃首样本，再读第二笔有效值。</li>
+        </ul>
+
+        <h3>11.4 传感器命令如何介入</h3>
+        <ul>
+          <li><code>resolve_temperature_mode()</code> 根据左右眼使能和眼罩在位状态给出采样模式。</li>
+          <li><code>send_sensor_mode()</code> 使用 <code>xQueueOverwrite(gSensorCmdQueue, ...)</code> 保证只保留最新策略。</li>
+          <li><code>SensorTask</code> 读取最新 <code>sensor_cmd_t</code> 后切换温度模式和日志抑制位。</li>
+        </ul>
+      </section>
+
+      <section class="section" id="control">
+        <h2 class="section-title">12. 控制闭环</h2>
+        <ol>
+          <li><code>ControlTask</code> 接收 <code>ctrl_cmd_t</code>。</li>
+          <li>控制器 <code>HandleCommand()</code> 更新状态或配置。</li>
+          <li>读取 <code>gSensorData</code> 作为本周期测量值。</li>
+          <li>调用 <code>TreatmentAppController_Run()</code>。</li>
+          <li>压力模块生成计划并驱动气泵 / 阀。</li>
+          <li>加热模块根据左右眼温度和目标值运行 PID 并输出 PWM。</li>
+        </ol>
+        <div class="note">
+          <strong>当前热控目标值计算：</strong>
+          <pre>effective_target_left  = cfg.temp_target + HEAT_TARGET_OFFSET_LEFT_C
+effective_target_right = cfg.temp_target + HEAT_TARGET_OFFSET_RIGHT_C</pre>
+        </div>
+      </section>
+
+      <section class="section" id="telemetry">
+        <h2 class="section-title">13. 遥测与滤波</h2>
+        <h3>13.1 发给 RK3576 的温度值形成链路</h3>
+        <pre>ADC 原始温度
+-> Rk3576TelemetryMapTempLeft / Right
+-> raw_temp + RK3576_TEMP_UPLOAD_OFFSET_*_C
+-> (如果启用) TargetWindowFilter
+-> enqueue_tx_f32(0x1103 / 0x1104, value)
+-> CommTxTask
+-> UART3</pre>
+
+        <h3>13.2 当前发送侧滤波行为</h3>
+        <ul>
+          <li>滤波器对象在 <code>app_tasks.c</code> 的 <code>Rk3576TelemetryFilterState</code>。</li>
+          <li>当前只覆盖：左压力、左温、右温。</li>
+          <li>滤波目标值跟随上一窗口输出，用于抑制曲线抖动。</li>
+          <li>宏 <code>RK3576_TELEMETRY_FILTER_ENABLE = 0U</code> 时，这整段逻辑会旁路。</li>
+        </ul>
+
+        <h3>13.3 暂停期间的发送策略</h3>
+        <ul>
+          <li>暂停时不发温度和压力到 RK3576。</li>
+          <li>恢复后重启节拍，不补发暂停期间的数据。</li>
+        </ul>
+      </section>
+
+      <section class="section" id="safety">
+        <h2 class="section-title">14. 安全保护与停机</h2>
+        <h3>14.1 SafetyTask 检查项</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 28%;">检查项</th>
+              <th>逻辑</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>软件过温</td><td><code>gSensorData.tempL &gt; TEMP_MAX_C</code> 或 <code>tempR &gt; TEMP_MAX_C</code>。</td></tr>
+            <tr><td>软件超压</td><td>左右压力超过 <code>PRESS_MAX_KPA</code>。</td></tr>
+            <tr><td>OTP 硬件过温</td><td>右眼 <code>PA6</code>、左眼 <code>PB1</code>，正常高电平，过温变低电平。</td></tr>
+            <tr><td>保护器件故障</td><td>左眼 <code>PB0</code>、右眼 <code>PA5</code> ADC 满量程附近，且眼盾在线时判故障。</td></tr>
+            <tr><td>眼盾离线 / 保险丝异常</td><td>由 <code>eye_shield_status</code> 维护状态后参与停机逻辑。</td></tr>
+          </tbody>
+        </table>
+
+        <h3>14.2 停机原因码</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 18%;">值</th>
+              <th style="width: 26%;">枚举</th>
+              <th>含义</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>1</code></td><td><code>STOP_REASON_MANUAL</code></td><td>手动停止。</td></tr>
+            <tr><td><code>2</code></td><td><code>STOP_REASON_EYE_SHIELD_OFFLINE</code></td><td>眼盾不在线。</td></tr>
+            <tr><td><code>3</code></td><td><code>STOP_REASON_OVER_TEMP</code></td><td>软件过温或 OTP 过温。</td></tr>
+            <tr><td><code>4</code></td><td><code>STOP_REASON_OVER_PRESSURE</code></td><td>超压。</td></tr>
+            <tr><td><code>5</code></td><td><code>STOP_REASON_LEFT_HEATER_PROTECTOR_FAULT</code></td><td>左眼保护器件 ADC 故障。</td></tr>
+            <tr><td><code>6</code></td><td><code>STOP_REASON_RIGHT_HEATER_PROTECTOR_FAULT</code></td><td>右眼保护器件 ADC 故障。</td></tr>
+          </tbody>
+        </table>
+
+        <h3>14.3 停机收口链路</h3>
+        <pre>SafetyTask 发现 fault
+-> set_pending_stop_reason(...)
+-> send_ctrl_command(CTRL_CMD_STOP)
+-> request_app_stop()
+-> AppTask 处理 APP_CMD_STOP
+-> enqueue_tx_u8(0x110C, stop_reason)
+-> ControlTask / RK3576 同时感知停机</pre>
+      </section>
+
+      <section class="section" id="scenes">
+        <h2 class="section-title">15. 典型流程</h2>
+        <div class="grid-3">
+          <div class="card">
+            <h4>设置温度</h4>
+            <ol>
+              <li>RK3576 发 <code>0x1002</code></li>
+              <li>翻译为 <code>APP_CMD_SET_TEMP</code></li>
+              <li><code>AppTask</code> 更新 <code>cfg.temp_target</code></li>
+              <li>下发 <code>CTRL_CMD_UPDATE_CFG</code></li>
+              <li>热控模块按 <code>cfg + 1°C</code> 生效</li>
+            </ol>
+          </div>
+          <div class="card">
+            <h4>启动治疗</h4>
+            <ol>
+              <li>RK3576 发 <code>0x10C1</code></li>
+              <li><code>AppTask</code> 处理默认单双眼选择</li>
+              <li>下发温度采样模式</li>
+              <li>下发更新配置和启动命令</li>
+              <li><code>ControlTask</code> 开始闭环</li>
+            </ol>
+          </div>
+          <div class="card">
+            <h4>暂停 / 恢复</h4>
+            <ol>
+              <li>RK3576 发 <code>0x10C4</code></li>
+              <li><code>0=暂停</code>，<code>非0=恢复</code></li>
+              <li>暂停时采样转 <code>IDLE</code></li>
+              <li>暂停时不发温压遥测</li>
+              <li>恢复时重新计算单双眼采样模式</li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="index">
+        <h2 class="section-title">16. 关键文件索引</h2>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 34%;">文件</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>App/System/app_tasks.c</code></td><td>系统任务中心，本文档主参考文件。</td></tr>
+            <tr><td><code>App/System/system_app.h</code></td><td>共享结构、命令枚举、停机原因、全局队列声明。</td></tr>
+            <tr><td><code>Modules/communication/Protocol/protocol_ids.h</code></td><td>协议号总表。</td></tr>
+            <tr><td><code>Modules/communication/Protocol/rk3576_protocol.c</code></td><td>协议帧到 <code>app_cmd_t</code> 的真实翻译逻辑。</td></tr>
+            <tr><td><code>Modules/App/treatment_app_controller.*</code></td><td>应用控制器实现。</td></tr>
+            <tr><td><code>Modules/Heat/treatment_heating_control.*</code></td><td>热控 PID、目标偏移、OTP 保护。</td></tr>
+            <tr><td><code>Modules/Pressure/treatment_pressure_control.*</code></td><td>压力控制与波形逻辑。</td></tr>
+            <tr><td><code>Modules/Sensors/treatment_temperature_sensor.*</code></td><td>温度采样状态机。</td></tr>
+            <tr><td><code>UserDrivers/Ads1248/ads1248.*</code></td><td>ADS1248 底层驱动与寄存器切换。</td></tr>
+            <tr><td><code>Modules/EyeShield/eye_shield_status.*</code></td><td>眼盾在线、保护器件和保险丝逻辑。</td></tr>
+          </tbody>
+        </table>
+        <div class="footer">
+          本文档为单文件 HTML。后续若继续补充 PID 调试链路、Flash 占用分析或硬件引脚映射，建议继续在本文件新增章节，不再拆分子文档。
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      const links = Array.from(document.querySelectorAll('#side-nav a'));
+      const sections = links
+        .map(link => document.querySelector(link.getAttribute('href')))
+        .filter(Boolean);
+
+      const setActive = (id) => {
+        links.forEach(link => {
+          link.classList.toggle('active', link.getAttribute('href') === '#' + id);
+        });
+      };
+
+      const observer = new IntersectionObserver((entries) => {
+        const visible = entries
+          .filter(entry => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+        if (visible.length > 0) {
+          setActive(visible[0].target.id);
+        }
+      }, {
+        rootMargin: '-18% 0px -62% 0px',
+        threshold: [0.15, 0.35, 0.6]
+      });
+
+      sections.forEach(section => observer.observe(section));
+
+      if (sections.length > 0) {
+        setActive(sections[0].id);
+      }
+    })();
+  </script>
+</body>
+</html>

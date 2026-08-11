@@ -1,0 +1,6 @@
+<component name="DebugServers">
+  <esp-idf-debug-target name="ESP-IDF" uniqueID="4383c1a1-101f-4551-848a-9df17a3f3249">
+    <console enabled="false" />
+    <target />
+  </esp-idf-debug-target>
+</component>
