@@ -4,7 +4,7 @@
     {
       "name": "Flash/Debug (J-Link)",
       "cwd": "${workspaceFolder}",
-      "executable": "${workspaceFolder}/build/Debug/SAT01_Ctrl_V1_0.elf",
+      "executable": "${workspaceFolder}/build/Debug/9C-TPS100-Slave.elf",
       "request": "launch",
       "type": "cortex-debug",
       "servertype": "jlink",
@@ -23,7 +23,7 @@
     {
       "name": "Flash/Debug (ST-Link, Built-in)",
       "cwd": "${workspaceFolder}",
-      "executable": "${workspaceFolder}/build/Debug/SAT01_Ctrl_V1_0.elf",
+      "executable": "${workspaceFolder}/build/Debug/9C-TPS100-Slave.elf",
       "request": "launch",
       "type": "cortex-debug",
       "servertype": "stlink",
@@ -51,7 +51,7 @@
     {
       "name": "Flash/Debug (OpenOCD, CMSIS-DAP)",
       "cwd": "${workspaceFolder}",
-      "executable": "${workspaceFolder}/build/Debug/SAT01_Ctrl_V1_0.elf",
+      "executable": "${workspaceFolder}/build/Debug/9C-TPS100-Slave.elf",
       "request": "launch",
       "type": "cortex-debug",
       "servertype": "openocd",

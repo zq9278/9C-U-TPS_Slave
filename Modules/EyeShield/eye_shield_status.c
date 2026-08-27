@@ -3,6 +3,7 @@
 #include <string.h>
 #include "adc.h"
 #include "BSP/Gpio/bsp_gpio.h"
+#include "Config/product_config.h"
 #include "FreeRTOS.h"
 #define MODULE_LOG_ENABLED MODULE_LOG_EYE_SHIELD_ENABLE
 #include "Modules/Heat/treatment_heating_control.h"
@@ -199,6 +200,7 @@ void EyeShieldStatus_Init(void)
 
 void EyeShieldStatus_RequestFuseBlow(uint8_t blow_left, uint8_t blow_right)
 {
+#if (PRODUCT_FEATURE_CONSUMABLE_FUSE_BLOW_ENABLE != 0U)
     if (s_initialized == 0U)
     {
         EyeShieldStatus_Init();
@@ -218,6 +220,13 @@ void EyeShieldStatus_RequestFuseBlow(uint8_t blow_left, uint8_t blow_right)
           blow_left,
           blow_right,
           s_fuse_blow_pending_mask);
+#else
+    /* 产品配置禁用熔断时，只接收命令，不产生任何 GPIO 动作。 */
+    (void)blow_left;
+    (void)blow_right;
+    s_fuse_blow_pending_mask = 0U;
+    LOG_W("eye shield fuse blow ignored by product config");
+#endif
 }
 
 void EyeShieldStatus_Service(void)

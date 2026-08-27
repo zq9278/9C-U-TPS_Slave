@@ -12,10 +12,10 @@
 #define PRESS_PUMP_MIN_PWM 0U
 #define PRESS_PUMP_MAX_PWM 25U
 #define PRESS_PUMP_RAW_MAX 25.0f
-#define PRESS_RISE_SINGLE_EYE_RATED_PWM 18U//单眼rise阶段电机功率
-#define PRESS_RISE_DUAL_EYE_RATED_PWM 19U//双眼rise阶段电机功率
-#define PRESS_HOLD_SINGLE_EYE_RATED_PWM 18U//单眼hold阶段电机功率
-#define PRESS_HOLD_DUAL_EYE_RATED_PWM 20U//双眼hold阶段电机功率
+#define PRESS_RISE_SINGLE_EYE_RATED_PWM 16U//单眼rise阶段电机功率
+#define PRESS_RISE_DUAL_EYE_RATED_PWM 16U//双眼rise阶段电机功率
+#define PRESS_HOLD_SINGLE_EYE_RATED_PWM 17U//单眼hold阶段电机功率
+#define PRESS_HOLD_DUAL_EYE_RATED_PWM 17U//双眼hold阶段电机功率
 
 static BspPwmChannel s_pump_pwm;
 static uint8_t s_pressure_hw_initialized = 0U;
@@ -45,14 +45,14 @@ typedef struct
 static TreatmentPressurePidProfile s_press_pid_single_eye = {
     {0.1f, 0.1f, 0.0f},
     {1.2f, 0.2f, 0.00f},
-    {0.4f, 0.000f, 0.000f},
+    {0.3f, 0.100f, 0.000f},
 };
 
 /* 双眼治疗 PID 参数组。 */
 static TreatmentPressurePidProfile s_press_pid_dual_eye = {
     {1.0f, 0.1f, 0.0f},
     {1.2f, 0.1f, 0.00f},
-    {0.5f, 0.000f, 0.000f},
+    {0.4f, 0.100f, 0.000f},
 };
 
 /* 参数版本号，供运行中热切换 PID 配置时判断是否需要重载。 */
@@ -592,6 +592,10 @@ void TreatmentPressureControl_ApplyPlan(TreatmentAppController *controller,
     if (plan->phase == TREATMENT_PHASE_RISE)
     {
         runtime->pump_pwm = TreatmentPressureControl_GetRiseRatedPwm(profile_kind);
+        if ((feedback_kpa > plan->target_pressure_kpa) && (runtime->pump_pwm > 0U))
+        {
+            --runtime->pump_pwm;
+        }
         controller->pressure_pid.debug.mapped_output = (float)runtime->pump_pwm;
         TreatmentPressureControl_SetWaveValveOutput(1U);
         TreatmentPressureControl_SetPumpPwmOutput(runtime->pump_pwm);
@@ -606,6 +610,10 @@ void TreatmentPressureControl_ApplyPlan(TreatmentAppController *controller,
         pressure_output = PidController_ComputeDt(&controller->pressure_pid, feedback_kpa, dt_s);
         (void)pressure_output;
         runtime->pump_pwm = TreatmentPressureControl_GetHoldRatedPwm(profile_kind);
+        if ((feedback_kpa > plan->target_pressure_kpa) && (runtime->pump_pwm > 0U))
+        {
+            --runtime->pump_pwm;
+        }
         controller->pressure_pid.debug.mapped_output = (float)runtime->pump_pwm;
         TreatmentPressureControl_SetPumpPwmOutput(runtime->pump_pwm);
         TreatmentPressureControl_UpdateHistory(controller, plan);

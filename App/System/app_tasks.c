@@ -255,7 +255,7 @@ static void config_defaults(control_config_t *cfg)
 {
     (void)memset(cfg, 0, sizeof(*cfg));
     cfg->temp_target = 42.0f;
-    cfg->press_target_max = 30.0f;
+    cfg->press_target_max = 10.0f;
     cfg->t1_rise_s = TREATMENT_DEFAULT_RISE_S;
     cfg->t2_hold_s = TREATMENT_DEFAULT_HOLD_S;
     cfg->t3_pulse_s = TREATMENT_DEFAULT_PULSE_S;
