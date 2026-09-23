@@ -1,21 +1,18 @@
 #include "treatment_pressure_control.h"
 
 #include <string.h>
+#include <math.h>
 #include "BSP/Pwm/bsp_pwm.h"
 #include "UserDrivers/ValveControl/valve_control.h"
 #include "tim.h"
 
-/* 压力 PID 缺省参数与执行器映射常量。 */
-#define PRESS_PID_DEFAULT_DT_S 0.02f
-#define PRESS_VENT_ZERO_KPA 0.50f
-#define PRESS_VENT_MAX_MS 1000U
-#define PRESS_PUMP_MIN_PWM 0U
-#define PRESS_PUMP_MAX_PWM 25U
+/* 压力 PID 缺省参数与执行器映射常量。PWM 单位为千分比，0 表示停泵。 */
+#define PRESS_PID_DEFAULT_DT_S 0.002f
+#define PRESS_PUMP_MIN_PWM 10U
+#define PRESS_PUMP_MAX_PWM 100U
 #define PRESS_PUMP_RAW_MAX 25.0f
-#define PRESS_RISE_SINGLE_EYE_RATED_PWM 16U//单眼rise阶段电机功率
-#define PRESS_RISE_DUAL_EYE_RATED_PWM 16U//双眼rise阶段电机功率
-#define PRESS_HOLD_SINGLE_EYE_RATED_PWM 17U//单眼hold阶段电机功率
-#define PRESS_HOLD_DUAL_EYE_RATED_PWM 17U//双眼hold阶段电机功率
+
+_Static_assert(TREATMENT_CYCLE_VENT_MS < TREATMENT_CYCLE_MS, "Cycle vent must fit within cycle");
 
 static BspPwmChannel s_pump_pwm;
 static uint8_t s_pressure_hw_initialized = 0U;
@@ -43,16 +40,16 @@ typedef struct
 
 /* 单眼治疗 PID 参数组。 */
 static TreatmentPressurePidProfile s_press_pid_single_eye = {
-    {0.1f, 0.1f, 0.0f},
-    {1.2f, 0.2f, 0.00f},
-    {0.3f, 0.100f, 0.000f},
+    {0.30f, 0.10f, 0.00f}, /* 升压 */
+    {0.40f, 0.40f, 0.10f}, /* 保压 */
+    {0.10f, 0.10f, 0.00f}, /* 脉冲 */
 };
 
 /* 双眼治疗 PID 参数组。 */
 static TreatmentPressurePidProfile s_press_pid_dual_eye = {
-    {1.0f, 0.1f, 0.0f},
-    {1.2f, 0.1f, 0.00f},
-    {0.4f, 0.100f, 0.000f},
+    {0.20f, 0.80f, 0.20f}, /* 升压 */
+    {0.40f, 0.50f, 0.10f}, /* 保压 */
+    {0.15f, 0.10f, 0.00f}, /* 脉冲 */
 };
 
 /* 参数版本号，供运行中热切换 PID 配置时判断是否需要重载。 */
@@ -129,11 +126,11 @@ static uint16_t TreatmentPressureControl_ClampPwm(float value, uint16_t max_valu
 {
     float scaled_value;
 
-    if (value <= 0.0f)
+    if (!isfinite(value) || (value <= 0.0f))
     {
         return 0U;
     }
-    if (value >= (float)max_value)
+    if (value >= PRESS_PUMP_RAW_MAX)
     {
         return max_value;
     }
@@ -160,20 +157,6 @@ static uint16_t TreatmentPressureControl_ClampPwm(float value, uint16_t max_valu
     return (uint16_t)scaled_value;
 }
 
-static uint16_t TreatmentPressureControl_GetRiseRatedPwm(TreatmentPressureProfileKind profile_kind)
-{
-    return (profile_kind == TREATMENT_PRESS_PROFILE_DUAL_EYE) ?
-           PRESS_RISE_DUAL_EYE_RATED_PWM :
-           PRESS_RISE_SINGLE_EYE_RATED_PWM;
-}
-
-static uint16_t TreatmentPressureControl_GetHoldRatedPwm(TreatmentPressureProfileKind profile_kind)
-{
-    return (profile_kind == TREATMENT_PRESS_PROFILE_DUAL_EYE) ?
-           PRESS_HOLD_DUAL_EYE_RATED_PWM :
-           PRESS_HOLD_SINGLE_EYE_RATED_PWM;
-}
-
 static void TreatmentPressureControl_ApplyPressureRouteOutputs(uint8_t enable_left,
                                                                uint8_t enable_right)
 {
@@ -187,6 +170,10 @@ static void TreatmentPressureControl_SetWaveValveOutput(uint8_t enabled)
 
 static void TreatmentPressureControl_SetPumpPwmOutput(uint16_t pwm)
 {
+    if ((pwm > 0U) && (pwm < PRESS_PUMP_MIN_PWM))
+    {
+        pwm = PRESS_PUMP_MIN_PWM;
+    }
     BspPwm_SetDutyPermille(&s_pump_pwm, (pwm > PRESS_PUMP_MAX_PWM) ? PRESS_PUMP_MAX_PWM : pwm);
 }
 
@@ -217,7 +204,7 @@ void TreatmentPressureControl_SetIdleOutputs(void)
 
 /*
  * 反馈压力选择规则：
- * - 双眼治疗时取左右眼较大值，保证两侧都不会低于目标过多；
+ * - 双眼治疗时取左右眼较大值作为反馈；
  * - 单眼治疗时取启用侧压力。
  */
 static float TreatmentPressureControl_GetFeedbackKpa(const TreatmentAppController *controller,
@@ -397,6 +384,7 @@ const char *TreatmentPressureControl_PhaseName(TreatmentPhase phase)
     case TREATMENT_PHASE_PULSE_ON: return "pulse_on";
     case TREATMENT_PHASE_PULSE_OFF: return "pulse_off";
     case TREATMENT_PHASE_PAUSE: return "pause";
+    case TREATMENT_PHASE_CYCLE_VENT: return "cycle_vent";
     case TREATMENT_PHASE_IDLE:
     default: return "idle";
     }
@@ -435,8 +423,6 @@ void TreatmentPressureControl_ResetPid(TreatmentAppController *controller)
     /* 清空运行时状态，但不动静态参数组。 */
     controller->pressure_profile_loaded = 0U;
     controller->pressure_cycle_seen = 0U;
-    controller->pressure_cycle_venting = 0U;
-    controller->pressure_vent_start_tick = 0U;
     controller->last_pressure_cycle_elapsed_ms = 0U;
     controller->last_pressure_phase = TREATMENT_PHASE_IDLE;
     controller->active_pressure_profile_kind = (uint8_t)TREATMENT_PRESS_PROFILE_SINGLE_EYE;
@@ -465,7 +451,17 @@ void TreatmentPressureControl_BuildPlan(const TreatmentAppController *controller
     cycle_elapsed_ms = elapsed_total_ms % TREATMENT_CYCLE_MS;
     plan->cycle_elapsed_ms = cycle_elapsed_ms;
 
-    if (cycle_elapsed_ms < rise_ms)
+    /* 每个周期末尾固定留满 2s 放气，从脉冲段尾部截取，不占用下一轮升压。
+     * 放气优先：即使异常配置没有足够的脉冲时长，也禁止末尾继续加压。
+     */
+    if (cycle_elapsed_ms >= (TREATMENT_CYCLE_MS - TREATMENT_CYCLE_VENT_MS))
+    {
+        plan->phase = TREATMENT_PHASE_CYCLE_VENT;
+        plan->pid_stage = TREATMENT_PRESS_PID_STAGE_PULSE;
+        plan->target_pressure_kpa = 0.0f;
+        plan->inflating = 0U;
+    }
+    else if (cycle_elapsed_ms < rise_ms)
     {
         /* 升压段：目标压力线性爬升。 */
         float ratio = (rise_ms > 0U) ? ((float)cycle_elapsed_ms / (float)rise_ms) : 1.0f;
@@ -528,13 +524,9 @@ void TreatmentPressureControl_ApplyPlan(TreatmentAppController *controller,
     pulse_rise_started = (uint8_t)((plan->phase == TREATMENT_PHASE_PULSE_ON) &&
                                    (controller->last_pressure_phase != TREATMENT_PHASE_PULSE_ON));
 
-    if ((cycle_wrapped != 0U) &&
-        ((controller->last_pressure_phase == TREATMENT_PHASE_PULSE_ON) ||
-         (controller->last_pressure_phase == TREATMENT_PHASE_PULSE_OFF)))
+    if (cycle_wrapped != 0U)
     {
-        /* 一个治疗大周期结束后，先强制进入短放气，避免残压带入下一轮。 */
-        controller->pressure_cycle_venting = 1U;
-        controller->pressure_vent_start_tick = xTaskGetTickCount();
+        /* 放气已在上一周期末尾执行，新周期直接从零时刻开始升压。 */
         PidController_Reset(&controller->pressure_pid);
     }
 
@@ -557,21 +549,15 @@ void TreatmentPressureControl_ApplyPlan(TreatmentAppController *controller,
     runtime->feedback_pressure_kpa = feedback_kpa;
     runtime->cycle_elapsed_ms = plan->cycle_elapsed_ms;
 
-    if (controller->pressure_cycle_venting != 0U)
+    if (plan->phase == TREATMENT_PHASE_CYCLE_VENT)
     {
-        uint32_t vent_elapsed_ms =
-            (uint32_t)((xTaskGetTickCount() - controller->pressure_vent_start_tick) * portTICK_PERIOD_MS);
-
-        if ((feedback_kpa <= PRESS_VENT_ZERO_KPA) || (vent_elapsed_ms >= PRESS_VENT_MAX_MS))
+        /* 固定放气窗口不因压力提前归零而缩短。 */
+        if (controller->last_pressure_phase != TREATMENT_PHASE_CYCLE_VENT)
         {
-            controller->pressure_cycle_venting = 0U;
             PidController_Reset(&controller->pressure_pid);
         }
-        else
-        {
-            TreatmentPressureControl_ApplyVentOutputs(controller, plan, feedback_kpa, runtime);
-            return;
-        }
+        TreatmentPressureControl_ApplyVentOutputs(controller, plan, feedback_kpa, runtime);
+        return;
     }
 
     if (plan->phase == TREATMENT_PHASE_PULSE_OFF)
@@ -587,37 +573,6 @@ void TreatmentPressureControl_ApplyPlan(TreatmentAppController *controller,
     if (pulse_rise_started != 0U)
     {
         PidController_Reset(&controller->pressure_pid);
-    }
-
-    if (plan->phase == TREATMENT_PHASE_RISE)
-    {
-        runtime->pump_pwm = TreatmentPressureControl_GetRiseRatedPwm(profile_kind);
-        if ((feedback_kpa > plan->target_pressure_kpa) && (runtime->pump_pwm > 0U))
-        {
-            --runtime->pump_pwm;
-        }
-        controller->pressure_pid.debug.mapped_output = (float)runtime->pump_pwm;
-        TreatmentPressureControl_SetWaveValveOutput(1U);
-        TreatmentPressureControl_SetPumpPwmOutput(runtime->pump_pwm);
-        TreatmentPressureControl_UpdateHistory(controller, plan);
-        return;
-    }
-
-    if (plan->phase == TREATMENT_PHASE_HOLD)
-    {
-        TreatmentPressureControl_SetWaveValveOutput(1U);
-        PidController_SetSetpoint(&controller->pressure_pid, plan->target_pressure_kpa);
-        pressure_output = PidController_ComputeDt(&controller->pressure_pid, feedback_kpa, dt_s);
-        (void)pressure_output;
-        runtime->pump_pwm = TreatmentPressureControl_GetHoldRatedPwm(profile_kind);
-        if ((feedback_kpa > plan->target_pressure_kpa) && (runtime->pump_pwm > 0U))
-        {
-            --runtime->pump_pwm;
-        }
-        controller->pressure_pid.debug.mapped_output = (float)runtime->pump_pwm;
-        TreatmentPressureControl_SetPumpPwmOutput(runtime->pump_pwm);
-        TreatmentPressureControl_UpdateHistory(controller, plan);
-        return;
     }
 
     if (plan->inflating != 0U)
@@ -721,4 +676,41 @@ void TreatmentPressureControl_GetPidGains(TreatmentPressurePidStage stage, float
 uint32_t TreatmentPressureControl_GetPidVersion(void)
 {
     return s_press_pid_profile_version;
+}
+
+uint8_t TreatmentPressureControl_SetProfileGains(uint32_t profile, uint32_t stage,
+                                                float kp, float ki, float kd)
+{
+    TreatmentPressurePidGains *gains;
+    if ((profile > 1U) || (stage > 2U) ||
+        !isfinite(kp) || !isfinite(ki) || !isfinite(kd) ||
+        (kp < 0.0f) || (ki < 0.0f) || (kd < 0.0f) ||
+        (kp > 1000.0f) || (ki > 1000.0f) || (kd > 1000.0f))
+    {
+        return 0U;
+    }
+    gains = TreatmentPressureControl_SelectStageGainsMutable(
+        TreatmentPressureControl_SelectProfileMutable((TreatmentPressureProfileKind)profile),
+        (TreatmentPressurePidStage)stage);
+    gains->kp = kp;
+    gains->ki = ki;
+    gains->kd = kd;
+    ++s_press_pid_profile_version;
+    return 1U;
+}
+
+void TreatmentPressureControl_GetProfileGains(uint32_t profile, uint32_t stage, float gains[3])
+{
+    const TreatmentPressurePidGains *selected = TreatmentPressureControl_SelectStageGains(
+        TreatmentPressureControl_SelectProfile((TreatmentPressureProfileKind)profile),
+        (TreatmentPressurePidStage)stage);
+    gains[0] = selected->kp;
+    gains[1] = selected->ki;
+    gains[2] = selected->kd;
+}
+
+void TreatmentPressureControl_GetPwmLimits(uint32_t *minimum, uint32_t *maximum)
+{
+    *minimum = PRESS_PUMP_MIN_PWM;
+    *maximum = PRESS_PUMP_MAX_PWM;
 }

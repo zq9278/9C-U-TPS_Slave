@@ -79,6 +79,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Modules/EyeShield/eye_shield_status.c
     Modules/App/treatment_app_controller.c
     Modules/Pressure/treatment_pressure_control.c
+    Modules/Pressure/pid_jlink.c
     Modules/Heat/treatment_heating_control.c
 )
 
@@ -139,4 +140,5 @@ target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
 # 启用 printf 的浮点格式支持（newlib-nano 默认禁用）
 target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
     -u _printf_float
+    -Wl,--undefined=g_pid_jlink_build_id
 )

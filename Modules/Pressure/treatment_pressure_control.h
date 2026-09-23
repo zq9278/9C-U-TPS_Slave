@@ -59,6 +59,11 @@ void TreatmentPressureControl_SetPidGains(TreatmentPressurePidStage stage, float
 /* 读取默认压力 PID 参数。 */
 void TreatmentPressureControl_GetPidGains(TreatmentPressurePidStage stage, float *kp, float *ki, float *kd);
 uint32_t TreatmentPressureControl_GetPidVersion(void);
+/* J-Link 调试接口仅由 ControlTask 调用，profile: 0=单眼, 1=双眼。 */
+uint8_t TreatmentPressureControl_SetProfileGains(uint32_t profile, uint32_t stage,
+                                                float kp, float ki, float kd);
+void TreatmentPressureControl_GetProfileGains(uint32_t profile, uint32_t stage, float gains[3]);
+void TreatmentPressureControl_GetPwmLimits(uint32_t *minimum, uint32_t *maximum);
 
 #ifdef __cplusplus
 }

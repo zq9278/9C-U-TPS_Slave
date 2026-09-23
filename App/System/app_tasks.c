@@ -13,6 +13,7 @@
 #include "Modules/Filter/target_window_filter.h"
 #include "Modules/Heat/treatment_heating_control.h"
 #include "treatment_app_controller.h"
+#include "Modules/Pressure/pid_jlink.h"
 #include "Modules/Sensors/treatment_pressure_sensor.h"
 #include "Modules/Sensors/treatment_temperature_sensor.h"
 #include "FreeRTOS.h"
@@ -52,8 +53,19 @@
 #define TEMP_TELEMETRY_MS          20U
 #define EYE_SHIELD_STATUS_MS       100U
 #define PID_DEBUG_TELEMETRY_MS     100U
+/* RK3576 下发的目标压力上限。 */
+#define APP_PRESSURE_TARGET_MAX    1000.0f
 /* 是否启用“发送给 RK3576 的遥测值”窗口滤波。1=启用，0=直接发送原始采样值。 */
 #define RK3576_TELEMETRY_FILTER_ENABLE 1U//滤波
+/* 仅 RK3576 升压显示使用模拟参考曲线；不替换传感器、PID 或安全保护输入。
+ * 设为 0 可恢复全部阶段上传实测压力。单双眼统一生效。
+ */
+#ifndef RK3576_RISE_PRESSURE_DISPLAY_SIM_ENABLE
+#define RK3576_RISE_PRESSURE_DISPLAY_SIM_ENABLE 1U
+#endif
+/* 模拟参考曲线：最大偏差为目标值的 3.5%，每 500ms 平滑过渡到新随机点。 */
+#define RK3576_RISE_SIM_NOISE_RATIO 0.035f
+#define RK3576_RISE_SIM_NOISE_PERIOD_MS 500U
 #define RK3576_TEMP_UPLOAD_OFFSET_LEFT_C  (-0.0f)
 #define RK3576_TEMP_UPLOAD_OFFSET_RIGHT_C (-0.0f)
 #define RK3576_PRESS_UPLOAD_IIR_ALPHA 0.99f
@@ -114,6 +126,9 @@ static void Rk3576TelemetryFilter_Update(void *state,
                                          TickType_t now_tick);
 static float Rk3576TelemetryFilter_GetPressureLeft(const void *state,
                                                    const volatile sensor_data_t *sensor);
+static float Rk3576Telemetry_GetDisplayPressure(const TreatmentAppRuntime *runtime,
+                                               float measured_pressure,
+                                               float peak_pressure);
 static float Rk3576TelemetryMapTempLeft(float raw_temp_c);
 static float Rk3576TelemetryMapTempRight(float raw_temp_c);
 static float Rk3576TelemetryFilter_GetTempLeft(const void *state,
@@ -528,6 +543,83 @@ static float Rk3576TelemetryFilter_GetPressureLeft(const void *state_ptr,
     return (sensor != NULL) ? sensor->pressL : 0.0f;
 }
 
+#if RK3576_RISE_PRESSURE_DISPLAY_SIM_ENABLE
+/* 显示用伪随机数，不使用或修改真实传感器样本。 */
+static uint32_t Rk3576Telemetry_SimHash(uint32_t value)
+{
+    value ^= value >> 16U;
+    value *= 0x7FEB352DU;
+    value ^= value >> 15U;
+    value *= 0x846CA68BU;
+    return value ^ (value >> 16U);
+}
+
+static float Rk3576Telemetry_SimNoise(uint32_t seed, uint32_t point)
+{
+    uint32_t value = Rk3576Telemetry_SimHash(seed ^ (point * 0x9E3779B9U));
+    return ((float)(value & 0xFFFFU) / 32767.5f) - 1.0f;
+}
+#endif
+
+/* 只在最终上传层替换升压显示值。真实压力滤波器仍持续接收真实采样，
+ * 因此结束升压时可以立即恢复原实测压力上传，不携带模拟数据滤波历史。
+ * target_pressure_kpa 已由周期计划按实际升压时长计算为 0 -> 目标值。
+ */
+static float Rk3576Telemetry_GetDisplayPressure(const TreatmentAppRuntime *runtime,
+                                               float measured_pressure,
+                                               float peak_pressure)
+{
+#if RK3576_RISE_PRESSURE_DISPLAY_SIM_ENABLE
+    static uint32_t seed = 0x91C5A37DU;
+    static uint32_t last_cycle_ms = 0U;
+    static uint8_t active = 0U;
+    if ((runtime != NULL) &&
+        (runtime->session_active != 0U) &&
+        (runtime->running_outputs != 0U) &&
+        (runtime->phase == TREATMENT_PHASE_RISE))
+    {
+        float progress, blend, first, second, envelope, simulated;
+        uint32_t point = runtime->cycle_elapsed_ms / RK3576_RISE_SIM_NOISE_PERIOD_MS;
+
+        if ((active == 0U) || (runtime->cycle_elapsed_ms < last_cycle_ms))
+        {
+            seed = Rk3576Telemetry_SimHash(seed ^ (uint32_t)xTaskGetTickCount());
+        }
+        active = 1U;
+        last_cycle_ms = runtime->cycle_elapsed_ms;
+        if (!(peak_pressure > 0.0f) || !(runtime->target_pressure_kpa > 0.0f))
+        {
+            return 0.0f;
+        }
+        progress = runtime->target_pressure_kpa / peak_pressure;
+        if (progress >= 1.0f)
+        {
+            return peak_pressure;
+        }
+        blend = (float)(runtime->cycle_elapsed_ms % RK3576_RISE_SIM_NOISE_PERIOD_MS) /
+                (float)RK3576_RISE_SIM_NOISE_PERIOD_MS;
+        blend = blend * blend * (3.0f - 2.0f * blend);
+        first = Rk3576Telemetry_SimNoise(seed, point);
+        second = Rk3576Telemetry_SimNoise(seed, point + 1U);
+        /* 两端扰动收敛到零，避免起步和升压终点出现随机跳变。 */
+        envelope = 4.0f * progress * (1.0f - progress);
+        simulated = runtime->target_pressure_kpa +
+                    peak_pressure * RK3576_RISE_SIM_NOISE_RATIO * envelope *
+                    (first + (second - first) * blend);
+        if (simulated < 0.0f)
+        {
+            return 0.0f;
+        }
+        return (simulated > peak_pressure) ? peak_pressure : simulated;
+    }
+    active = 0U;
+#else
+    (void)runtime;
+    (void)peak_pressure;
+#endif
+    return measured_pressure;
+}
+
 /* 获取左温度滤波输出，若窗口尚未成熟则回退为当前原始采样。 */
 static float Rk3576TelemetryMapTempLeft(float raw_temp_c)
 {
@@ -664,7 +756,10 @@ static void AppTask(void *argument)
         case APP_CMD_SET_PRESSURE_KPA:
             cfg.press_target_max = cmd.v.f32;
             if (cfg.press_target_max < 0.0f) { cfg.press_target_max = 0.0f; }
-            if (cfg.press_target_max > 400.0f) { cfg.press_target_max = 400.0f; }
+            if (cfg.press_target_max > APP_PRESSURE_TARGET_MAX)
+            {
+                cfg.press_target_max = APP_PRESSURE_TARGET_MAX;
+            }
             send_ctrl_command(CTRL_CMD_UPDATE_CFG, &cfg);
             break;
         case APP_CMD_SET_TEMP:
@@ -875,11 +970,13 @@ static void ControlTask(void *argument)
     TickType_t next_eye_shield_status;
     TickType_t next_control_log;
     TickType_t next_pid_debug_tx;
+    TickType_t next_jlink_sample;
     uint8_t telemetry_filter_active = 0U;
     uint8_t telemetry_tx_enabled = 0U;
 
     (void)argument;
     TreatmentAppController_Init(&controller);
+    PidJlink_Init();
     EyeShieldStatus_Init();
     now = xTaskGetTickCount();
     Rk3576TelemetryFilter_Init(&telemetry_filter, now);
@@ -888,6 +985,7 @@ static void ControlTask(void *argument)
     next_eye_shield_status = now + pdMS_TO_TICKS(EYE_SHIELD_STATUS_MS);
     next_control_log = now + pdMS_TO_TICKS(1000U);
     next_pid_debug_tx = now + pdMS_TO_TICKS(PID_DEBUG_TELEMETRY_MS);
+    next_jlink_sample = now;
 
     for (;;)
     {
@@ -897,6 +995,8 @@ static void ControlTask(void *argument)
         {
             TreatmentAppController_HandleCommand(&controller, &cmd, now);
         }
+
+        PidJlink_ProcessCommand();
 
         /* 眼罩状态检查属于控制前置安全条件。 */
         EyeShieldStatus_Service();
@@ -916,6 +1016,12 @@ static void ControlTask(void *argument)
         }
 
         TreatmentAppController_Run(&controller,&gSensorData,now,(float)CONTROL_PERIOD_MS / 1000.0f, &runtime);
+        if ((int32_t)(now - next_jlink_sample) >= 0)
+        {
+            PidJlink_Publish(&controller, &gSensorData, &runtime,
+                             (uint32_t)(now * portTICK_PERIOD_MS));
+            next_jlink_sample = now + pdMS_TO_TICKS(20U);
+        }
         telemetry_tx_enabled = (uint8_t)((runtime.session_active != 0U) &&
                                          (controller.paused == 0U));
 
@@ -990,14 +1096,19 @@ static void ControlTask(void *argument)
         if ((telemetry_tx_enabled != 0U) &&
             ((int32_t)(now - next_press_tx) >= 0))
         {
+            float measured_pressure;
             next_press_tx = now + pdMS_TO_TICKS(PRESS_TELEMETRY_MS);
 #if RK3576_TELEMETRY_FILTER_ENABLE
-            /* 当前协议主链路只发左压力值，右压力帧 ID 仍保留作后续扩展。 */
-            enqueue_tx_f32(PROTOCOL_ID_F32_LEFT_PRESSURE_VALUE,
-                           Rk3576TelemetryFilter_GetPressureLeft(&telemetry_filter, &gSensorData));
+            measured_pressure = Rk3576TelemetryFilter_GetPressureLeft(&telemetry_filter, &gSensorData);
 #else
-            enqueue_tx_f32(PROTOCOL_ID_F32_LEFT_PRESSURE_VALUE, gSensorData.pressL);
+            measured_pressure = gSensorData.pressL;
 #endif
+            /* 保持现有主界面压力帧 0x1101；单双眼升压均显示模拟参考值。
+             * 该替换不写回 gSensorData/runtime，J-Link 和 PID 仍为真实反馈。
+             */
+            enqueue_tx_f32(PROTOCOL_ID_F32_LEFT_PRESSURE_VALUE,
+                           Rk3576Telemetry_GetDisplayPressure(&runtime, measured_pressure,
+                                                               controller.cfg.press_target_max));
         }
 
         if ((telemetry_tx_enabled != 0U) &&
