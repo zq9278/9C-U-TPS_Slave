@@ -198,6 +198,11 @@ void EyeShieldStatus_Init(void)
     s_initialized = 1U;
 }
 
+uint8_t EyeShieldStatus_IsFuseBusy(void)
+{
+    return (s_fuse_blow_pending_mask != 0U) || (s_fuse_blow_active_mask != 0U);
+}
+
 void EyeShieldStatus_RequestFuseBlow(uint8_t blow_left, uint8_t blow_right)
 {
 #if (PRODUCT_FEATURE_CONSUMABLE_FUSE_BLOW_ENABLE != 0U)

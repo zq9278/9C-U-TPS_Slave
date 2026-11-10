@@ -184,6 +184,11 @@
   */
 void SystemInit(void)
 {
+#if defined(TPS_APP_OFFSET)
+  SCB->VTOR = FLASH_BASE + TPS_APP_OFFSET;
+  __DSB();
+  __ISB();
+#endif
   /* Configure the Vector Table location -------------------------------------*/
 #if defined(USER_VECT_TAB_ADDRESS)
   SCB->VTOR = VECT_TAB_BASE_ADDRESS | VECT_TAB_OFFSET; /* Vector Table Relocation */

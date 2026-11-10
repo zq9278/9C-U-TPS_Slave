@@ -51,6 +51,15 @@ uint8_t Rk3576Protocol_FrameToAppCommand(const ProtocolFrameView *frame,
     /* 这里只做“协议帧 -> 应用命令”的纯翻译，不直接操作硬件。 */
     switch (frame->frame_id)
     {
+    case PROTOCOL_ID_GET_FW_INFO:
+        if(frame->data_type != PROTOCOL_DATA_TYPE_UINT8 || frame->payload_length != 1 || frame->payload[0] != 0) return 0U;
+        command->id = APP_CMD_GET_FW_INFO;
+        break;
+    case PROTOCOL_ID_ENTER_BOOT:
+        if(frame->data_type != PROTOCOL_DATA_TYPE_UINT32 || frame->payload_length != 4) return 0U;
+        command->id = APP_CMD_ENTER_BOOT;
+        memcpy(&command->v.u32,frame->payload,4);
+        break;
     case PROTOCOL_ID_U8_HEARTBEAT_REQ:
         command->id = APP_CMD_HEARTBEAT;
         break;

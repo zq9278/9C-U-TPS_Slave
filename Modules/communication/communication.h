@@ -8,6 +8,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+/* Wait for the final UART3 stop bit, not merely DMA completion. */
+uint8_t Communication_WaitBusinessTx(uint32_t timeout_ms);
 
 /* 当前通信模块管理的通道枚举。 */
 typedef enum

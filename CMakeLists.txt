@@ -7,6 +7,16 @@
 # User is free to modify the file as much as necessary
 #
 
+option(TPS_BUILD_BOOT "Build standalone serial Bootloader" OFF)
+option(TPS_LEGACY_APP "Build original SWD-only application at Flash base" OFF)
+set(TPS_HW_REV 1 CACHE STRING "Production board hardware revision")
+if(TPS_BUILD_BOOT)
+    set(TPS_LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/Bootloader/boot.ld")
+elseif(TPS_LEGACY_APP)
+    set(TPS_LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/STM32G070XX_FLASH.ld")
+else()
+    set(TPS_LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/App/app.ld")
+endif()
 # Setup compiler settings
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -30,6 +40,10 @@ message("Build type: " ${CMAKE_BUILD_TYPE})
 
 # Enable CMake support for ASM and C languages
 enable_language(C ASM)
+if(TPS_BUILD_BOOT)
+    include(Bootloader/build.cmake)
+    return()
+endif()
 
 # Create an executable object type
 add_executable(${CMAKE_PROJECT_NAME})
@@ -48,6 +62,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/System/app_main.c
     App/System/app_tasks.c
     App/System/app_rtos_hooks.c
+    Shared/Upgrade/upgrade.c
 
     # BSP / drivers
     BSP/Gpio/bsp_gpio.c
@@ -120,8 +135,14 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Add project symbols (macros)
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined symbols
+    UP_HW_REV=${TPS_HW_REV}
 )
+if(NOT TPS_LEGACY_APP)
+    target_compile_definitions(STM32_Drivers PRIVATE TPS_APP_OFFSET=0x4000U)
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE TPS_APP_UPGRADE=1)
+    add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:${CMAKE_PROJECT_NAME}> ${CMAKE_BINARY_DIR}/tps_app.bin)
+endif()
 
 # Remove wrong libob.a library dependency when using cpp files
 list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_LIBRARIES ob)

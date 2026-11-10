@@ -17,6 +17,7 @@ void EyeShieldStatus_Init(void);
 void EyeShieldStatus_Service(void);
 uint8_t EyeShieldStatus_Process(control_config_t *cfg, stop_reason_t *stop_reason);
 void EyeShieldStatus_RequestFuseBlow(uint8_t blow_left, uint8_t blow_right);
+uint8_t EyeShieldStatus_IsFuseBusy(void);
 
 #ifdef __cplusplus
 }

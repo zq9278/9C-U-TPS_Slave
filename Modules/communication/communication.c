@@ -5,6 +5,7 @@
 #include "FreeRTOS.h"
 #include "Modules/communication/Protocol/rk3576_protocol.h"
 #include "semphr.h"
+#include "task.h"
 #include "usart.h"
 
 /* 底层 UART DMA 收发缓冲大小。 */
@@ -25,6 +26,19 @@ static CommunicationUartInterface s_rk3576_uart3;
 static Rk3576Protocol s_rk3576_protocol;
 static CommunicationCallbacks s_callbacks;
 static uint8_t s_initialized = 0U;
+
+uint8_t Communication_WaitBusinessTx(uint32_t timeout_ms)
+{
+    if (!s_initialized || xSemaphoreTake(s_rk3576_uart3.tx_semaphore, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) return 0U;
+    TickType_t start = xTaskGetTickCount();
+    uint8_t ok = 1U;
+    while (__HAL_UART_GET_FLAG(&huart3, UART_FLAG_TC) == RESET) {
+        if ((xTaskGetTickCount() - start) >= pdMS_TO_TICKS(timeout_ms)) { ok=0U; break; }
+        vTaskDelay(1);
+    }
+    (void)xSemaphoreGive(s_rk3576_uart3.tx_semaphore);
+    return ok;
+}
 
 /* 初始化单个 UART 接口并启动 DMA 接收。 */
 static void Communication_OnLogUartChunk(void *context, const uint8_t *data, size_t length);

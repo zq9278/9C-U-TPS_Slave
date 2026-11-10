@@ -139,6 +139,8 @@ typedef enum
     APP_CMD_LEFT_HEATER_FUSE_BLOW,
     APP_CMD_RIGHT_HEATER_FUSE_BLOW,
     APP_CMD_SAVE_PARAM,
+    APP_CMD_GET_FW_INFO,
+    APP_CMD_ENTER_BOOT,
 } app_cmd_id_t;
 
 /**

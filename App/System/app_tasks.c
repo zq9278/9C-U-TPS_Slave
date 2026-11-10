@@ -20,6 +20,14 @@
 #include "semphr.h"
 #include "task.h"
 #include "UserDrivers/Ads1248/ads1248.h"
+#include "Config/product_config.h"
+#include "Shared/Upgrade/upgrade.h"
+#include "tim.h"
+
+/* ControlTask is the only writer of the stop acknowledgement. Once requested,
+ * neither queued business nor debug commands may restart the actuators. */
+static volatile uint8_t s_upgrade_requested;
+static volatile uint8_t s_upgrade_control_ready;
 
 /*
  * 本文件是应用层任务编排中心：
@@ -182,6 +190,8 @@ static void send_ctrl_command(ctrl_cmd_id_t id, const control_config_t *cfg)
 static void send_pid_ctrl_command(const PidDebugCommand *pid_cmd)
 {
     ctrl_cmd_t cmd;
+
+    if (s_upgrade_requested) return;
 
     if (pid_cmd == NULL)
     {
@@ -655,8 +665,35 @@ static void AppTask(void *argument)
             continue;
         }
 
+        if (s_upgrade_requested && cmd.id != APP_CMD_ENTER_BOOT && cmd.id != APP_CMD_GET_FW_INFO && cmd.id != APP_CMD_HEARTBEAT) continue;
+
         switch (cmd.id)
         {
+        case APP_CMD_GET_FW_INFO: {
+            tx_frame_t info = {0};
+            info.frame_id = PROTOCOL_ID_FW_INFO;
+            info.type = TX_DATA_TEXT;
+            (void)strncpy(info.v.text, PRODUCT_FIRMWARE_VERSION_STRING, sizeof(info.v.text)-1);
+            (void)xQueueSend(gTxQueue, &info, 0);
+            break;
+        }
+        case APP_CMD_ENTER_BOOT:
+#if defined(TPS_APP_UPGRADE)
+            if (cmd.v.u32 != UP_MAILBOX_MAGIC) {
+                enqueue_tx_u8(PROTOCOL_ID_ENTER_BOOT_ACK,3);
+            } else if (cfg.running || paused || EyeShieldStatus_IsFuseBusy()) {
+                enqueue_tx_u8(PROTOCOL_ID_ENTER_BOOT_ACK,1);
+            } else {
+                s_upgrade_requested = 1;
+                TickType_t deadline = xTaskGetTickCount();
+                while (!s_upgrade_control_ready && xTaskGetTickCount()-deadline < pdMS_TO_TICKS(1000)) vTaskDelay(1);
+                /* Failure leaves outputs locked off; retry ENTER_BOOT is allowed. */
+                enqueue_tx_u8(PROTOCOL_ID_ENTER_BOOT_ACK, s_upgrade_control_ready == 1 ? 0 : 2);
+            }
+#else
+            enqueue_tx_u8(PROTOCOL_ID_ENTER_BOOT_ACK,3);
+#endif
+            break;
         case APP_CMD_HEARTBEAT:
             /* 心跳只回 ACK，不改动本地状态。 */
             enqueue_tx_u8(PROTOCOL_ID_U8_HEARTBEAT_ACK, 1U);
@@ -797,6 +834,17 @@ static void CommTxTask(void *argument)
             continue;
         }
 
+        if (s_upgrade_requested && tx.frame_id != PROTOCOL_ID_ENTER_BOOT_ACK && tx.frame_id != PROTOCOL_ID_FW_INFO && tx.frame_id != PROTOCOL_ID_U8_HEARTBEAT_ACK) continue;
+        if (tx.frame_id == PROTOCOL_ID_ENTER_BOOT_ACK && tx.v.u8 == 0 && s_upgrade_requested && s_upgrade_control_ready == 1) {
+            if (Communication_SendU8(tx.frame_id,0) && Communication_WaitBusinessTx(500)) {
+                volatile uint32_t *mail = (volatile uint32_t *)UP_MAILBOX;
+                mail[0]=UP_MAILBOX_MAGIC; mail[1]=~UP_MAILBOX_MAGIC;
+                mail[2]=1; mail[3]=~1UL;
+                __DSB(); NVIC_SystemReset();
+            }
+            continue;
+        }
+
         switch (tx.type)
         {
         case TX_DATA_UINT8:
@@ -895,7 +943,18 @@ static void ControlTask(void *argument)
 
         while (xQueueReceive(gCtrlCmdQueue, &cmd, 0U) == pdTRUE)
         {
-            TreatmentAppController_HandleCommand(&controller, &cmd, now);
+            if (!s_upgrade_requested) TreatmentAppController_HandleCommand(&controller, &cmd, now);
+        }
+
+        if (s_upgrade_requested) {
+            TreatmentAppController_SetSystemIdleOutputs();
+            /* Mirror the existing idle route and verify programmed outputs. */
+            s_upgrade_control_ready = (TIM15->CCR1 == 0 && TIM14->CCR1 == 0 && TIM17->CCR1 == 0 &&
+                (GPIOA->ODR & (AirValve1_Pin|AirValve2_Pin|AirPump2_Pin)) == 0 &&
+                (GPIOB->ODR & Heat1_Fuse_Blown_Pin) == 0 &&
+                (GPIOD->ODR & Heat2_Fuse_Blown_Pin) == 0 && !EyeShieldStatus_IsFuseBusy()) ? 1 : 2;
+            vTaskDelay(pdMS_TO_TICKS(CONTROL_PERIOD_MS));
+            continue;
         }
 
         /* 眼罩状态检查属于控制前置安全条件。 */

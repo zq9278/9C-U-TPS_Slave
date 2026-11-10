@@ -13,6 +13,17 @@ The codebase replaces legacy monolithic logic with clear responsibilities:
 
 All new code and comments are UTF‑8.
 
+## Bootloader / 串口升级
+
+默认构建已改为从 **0x08004000** 启动的 App（108 KiB），独立 Boot 占前16 KiB。
+首次烧录使用打包器生成的 **tps_factory.bin**（烧到0x08000000）；Qt串口升级使用 **tps_app.tpsfw**。
+不要把默认App烧到Flash起点。原SWD单体构建可在独立目录设置 `TPS_LEGACY_APP=ON`。
+Debug使用 `-Og -g3` 以满足分区容量并保留调试信息；发布使用Release。
+
+- [上位机工程师交接：接口、构建、打包、测试](documents/uart_upgrade_handoff.md)
+- [Boot/App设计](documents/bootloader_uart_upgrade_design.md)
+- 升级串口以当前源码为准：USART3、PD8/PD9、115200/8N1。下方旧架构描述保留作历史参考。
+
 
 ## Quick Start
 
