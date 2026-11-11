@@ -32,7 +32,7 @@ PID二进制采样使用独立上行通道1；此工具不修改PID，不启停�
 
 管理员凭据仅在本机从 `D:/Technology_stack/Web/mender/admin-credentials.json` 读取，绝不打包或记录用户名、密码、JWT。其他发布电脑可在Electron用户数据目录的publisher.json配置credentials路径。服务器依次使用aliyun、hk、oregon、oracle1、oracle2入口，强制验证TLS，上传POST不因断线盲目重发。
 
-“发布设置”选择TPS签名私钥和设备已信任公钥（只保存路径，不复制密钥），签名后独立验签；未配置或验签不通过时拒绝上传，不支持未签名发布。设备信任策略仍由ARM客户端执行。
+按用户最新要求，默认沿用现有TPS未签名格式，无需配置密钥。“发布设置”可切换未签名模式；以后如需签名，可选择TPS私钥和设备已信任公钥，独立验签通过后发布。上传核对会检查服务器实际签名状态与所选模式一致。设备接收策略仍由ARM客户端执行。
 
 发布文件与upload.json记录保存在Windows“文档/TPS100-Published/<发布名>”；其中包括外层Artifact SHA256、负载哈希、服务器Artifact ID和核对结果。上传响应丢失时按同名及哈希查询结果，不直接换入口重复POST；不确定结果必须人工核查后处理本地记录。
 

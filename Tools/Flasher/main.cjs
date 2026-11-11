@@ -44,7 +44,7 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
         const answer=await dialog.showMessageBox(win,{type:'question',title:'上传新固件到 Releases',buttons:['取消','上传新包'],defaultId:0,cancelId:0,
           message:prepared.name,
           detail:`App实际版本 ${prepared.info.version}\nHW ${prepared.info.hw_min}..${prepared.info.hw_max}\nSHA256 ${prepared.info.sha256}\n`+
-            `设备类型 eyemeter-thermal-aarch64 / 模块 eyemeter-tps-mcu\n${settings.privateKey&&settings.publicKey?'使用TPS密钥签名':'尚未配置TPS签名密钥，请取消并打开发布设置'}\n仅上传Releases，不创建部署，不触发设备安装。`});
+            `设备类型 eyemeter-thermal-aarch64 / 模块 eyemeter-tps-mcu\n${settings.mode==='signed'?'使用TPS密钥签名':'未签名发布（沿用现有TPS格式）'}\n仅上传Releases，不创建部署，不触发设备安装。`});
         if(answer.response!==1)return {canceled:true};
         const result=await publisher.upload(prepared);
         emit('log',`已上传并核对：${result.name}\nArtifact ID ${result.artifact_id}\n发布记录 ${result.folder}\n未创建部署任务。\n`);return result;
@@ -53,15 +53,15 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
     if(action==='publish-settings') {
       noTask();active='settings';
       try {
-        const answer=await dialog.showMessageBox(win,{type:'question',title:'本机发布设置',buttons:['取消','配置TPS签名密钥'],defaultId:0,cancelId:0,
-          message:'发布端设置只保存在本机，不包含在分发包中。',detail:'管理员凭据默认按接入说明读取。请选择TPS产品私钥和设备已信任公钥，工具独立验签后才允许上传。'});
+        const answer=await dialog.showMessageBox(win,{type:'question',title:'本机发布设置',buttons:['取消','使用未签名格式','配置TPS签名密钥'],defaultId:0,cancelId:0,
+          message:'默认沿用现有TPS未签名格式。',detail:'发布设置仅保存在本机。管理员凭据按接入说明读取；如以后启用签名，选择TPS私钥和设备已信任公钥。'});
         if(answer.response===0)return false;
         const settings=publisher.settings();
-        if(answer.response===1){
+        if(answer.response===2){
           const key=await dialog.showOpenDialog(win,{title:'选择TPS Artifact签名私钥',properties:['openFile']});if(key.canceled)return false;
           const pub=await dialog.showOpenDialog(win,{title:'选择设备已信任的TPS验签公钥',properties:['openFile']});if(pub.canceled)return false;
-          settings.privateKey=key.filePaths[0];settings.publicKey=pub.filePaths[0];delete settings.allowUnsigned;
-        }
+          settings.privateKey=key.filePaths[0];settings.publicKey=pub.filePaths[0];settings.mode='signed';
+        }else{settings.mode='unsigned';delete settings.privateKey;delete settings.publicKey;}
         fs.mkdirSync(path.dirname(publisher.settingsFile),{recursive:true});fs.writeFileSync(publisher.settingsFile,JSON.stringify(settings,null,2));return true;
       }finally{active=null;}
     }

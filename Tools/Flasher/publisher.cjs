@@ -53,14 +53,15 @@ function artifact(data,name,signing={}) {
   const manifest=Buffer.from(`${hash(data)}  data/0000/firmware.tpsfw\n${hash(header)}  header.tar.gz\n${hash(version)}  version\n`);
   const entries=[['version',version],['manifest',manifest]];
   let signed=false;
-  if(signing.privateKey&&signing.publicKey){
+  if(signing.mode==='signed'){
+    if(!signing.privateKey||!signing.publicKey)throw Error('未配置TPS签名私钥与设备信任公钥');
     const key=crypto.createPrivateKey(fs.readFileSync(signing.privateKey)),pub=crypto.createPublicKey(fs.readFileSync(signing.publicKey));
     if(!['rsa','ec'].includes(key.asymmetricKeyType)||key.asymmetricKeyType==='ec'&&key.asymmetricKeyDetails.namedCurve!=='prime256v1')throw Error('Mender仅支持RSA或ECDSA P-256密钥');
     // Mender serializes P-256 as fixed r||s (64 bytes), not ASN.1 DER.
     const signature=crypto.sign('sha256',manifest,{key,dsaEncoding:'ieee-p1363'});
     if(!crypto.verify('sha256',manifest,{key:pub,dsaEncoding:'ieee-p1363'},signature))throw Error('签名不被所选设备信任公钥接受');
     entries.push(['manifest.sig',Buffer.from(signature.toString('base64'))]);signed=true;
-  }else throw Error('未配置TPS签名私钥与设备信任公钥；请先打开发布设置');
+  }else if(signing.mode && signing.mode!=='unsigned')throw Error('无效发布模式');
   entries.push(['header.tar.gz',header],['data/0000.tar.gz',payload]);
   return {bytes:tar(entries),info,signed};
 }
@@ -82,7 +83,7 @@ class Publisher {
   constructor({settingsFile,records,transport=request}={}) {this.settingsFile=settingsFile;this.records=records;this.transport=transport;this.busy=false;}
   settings() {
     let s={};try{s=JSON.parse(fs.readFileSync(this.settingsFile,'utf8'));}catch{}
-    return {credentials:DEFAULT_CREDENTIALS,...s};
+    return {credentials:DEFAULT_CREDENTIALS,...s,mode:s.mode||'unsigned'};
   }
   async connect() {
     const s=this.settings(),c=JSON.parse(fs.readFileSync(s.credentials,'utf8').replace(/^\uFEFF/,''));
@@ -130,7 +131,7 @@ class Publisher {
       try{await this.transport(connection.server,API,{method:'POST',body,token:connection.token,headers:{'Content-Type':'multipart/form-data; boundary='+boundary}});record.state='UPLOADED_UNCONFIRMED';save();}
       catch(e){postError=e;record.state='UPLOAD_UNCERTAIN';save();}
       const list=await this.list(connection);const found=list.filter(a=>a.name===name);
-      const match=found.find(a=>a.signed===true&&a.artifact_provides?.['eyemeter.tps-mcu.version']===packed.info.version&&a.device_types_compatible?.includes(DEVICE_TYPE)&&a.updates?.some(u=>u.type_info?.type===MODULE&&u.files?.some(f=>f.name==='firmware.tpsfw'&&f.checksum===packed.info.sha256&&f.size===data.length)));
+      const match=found.find(a=>a.signed===packed.signed&&a.artifact_provides?.['eyemeter.tps-mcu.version']===packed.info.version&&a.device_types_compatible?.includes(DEVICE_TYPE)&&a.updates?.some(u=>u.type_info?.type===MODULE&&u.files?.some(f=>f.name==='firmware.tpsfw'&&f.checksum===packed.info.sha256&&f.size===data.length)));
       if(!match){record.state='UNCONFIRMED';save();throw Error(postError?'上传结果未确认；请检查服务器和本地upload.json，勿直接重复上传':'服务器未核对到相同负载，不能显示成功');}
       record.state='VERIFIED';record.artifact_id=match.id;save();return {...record,folder};
     }finally{this.busy=false;}

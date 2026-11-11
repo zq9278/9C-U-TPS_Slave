@@ -7,7 +7,7 @@ function fixture(){const image=Buffer.alloc(32);image.writeUInt32LE(0x20008FE0);
   const h=Buffer.alloc(64);h.write('TPSFW001');h.writeUInt16LE(64,8);h.writeUInt16LE(1,10);h.writeUInt32LE(0x9C01,12);h.writeUInt16LE(1,16);h.writeUInt16LE(1,18);h.writeUInt32LE(0x08004000,20);h.writeUInt32LE(32,24);h.writeUInt32LE(crc32(image),28);h.writeUInt32LE(0x10100,32);h.writeUInt32LE(0x10000,36);h.writeUInt32LE(crc32(h.subarray(0,60)),60);return Buffer.concat([h,image]);}
 function signing(dir){const keys=crypto.generateKeyPairSync('ec',{namedCurve:'prime256v1'});
   const privateKey=path.join(dir,'key'),publicKey=path.join(dir,'pub');
-  fs.writeFileSync(privateKey,keys.privateKey.export({type:'pkcs8',format:'pem'}));fs.writeFileSync(publicKey,keys.publicKey.export({type:'spki',format:'pem'}));return {privateKey,publicKey};}
+  fs.writeFileSync(privateKey,keys.privateKey.export({type:'pkcs8',format:'pem'}));fs.writeFileSync(publicKey,keys.publicKey.export({type:'spki',format:'pem'}));return {mode:'signed',privateKey,publicKey};}
 test('names increment patch from requested 1.0.2 floor, not list order or another product',()=>{
   assert.equal(nextName([]),'tps-mcu-1.0.2-20261111');
   assert.equal(nextName([{name:'tps-mcu-1.0.9-20261112'},{name:'other-1.0.99-20261111'},{name:'tps-mcu-1.0.1-20261111'}]),'tps-mcu-1.0.10-20261111');
@@ -15,13 +15,14 @@ test('names increment patch from requested 1.0.2 floor, not list order or anothe
 test('payload version remains actual MCU version and corruption fails',()=>{
   const d=fixture();assert.equal(payloadInfo(d).version,'0.1.1.0');d[70]^=1;assert.throws(()=>payloadInfo(d),/CRC/);
 });
-test('unsigned output is forbidden; signed artifact uses independently supplied key',t=>{
-  const d=fixture();assert.throws(()=>artifact(d,'tps-mcu-1.0.2-20261111'),/签名/);
-  assert.throws(()=>artifact(d,'tps-mcu-1.0.2-20261111',{allowUnsigned:true}),/签名/);
+test('unsigned is the default; optional signed mode requires matching trusted key',t=>{
+  const d=fixture();const unsigned=artifact(d,'tps-mcu-1.0.2-20261111');
+  assert.equal(unsigned.signed,false);assert.equal(unsigned.bytes.includes(Buffer.from('manifest.sig')),false);
+  assert.throws(()=>artifact(d,'tps-mcu-1.0.2-20261111',{mode:'signed'}),/签名/);
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'tps-sign-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
   const result=artifact(d,'tps-mcu-1.0.2-20261111',signing(dir));assert.equal(result.signed,true);assert.ok(result.bytes.includes(Buffer.from('manifest.sig')));
   const wrong=crypto.generateKeyPairSync('ec',{namedCurve:'prime256v1'});fs.writeFileSync(path.join(dir,'pub'),wrong.publicKey.export({type:'spki',format:'pem'}));
-  assert.throws(()=>artifact(d,'tps-mcu-1.0.2-20261111',{privateKey:path.join(dir,'key'),publicKey:path.join(dir,'pub')}),/公钥/);
+  assert.throws(()=>artifact(d,'tps-mcu-1.0.2-20261111',{mode:'signed',privateKey:path.join(dir,'key'),publicKey:path.join(dir,'pub')}),/公钥/);
 });
 test('upload reconciles lost POST response by hash, never deploys or retries POST',async t=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'tps-pub-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
