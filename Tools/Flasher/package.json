@@ -1,12 +1,15 @@
 {
-  "name": "tps100-flasher",
-  "version": "1.1.3",
+  "name": "tps130-studio",
+  "version": "2.0.0",
   "private": true,
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "test": "node --test backend.test.cjs publisher.test.cjs",
+    "test": "node --test backend.test.cjs publisher.test.cjs platform.test.cjs",
     "package": "python ../../scripts/package_flasher.py"
   },
-  "devDependencies": {"electron": "45.0.0"}
+  "devDependencies": {
+    "electron": "45.0.0",
+    "rcedit": "5.0.2"
+  }
 }

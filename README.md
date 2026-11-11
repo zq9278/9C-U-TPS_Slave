@@ -15,6 +15,8 @@ All new code and comments are UTF‑8.
 
 ## Bootloader / 串口升级
 
+调试上位机现已重构为 **TPS130 Studio 2.0**：专属图标、设备适配包、温压/曲线/参数同页工作台、录制回放及原有烧录发布功能。参见 [平台架构与能力边界](documents/debug_platform_architecture.md)。运行out/distribution最新TPS130-Studio.exe。
+
 2026-11-11：按ARM/Mender交接需求补齐自动版本打包与J-Link RTT，当前App版本0.1.1。
 构建交付执行 `python scripts/build_release.py`，桌面烧录调试工具执行 `python scripts/package_flasher.py`，完整软件包输出到 `out/distribution/`。
 详见 [需求对照与待实机验收项](documents/ota_requirements_acceptance.md) 和 [RTT调试约定](documents/rtt_debug.md)。

@@ -44,15 +44,25 @@ def main():
                     '--collect-all','pylink',str(APP/'rtt_bridge.py')],cwd=ROOT,check=True)
     package = json.loads((APP/'package.json').read_text(encoding='utf-8'))
     stamp=datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d-%H%M%S')
-    dest=ROOT/'out/distribution'/('TPS100-Flasher-'+package['version']+'-'+stamp)
+    dest=ROOT/'out/distribution'/('TPS130-Studio-'+package['version']+'-'+stamp)
     if dest.exists():
         parser.error('Output directory already exists')
     shutil.copytree(args.electron,dest)
-    (dest/'electron.exe').rename(dest/'TPS100-Flasher.exe')
+    executable=dest/'TPS130-Studio.exe'
+    (dest/'electron.exe').rename(executable)
+    editor=APP/'node_modules/rcedit/bin/rcedit-x64.exe'
+    if not editor.is_file():
+        parser.error('Missing executable icon editor; run npm ci in Tools/Flasher')
+    subprocess.run([str(editor),str(executable),'--set-icon',str(APP/'assets/tps130.ico'),
+                    '--set-version-string','ProductName','TPS130 Studio',
+                    '--set-version-string','FileDescription','TPS130 Device Debug Studio',
+                    '--set-file-version',package['version'],'--set-product-version',package['version']],check=True)
     (dest/'resources/default_app.asar').unlink(missing_ok=True)
     application=dest/'resources/app';application.mkdir()
     for name in ('main.cjs','backend.cjs','publisher.cjs','processes.cjs','rtt.cjs','preload.cjs','index.html','renderer.js','style.css'):
         shutil.copy2(APP/name,application/name)
+    for name in ('assets','devices','platform'):
+        shutil.copytree(APP/name,application/name)
     (application/'package.json').write_text(json.dumps({k:package[k] for k in ('name','version','main')})+'\n',encoding='utf-8')
     payload=dest/'resources/payload'
     firmware=payload/'firmware';firmware.mkdir(parents=True)
@@ -70,7 +80,7 @@ def main():
     shutil.copy2(APP/'README.md',dest/'使用说明.txt')
     shutil.copy2(args.jlink/'Doc/LicenseIncGUI.txt',dest/'SEGGER-LICENSE.txt')
     docs=dest/'交接文档';docs.mkdir()
-    for name in ('ota_requirements_acceptance.md','uart_upgrade_handoff.md','rtt_debug.md','产品OTA档案.md'):
+    for name in ('ota_requirements_acceptance.md','uart_upgrade_handoff.md','rtt_debug.md','产品OTA档案.md','debug_platform_architecture.md'):
         shutil.copy2(ROOT/'documents'/name,docs/name)
     shutil.copy2(ROOT/'Tools/FirmwarePack/protocol_vectors.json',docs/'protocol_vectors.json')
     for name,info in manifest['files'].items():
@@ -83,7 +93,7 @@ def main():
                 output.write(file,file.relative_to(dest.parent))
     archive.with_suffix('.zip.sha256').write_text(sha(archive)+'  '+archive.name+'\n',encoding='ascii')
     (ROOT/'out/distribution/LATEST.txt').write_text(str(dest)+'\n',encoding='utf-8')
-    print('APPLICATION:',dest/'TPS100-Flasher.exe',flush=True)
+    print('APPLICATION:',executable,flush=True)
     print('ARCHIVE:',archive,flush=True)
 
 

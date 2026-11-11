@@ -9,11 +9,12 @@ const {stopChildren}=require('./processes.cjs');
 // programmer and its saved publishing configuration untouched.
 if(process.argv.includes('--smoke-test'))app.setPath('userData',path.join(app.getPath('temp'),'tps-flasher-smoke-profile'));
 if(!app.requestSingleInstanceLock()) {app.quit();} else {
-  app.setName('TPS100-Flasher');
+  app.setName('TPS130 Studio');
+  if(process.platform==='win32')app.setAppUserModelId('Sanitlook.TPS130.Studio');
   const bundled=fs.existsSync(path.join(process.resourcesPath,'payload/bundle.json'));
   const payload=bundled?path.join(process.resourcesPath,'payload'):null;
   const programmer=new Programmer({payload});
-  const publisher=new Publisher({settingsFile:path.join(app.getPath('userData'),'publisher.json'),records:path.join(app.getPath('documents'),'TPS100-Published')});
+  const publisher=new Publisher({settingsFile:path.join(app.getPath('userData'),'publisher.json'),records:path.join(app.getPath('documents'),'TPS130-Published')});
   let win, active=null, chosenJLink=findJLink();
   const emit=(event,data)=>{if(win&&!win.isDestroyed())win.webContents.send('event',event,data);};
   const rtt=new Rtt((event,data)=>{if(event==='rtt-state'&&!data&&active==='rtt'&&!rtt.child)active=null;emit(event,data);});
@@ -23,7 +24,8 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
     if(event.sender!==win.webContents)throw Error('Invalid sender');
     if(action==='info') {
       let firmware=null,error='';try{firmware=programmer.inspect();}catch(e){error=e.message;}
-      return {bundled,root:bundled?process.resourcesPath:ROOT,jlink:programmer.runtime({jlink:chosenJLink}),firmware,error,version:app.getVersion()};
+      const device=JSON.parse(fs.readFileSync(path.join(__dirname,'devices/tps130/manifest.json'),'utf8'));
+      return {bundled,root:bundled?process.resourcesPath:ROOT,jlink:programmer.runtime({jlink:chosenJLink}),firmware,error,version:app.getVersion(),device};
     }
     if(action==='choose-jlink') {
       noTask();if(bundled)throw Error('分发版已内置 J-Link');
@@ -84,15 +86,29 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
     if(action==='output') {const error=await shell.openPath(programmer.folder());if(error)throw Error(error);return true;}
     if(action==='save-log') {
       if(typeof arg!=='string'||arg.length>2000000)throw Error('日志长度无效');
-      const d=await dialog.showSaveDialog(win,{defaultPath:'TPS100-debug.log',filters:[{name:'Log',extensions:['log']}]});
+      const d=await dialog.showSaveDialog(win,{defaultPath:'TPS130-debug.log',filters:[{name:'Log',extensions:['log']}]});
       if(!d.canceled)fs.writeFileSync(d.filePath,arg,'utf8');return !d.canceled;
+    }
+    if(action==='save-recording'||action==='save-csv'){
+      if(!arg||typeof arg.content!=='string'||Buffer.byteLength(arg.content)>20*1024*1024)throw Error('导出数据超限');
+      const ext=action==='save-csv'?'csv':'json';
+      const d=await dialog.showSaveDialog(win,{defaultPath:'TPS130-session.'+ext,filters:[{name:'TPS130 session',extensions:[ext]}]});
+      if(!d.canceled)fs.writeFileSync(d.filePath,arg.content,'utf8');return !d.canceled;
+    }
+    if(action==='load-recording'){
+      const d=await dialog.showOpenDialog(win,{title:'打开TPS130调试记录',properties:['openFile'],filters:[{name:'Session',extensions:['json']}]});
+      if(d.canceled)return null;
+      if(fs.statSync(d.filePaths[0]).size>20*1024*1024)throw Error('记录文件超过20MB');
+      const value=JSON.parse(fs.readFileSync(d.filePaths[0],'utf8').replace(/^\uFEFF/,''));
+      const core=require('./platform/core.js'),device=JSON.parse(fs.readFileSync(path.join(__dirname,'devices/tps130/manifest.json'),'utf8'));
+      return core.validateRecording(value,device);
     }
     throw Error('未知操作');
   });
   app.whenReady().then(async()=>{
     const area=screen.getPrimaryDisplay().workAreaSize;
-    win=new BrowserWindow({width:Math.min(1100,area.width-24),height:Math.min(940,area.height-40),minWidth:Math.min(880,area.width-24),minHeight:Math.min(720,area.height-40),show:!process.argv.includes('--smoke-test'),
-      backgroundColor:'#f4f6f9',webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
+    win=new BrowserWindow({title:'TPS130 Studio',icon:path.join(__dirname,'assets/tps130.ico'),width:Math.min(1440,area.width-24),height:Math.min(940,area.height-40),minWidth:1000,minHeight:700,show:!process.argv.includes('--smoke-test'),
+      backgroundColor:'#f4f7f8',webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
     win.removeMenu();win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
     win.webContents.on('will-navigate',e=>e.preventDefault());
     win.on('close',e=>{
@@ -106,11 +122,26 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
         await new Promise(r=>setTimeout(r,1000));
         const okay=await win.webContents.executeJavaScript(`document.querySelector('#status').textContent!=='正在加载' && document.querySelector('#rtt-info').disabled && !!document.querySelector('#upload') && !!document.querySelector('#publish-settings') && document.documentElement.scrollWidth<=document.documentElement.clientWidth`);
         if(!okay)throw Error('Renderer smoke test failed');
+        const workbenchOkay=await win.webContents.executeJavaScript(`(() => {
+          const pages=['overview','workbench','firmware','tests','logs','settings'];
+          for(const page of pages){navigate(page);if(document.getElementById('page-'+page).hidden || document.documentElement.scrollWidth>document.documentElement.clientWidth+1)return false;}
+          navigate('workbench');
+          ingest('RTT> app=0.1.1 target=0x9C01 hw=1 base=0x08004000 boot_min=0x00010000\\n');
+          ingest('RTT> tick=123 running=0 tempL=36.25 tempR=36.5 pressL=12.3 pressR=12.4 free_heap=4000 log_drops=0\\n');
+          if(document.getElementById('value-tempL').textContent!=='36.25'||document.getElementById('param-app').textContent!=='0.1.1')return false;
+          document.getElementById('pid-tab').click();if(document.getElementById('pid-content').hidden)return false;
+          document.getElementById('identity-tab').click();
+          replay={schema:1,device:'tps130',identity:{app:'recorded'},samples:[{time:1000,deviceTick:1,running:0,values:{tempL:22}}]};replayIndex=0;render();updateIdentity();draw();
+          if(document.getElementById('value-tempL').textContent!=='22.00'||document.getElementById('data-mode').textContent.indexOf('REPLAY')<0)return false;
+          replay=null;live.samples=[];live.identity={};decoder.reset();logText='';render();updateIdentity();draw();return true;
+        })()`);
+        if(!workbenchOkay)throw Error('Device workbench / replay / navigation failed');
+        console.log('PASS: device adapter, six pages, real protocol fixture parsing and offline replay');
         const successOkay=await win.webContents.executeJavaScript(`(() => {showSuccess('烧录成功','界面测试预览；未连接探针或实际烧录。');const d=document.getElementById('success-dialog');const okay=d.open && document.getElementById('success-title').textContent==='烧录成功';document.getElementById('success-close').click();return okay && !d.open;})()`);
         if(!successOkay)throw Error('Success modal failed');
         console.log('PASS: success modal opens and closes');
         if(bundled){programmer.inspect();programmer.verifyRuntime();}
-        await win.webContents.executeJavaScript(`document.getElementById('rtt-log').textContent='[APP] RTT 日志预览\\nRTT> app=0.1.1 target=0x9C01 hw=1\\n';`);
+        await win.webContents.executeJavaScript(`document.getElementById('rtt-log').textContent='等待连接设备。';`);
         if(process.argv.includes('--preview-success'))await win.webContents.executeJavaScript(`showSuccess('烧录成功','版本 0.1.1\\n完整 Flash 回读 SHA256 一致。\\n界面预览；未实际烧录。')`);
         const capture=await win.webContents.capturePage();
         fs.writeFileSync(process.env.TPS_SMOKE_OUTPUT||path.join(app.getPath('temp'),'tps-flasher-preview.png'),capture.toPNG());

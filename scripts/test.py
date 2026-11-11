@@ -20,7 +20,7 @@ def main():
     tests=[
         [sys.executable,'-m','unittest','discover','-s','Tools/FirmwarePack','-v'],
         [sys.executable,'-m','unittest','discover','-s','Tools/Flasher','-p','test_rtt_bridge.py','-v'],
-        ['node','--test','Tools/Flasher/backend.test.cjs','Tools/Flasher/publisher.test.cjs'],
+        ['node','--test','Tools/Flasher/backend.test.cjs','Tools/Flasher/publisher.test.cjs','Tools/Flasher/platform.test.cjs'],
         prefix+flags+['-Werror','-I.','Shared/Upgrade/upgrade.c','Bootloader/boot_engine.c','Tools/FirmwarePack/test_boot.c','-o','build/validation/tps_boot_test'],
         prefix+['./build/validation/tps_boot_test'],
         prefix+['python3','Tools/FirmwarePack/make_vectors.py','--check-binary','./build/validation/tps_boot_test'],
