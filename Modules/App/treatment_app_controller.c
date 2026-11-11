@@ -2,6 +2,9 @@
 
 #include <stddef.h>
 #include <string.h>
+#include <stdio.h>
+#include <math.h>
+#include "Modules/Debug/debug_rtt.h"
 
 #define MODULE_LOG_ENABLED MODULE_LOG_APP_CONTROLLER_ENABLE
 #include "Modules/Heat/treatment_heating_control.h"
@@ -112,7 +115,32 @@ void TreatmentAppController_HandleCommand(TreatmentAppController *controller,
         TreatmentHeatingControl_UpdateSetpoint(controller);
         break;
 
+    case CTRL_CMD_PID_GET_GAINS:
     case CTRL_CMD_PID_SET_GAINS:
+        if (command->request_id != 0U) {
+            char reply[192];
+            float kp=command->kp, ki=command->ki, kd=command->kd;
+            const unsigned target=(unsigned)command->pid_target, profile=command->pid_profile;
+            const uint8_t write=(command->id==CTRL_CMD_PID_SET_GAINS);
+            const uint8_t valid=(target<=4U && ((target<3U && profile<2U) || (target>=3U && profile==2U)) &&
+                (!write || (isfinite(kp) && isfinite(ki) && isfinite(kd) && kp>=0 && ki>=0 && kd>=0 && kp<=1000 && ki<=1000 && kd<=1000)));
+            if (!valid) {
+                snprintf(reply,sizeof(reply),"RTT> PID ack=%lu ok=0 reason=invalid\r\n",(unsigned long)command->request_id);
+            } else {
+                if (target<3U) TreatmentPressureControl_ProfileGains((uint8_t)profile,(TreatmentPressurePidStage)target,&kp,&ki,&kd,write);
+                else {
+                    if(write) TreatmentHeatingControl_SetPidGains(command->pid_target,kp,ki,kd);
+                    TreatmentHeatingControl_GetPidGains(command->pid_target,&kp,&ki,&kd);
+                }
+                snprintf(reply,sizeof(reply),"RTT> PID ack=%lu ok=1 target=%u profile=%u kp=%.6g ki=%.6g kd=%.6g volatile=1\r\n",
+                    (unsigned long)command->request_id,target,profile,(double)kp,(double)ki,(double)kd);
+            }
+            DebugRtt_Write(reply,strlen(reply));
+            break;
+        }
+        if (command->id==CTRL_CMD_PID_GET_GAINS) break;
+        if (!isfinite(command->kp) || !isfinite(command->ki) || !isfinite(command->kd) ||
+            command->kp<0 || command->ki<0 || command->kd<0 || command->kp>1000 || command->ki>1000 || command->kd>1000) break;
         switch (command->pid_target)
         {
         case PID_DEBUG_TARGET_PRESS_RISE:
@@ -158,6 +186,11 @@ void TreatmentAppController_HandleCommand(TreatmentAppController *controller,
 
     case CTRL_CMD_PID_STREAM_ENABLE:
         controller->pid_debug_stream_enabled = (command->enabled != 0U) ? 1U : 0U;
+        if(command->request_id) {
+            char reply[96];
+            snprintf(reply,sizeof(reply),"RTT> PID ack=%lu ok=1 stream=%u\r\n",(unsigned long)command->request_id,controller->pid_debug_stream_enabled);
+            DebugRtt_Write(reply,strlen(reply));
+        }
         LOG_I("pid stream=%u", controller->pid_debug_stream_enabled);
         break;
 

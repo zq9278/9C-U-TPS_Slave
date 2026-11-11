@@ -1,4 +1,6 @@
 """JSON-lines IPC for background J-Link RTT. No halt/reset/flash operations."""
+import re
+import math
 import codecs
 import json
 import os
@@ -72,6 +74,28 @@ class RttMemory:
         return count
 
 
+def valid_command(command):
+    if command in ('help', 'info', 'status'):
+        return True
+    if not isinstance(command, str) or len(command)>120 or not re.fullmatch(r'pid (get|set|stream) [0-9]+(?: [0-9.eE+-]+)+', command):
+        return False
+    tokens=command.split(' ')
+    try:
+        values=list(map(float,tokens[2:]))
+    except ValueError:
+        return False
+    if not all(map(math.isfinite,values)) or not values[0].is_integer() or not 1<=values[0]<=1000000:
+        return False
+    if tokens[1]=='stream':
+        return len(tokens)==4 and values[1] in (0,1)
+    if len(values)<3:
+        return False
+    target,profile=values[1:3]
+    if not target.is_integer() or not 0<=target<=4 or not (profile in (0,1) if target<3 else profile==2):
+        return False
+    return len(tokens)==5 if tokens[1]=='get' else len(tokens)==8 and all(0<=v<=1000 for v in values[3:])
+
+
 class Bridge:
     def __init__(self):
         self.link = None
@@ -118,8 +142,8 @@ class Bridge:
             return self.close()
         if not self.link:
             raise RuntimeError('RTT 未连接')
-        if method != 'command' or len(args)!=1 or args[0] not in ('help', 'info', 'status'):
-            raise ValueError('Only read-only help/info/status commands are supported')
+        if method != 'command' or len(args)!=1 or not valid_command(args[0]):
+            raise ValueError('Unsupported or invalid RTT command')
         data = (args[0] + '\n').encode('ascii')
         offset, deadline = 0, time.monotonic()+1
         while offset < len(data) and time.monotonic() < deadline:

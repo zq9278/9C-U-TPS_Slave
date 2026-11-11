@@ -41,6 +41,7 @@ uint8_t PidDebugProtocol_ProcessRxByte(PidDebugRxParser *parser,
                                        PidDebugCommand *command);
 /* 发送一帧 PID 调试采样。 */
 uint8_t PidDebugProtocol_SendSample(pid_debug_target_t target,
+                                    uint8_t profile,
                                     uint32_t tick_ms,
                                     const PidController *pid);
 

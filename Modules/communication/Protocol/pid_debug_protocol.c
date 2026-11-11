@@ -1,6 +1,8 @@
 #include "Modules/communication/Protocol/pid_debug_protocol.h"
 
 #include <string.h>
+#include <stdio.h>
+#include <math.h>
 
 #include "Modules/communication/communication.h"
 #include "Modules/communication/Protocol/protocol_common.h"
@@ -90,6 +92,8 @@ static uint8_t PidDebugProtocol_DecodeCommand(uint8_t command_id,
         (void)memcpy(&command->kp, &payload[1], sizeof(float));
         (void)memcpy(&command->ki, &payload[5], sizeof(float));
         (void)memcpy(&command->kd, &payload[9], sizeof(float));
+        if(!isfinite(command->kp) || !isfinite(command->ki) || !isfinite(command->kd) ||
+           command->kp<0 || command->ki<0 || command->kd<0 || command->kp>1000 || command->ki>1000 || command->kd>1000) return 0U;
         return 1U;
     }
 
@@ -214,6 +218,7 @@ uint8_t PidDebugProtocol_ProcessRxByte(PidDebugRxParser *parser,
 }
 
 uint8_t PidDebugProtocol_SendSample(pid_debug_target_t target,
+                                    uint8_t profile,
                                     uint32_t tick_ms,
                                     const PidController *pid)
 {
@@ -225,6 +230,14 @@ uint8_t PidDebugProtocol_SendSample(pid_debug_target_t target,
     {
         return 0U;
     }
+
+    /* Text mirror for the shared RTT console; binary up-channel 1 stays compatible. */
+    char text[320];
+    int count=snprintf(text,sizeof(text),"RTT> PID sample=1 target=%u profile=%u tick=%lu kp=%.6g ki=%.6g kd=%.6g p=%.6g i=%.6g d=%.6g error=%.6g output=%.6g mapped=%.6g setpoint=%.6g measurement=%.6g\r\n",
+        (unsigned)target,(unsigned)profile,(unsigned long)tick_ms,(double)pid->config.kp,(double)pid->config.ki,(double)pid->config.kd,
+        (double)pid->debug.p,(double)pid->debug.i,(double)pid->debug.d,(double)pid->debug.error,(double)pid->debug.output,
+        (double)pid->debug.mapped_output,(double)pid->debug.setpoint,(double)pid->debug.measurement);
+    if(count>0 && (size_t)count<sizeof(text)) DebugRtt_Write(text,(size_t)count);
 
     /* 顺序打包：标识头、版本、目标、tick、PID 配置和本次计算结果。 */
     *cursor++ = PID_DEBUG_FRAME_MAGIC_1;

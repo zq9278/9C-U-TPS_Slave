@@ -72,6 +72,7 @@ typedef enum
     CTRL_CMD_UPDATE_CFG,
     CTRL_CMD_PID_SET_GAINS,
     CTRL_CMD_PID_STREAM_ENABLE,
+    CTRL_CMD_PID_GET_GAINS,
 } ctrl_cmd_id_t;
 
 /**
@@ -91,6 +92,8 @@ typedef struct
     float ki;
     float kd;
     uint8_t enabled;
+    uint8_t pid_profile; /* RTT: 0 single, 1 dual, 2 heater; legacy uses current mode. */
+    uint32_t request_id; /* Nonzero only for acknowledged RTT requests. */
 } ctrl_cmd_t;
 
 /* 温度采样策略。当前主要区分“空闲停止采样”和“双通道轮询采样”。 */

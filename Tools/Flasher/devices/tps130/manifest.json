@@ -7,21 +7,86 @@
   "icon": "assets/tps130.svg",
   "accent": "#147d82",
   "board": "STM32G070RBT6 / Slave",
-  "capabilities": {"rtt": true, "telemetry": true, "recording": true, "parameterWrite": false, "flash": true, "publish": true},
-  "commands": ["help", "info", "status"],
+  "capabilities": {
+    "rtt": true,
+    "telemetry": true,
+    "recording": true,
+    "parameterWrite": true,
+    "flash": true,
+    "publish": true,
+    "stability": true
+  },
+  "commands": [
+    "help",
+    "info",
+    "status"
+  ],
   "channels": [
-    {"id": "tempL", "name": "左侧温度", "unit": "°C", "color": "#d6813a", "group": "temperature", "precision": 2},
-    {"id": "tempR", "name": "右侧温度", "unit": "°C", "color": "#b44c6e", "group": "temperature", "precision": 2},
-    {"id": "pressL", "name": "左侧压力", "unit": "kPa", "color": "#168b96", "group": "pressure", "precision": 2},
-    {"id": "pressR", "name": "右侧压力", "unit": "kPa", "color": "#586cbb", "group": "pressure", "precision": 2}
+    {
+      "id": "tempL",
+      "name": "左侧温度",
+      "unit": "°C",
+      "color": "#d6813a",
+      "group": "temperature",
+      "precision": 2
+    },
+    {
+      "id": "tempR",
+      "name": "右侧温度",
+      "unit": "°C",
+      "color": "#b44c6e",
+      "group": "temperature",
+      "precision": 2
+    },
+    {
+      "id": "pressL",
+      "name": "左侧压力",
+      "unit": "kPa",
+      "color": "#168b96",
+      "group": "pressure",
+      "precision": 2
+    },
+    {
+      "id": "pressR",
+      "name": "右侧压力",
+      "unit": "kPa",
+      "color": "#586cbb",
+      "group": "pressure",
+      "precision": 2
+    }
   ],
   "parameters": [
-    {"id": "app", "name": "App 版本", "group": "设备身份", "writable": false},
-    {"id": "hw", "name": "硬件修订", "group": "设备身份", "writable": false},
-    {"id": "target", "name": "Target ID", "group": "设备身份", "writable": false},
-    {"id": "base", "name": "App 地址", "group": "设备身份", "writable": false},
-    {"id": "boot_min", "name": "最低 Boot", "group": "设备身份", "writable": false}
+    {
+      "id": "app",
+      "name": "App 版本",
+      "group": "设备身份",
+      "writable": false
+    },
+    {
+      "id": "hw",
+      "name": "硬件修订",
+      "group": "设备身份",
+      "writable": false
+    },
+    {
+      "id": "target",
+      "name": "Target ID",
+      "group": "设备身份",
+      "writable": false
+    },
+    {
+      "id": "base",
+      "name": "App 地址",
+      "group": "设备身份",
+      "writable": false
+    },
+    {
+      "id": "boot_min",
+      "name": "最低 Boot",
+      "group": "设备身份",
+      "writable": false
+    }
   ],
-  "parameterNotice": "当前固件开放只读身份与运行状态。PID / 治疗参数写入等待设备协议确认接入，当前不发送控制命令。",
-  "telemetryNotice": "RTT 状态快照：200 ms 轮询，非传感器原始采样；暂未提供目标值、PWM 或治疗阶段。"
+  "parameterNotice": "PID 参数实时写入 RAM，重启恢复默认。增益范围 0–1000，仅为协议边界；请按设备实际响应逐步调整。",
+  "telemetryNotice": "状态快照 5 Hz；PID 调试流 10 Hz，含目标、反馈和控制输出。"
 }

@@ -59,6 +59,8 @@ void TreatmentPressureControl_SetPidGains(TreatmentPressurePidStage stage, float
 /* 读取默认压力 PID 参数。 */
 void TreatmentPressureControl_GetPidGains(TreatmentPressurePidStage stage, float *kp, float *ki, float *kd);
 uint32_t TreatmentPressureControl_GetPidVersion(void);
+void TreatmentPressureControl_ProfileGains(uint8_t dual, TreatmentPressurePidStage stage,
+                                         float *kp, float *ki, float *kd, uint8_t write);
 
 #ifdef __cplusplus
 }

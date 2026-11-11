@@ -1,8 +1,30 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const P=require('./platform/core.js'),A=require('./devices/tps130/adapter.js');
 const device=P.validateDevice(require('./devices/tps130/manifest.json'));
-test('device package has explicit read-only capabilities and unique channels',()=>{
-  assert.equal(device.id,'tps130');assert.equal(device.capabilities.parameterWrite,false);assert.equal(device.channels.length,4);
+const {Run}=require('./platform/stability.js'),{valid}=require('./devices/tps130/commands.js');
+test('PID command validation and sample parser reject malformed values',()=>{
+  for(const cmd of ['pid get 1 0 0','pid set 2 4 2 0.7 0.3 0','pid stream 3 1'])assert.ok(valid(cmd));
+  for(const cmd of ['pid set 1 0 2 1 1 1','pid set 1 3 2 NaN 0 0','pid stream 1 2','pid get 0 0 0','pid get 1 0.5 0','pid get 1 0 0\nreset'])assert.equal(valid(cmd),false);
+  assert.equal(A.decode('RTT> PID ack=2 ok=1 target=4 profile=2 kp=0.7 ki=0.3 kd=0').type,'pid-ack');
+  assert.equal(A.decode('RTT> PID sample=1 target=3 profile=2 tick=1 kp=1 ki=1 kd=0 p=1 i=1 d=0 error=2 output=3 mapped=4 setpoint=40 measurement=38').type,'pid-sample');
+  assert.equal(A.decode('RTT> PID sample=1 target=3 tick=1'),null);
+});
+const config={durationMs:6000,gapMs:1500,limits:Object.fromEntries(device.channels.map(c=>[c.id,[-5,60]]))};
+const sample=(time,tick=time,value=30)=>({time,deviceTick:tick,running:1,log_drops:0,values:Object.fromEntries(device.channels.map(c=>[c.id,value]))});
+test('stability passes continuous observations with correct statistics and bounded trace',()=>{
+  const r=new Run(config,device.channels,{app:'0.1.2'},0);
+  for(let t=200;t<6000;t+=200)r.push(sample(t,t,t/200));r.tick(6000);
+  const report=r.report();assert.equal(report.result,'PASS');assert.equal(report.samples,29);assert.equal(report.stats.tempL.mean,15);assert.equal(report.stats.tempL.min,1);assert.equal(report.stats.tempL.max,29);assert.ok(report.trace.length<=6);
+});
+test('stability records limits, timeout, restart, disconnect and manual abort',()=>{
+  const r=new Run(config,device.channels,{},0);r.push(sample(200,1000,70));r.push(sample(400,1));r.disconnect(500);r.tick(3000);r.tick(6000);
+  assert.equal(r.result,'FAIL');for(const key of ['limit-tempL','restart','disconnect','timeout'])assert.ok(r.events.some(e=>e.key===key));
+  const aborted=new Run(config,device.channels,{},0);aborted.finish(true,1000);assert.equal(aborted.result,'ABORTED');
+  const empty=new Run(config,device.channels,{},0);empty.tick(6000);assert.equal(empty.result,'FAIL');
+  assert.throws(()=>new Run({...config,durationMs:Infinity},device.channels,{},0));
+});
+test('device package has explicit PID capabilities and unique channels',()=>{
+  assert.equal(device.id,'tps130');assert.equal(device.capabilities.parameterWrite,true);assert.equal(device.channels.length,4);
   assert.throws(()=>P.validateDevice({...device,channels:[device.channels[0],device.channels[0]]}));
 });
 test('RTT parser supports split chunks, actual identity and invalid data rejection',()=>{

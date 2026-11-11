@@ -80,7 +80,7 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
     }
     if(action==='rtt-disconnect') {if(active&&active!=='rtt')throw Error('当前任务未完成');try{await rtt.close();}finally{active=null;}return true;}
     if(action==='rtt-command') {
-      if(active!=='rtt'||!rtt.connected||!['help','info','status'].includes(arg))throw Error('RTT 未连接或命令无效');
+      if(active!=='rtt'||!rtt.connected||!require('./devices/tps130/commands.js').valid(arg))throw Error('RTT 未连接或命令无效');
       return rtt.call('command',arg);
     }
     if(action==='output') {const error=await shell.openPath(programmer.folder());if(error)throw Error(error);return true;}
@@ -92,7 +92,7 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
     if(action==='save-recording'||action==='save-csv'){
       if(!arg||typeof arg.content!=='string'||Buffer.byteLength(arg.content)>20*1024*1024)throw Error('导出数据超限');
       const ext=action==='save-csv'?'csv':'json';
-      const d=await dialog.showSaveDialog(win,{defaultPath:'TPS130-session.'+ext,filters:[{name:'TPS130 session',extensions:[ext]}]});
+      const d=await dialog.showSaveDialog(win,{defaultPath:(arg.kind==='stability'?'TPS130-stability-report.':'TPS130-session.')+ext,filters:[{name:'TPS130 data',extensions:[ext]}]});
       if(!d.canceled)fs.writeFileSync(d.filePath,arg.content,'utf8');return !d.canceled;
     }
     if(action==='load-recording'){
@@ -130,6 +130,15 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
           ingest('RTT> tick=123 running=0 tempL=36.25 tempR=36.5 pressL=12.3 pressR=12.4 free_heap=4000 log_drops=0\\n');
           if(document.getElementById('value-tempL').textContent!=='36.25'||document.getElementById('param-app').textContent!=='0.1.1')return false;
           document.getElementById('pid-tab').click();if(document.getElementById('pid-content').hidden)return false;
+          if(document.getElementById('pid-group').options.length!==2)return false;
+          document.getElementById('pid-pressure').click();if(document.getElementById('pid-group').options.length!==6)return false;
+          document.getElementById('pid-heat').click();
+          ingest('RTT> PID sample=1 target=3 profile=2 tick=123 kp=0.7 ki=0.3 kd=0 p=1 i=2 d=0 error=2 output=3 mapped=4 setpoint=40 measurement=38\\n');drawPid();
+          if(!document.getElementById('pid-values').textContent.includes('40'))return false;
+          connected=true;monitoring=true;render();document.getElementById('stability-start').click();
+          if(!stability||stability.result!=='RUNNING'||!document.getElementById('pid-write').disabled)return false;
+          document.getElementById('stability-stop').click();if(stability.result!=='ABORTED'||document.getElementById('stability-export').disabled)return false;
+          stability=null;stabilityNotified=false;connected=false;monitoring=false;pidHistory.clear();
           document.getElementById('identity-tab').click();
           replay={schema:1,device:'tps130',identity:{app:'recorded'},samples:[{time:1000,deviceTick:1,running:0,values:{tempL:22}}]};replayIndex=0;render();updateIdentity();draw();
           if(document.getElementById('value-tempL').textContent!=='22.00'||document.getElementById('data-mode').textContent.indexOf('REPLAY')<0)return false;

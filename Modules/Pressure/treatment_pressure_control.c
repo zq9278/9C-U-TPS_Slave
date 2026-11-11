@@ -722,3 +722,14 @@ uint32_t TreatmentPressureControl_GetPidVersion(void)
 {
     return s_press_pid_profile_version;
 }
+
+void TreatmentPressureControl_ProfileGains(uint8_t dual, TreatmentPressurePidStage stage,
+                                         float *kp, float *ki, float *kd, uint8_t write)
+{
+    TreatmentPressurePidGains *gains = TreatmentPressureControl_SelectStageGainsMutable(
+        dual ? &s_press_pid_dual_eye : &s_press_pid_single_eye, stage);
+    if (write) {
+        gains->kp = *kp; gains->ki = *ki; gains->kd = *kd;
+        ++s_press_pid_profile_version;
+    } else { *kp = gains->kp; *ki = gains->ki; *kd = gains->kd; }
+}
