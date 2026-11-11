@@ -9,7 +9,7 @@
 extern "C" {
 #endif
 
-/* 模块化日志打印入口，底层默认经 UART1 输出。 */
+/* 非阻塞 RTT channel 0 日志；无探针时允许丢弃。 */
 void ModuleLog_Printf(const char *level, const char *fmt, ...);
 
 #ifndef MODULE_LOG_ENABLED

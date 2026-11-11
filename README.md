@@ -15,6 +15,10 @@ All new code and comments are UTF‑8.
 
 ## Bootloader / 串口升级
 
+2026-11-11：按ARM/Mender交接需求补齐自动版本打包与J-Link RTT，当前App版本0.1.1。
+构建交付执行 `python scripts/build_release.py`，桌面烧录调试工具执行 `python scripts/package_flasher.py`，完整软件包输出到 `out/distribution/`。
+详见 [需求对照与待实机验收项](documents/ota_requirements_acceptance.md) 和 [RTT调试约定](documents/rtt_debug.md)。
+
 默认构建已改为从 **0x08004000** 启动的 App（108 KiB），独立 Boot 占前16 KiB。
 首次烧录使用打包器生成的 **tps_factory.bin**（烧到0x08000000）；Qt串口升级使用 **tps_app.tpsfw**。
 不要把默认App烧到Flash起点。原SWD单体构建可在独立目录设置 `TPS_LEGACY_APP=ON`。

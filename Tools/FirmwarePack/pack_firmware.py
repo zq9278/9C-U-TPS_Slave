@@ -31,6 +31,22 @@ def check_vectors(image):
         raise ValueError('App vectors do not match the relocated Flash/RAM layout')
 
 
+def inspect_identity(image):
+    """Read the identity compiled into the App, not a manually supplied label."""
+    offsets = [i for i in range(len(image)) if image.startswith(b'TPSID001', i)]
+    if len(offsets) != 1 or offsets[0] + 64 > len(image):
+        raise ValueError('exactly one compiled TPSID001 identity is required')
+    offset = offsets[0]
+    version, hardware, reserved, target, base, min_boot, rtt = struct.unpack_from('<IHHIIII', image, offset + 8)
+    raw = image[offset + 32:offset + 64]
+    text = raw.split(b'\0', 1)[0].decode('ascii')
+    if (reserved or target != TARGET or base != APP_BASE or rtt not in (0, 1)
+            or b'\0' not in raw or version_code(text) != version):
+        raise ValueError('invalid compiled firmware identity')
+    return dict(version=text, version_code=version, hardware=hardware, target=target,
+                app_base=base, min_boot_version=min_boot, rtt=bool(rtt))
+
+
 def make_header(image, version, hw_min=1, hw_max=1):
     check_vectors(image)
     if not 0 <= hw_min <= hw_max <= 65535:
@@ -53,6 +69,9 @@ def validate_package(package):
             or crc32(image) != struct.unpack_from('<I', h, 28)[0]):
         raise ValueError('invalid header, image length or CRC')
     check_vectors(image)
+    hw_min, hw_max = struct.unpack_from('<HH', h, 16)
+    if hw_min > hw_max:
+        raise ValueError('invalid hardware range')
     return h, image
 
 
@@ -87,9 +106,9 @@ def factory_image(boot, package):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('app', type=Path)
-    p.add_argument('--version', required=True, help='must match PRODUCT_FIRMWARE_VERSION_STRING')
-    p.add_argument('--hw-min', type=int, default=1)
-    p.add_argument('--hw-max', type=int, default=1)
+    p.add_argument('--version', help='optional assertion; must equal compiled App version')
+    p.add_argument('--hw-min', type=int)
+    p.add_argument('--hw-max', type=int)
     p.add_argument('--output', required=True, type=Path)
     p.add_argument('--boot', type=Path)
     p.add_argument('--factory-output', type=Path)
@@ -98,7 +117,17 @@ def main():
         p.error('--boot and --factory-output must be supplied together')
     try:
         image = args.app.read_bytes()
-        package = make_header(image, version_code(args.version), args.hw_min, args.hw_max) + image
+        identity = inspect_identity(image)
+        if args.version and version_code(args.version) != identity['version_code']:
+            raise ValueError('--version differs from the actual App identity')
+        hw_min = identity['hardware'] if args.hw_min is None else args.hw_min
+        hw_max = identity['hardware'] if args.hw_max is None else args.hw_max
+        if not hw_min <= identity['hardware'] <= hw_max:
+            raise ValueError('hardware range excludes compiled board revision')
+        header = bytearray(make_header(image, identity['version_code'], hw_min, hw_max))
+        struct.pack_into('<I', header, 36, identity['min_boot_version'])
+        struct.pack_into('<I', header, 60, crc32(header[:60]))
+        package = bytes(header) + image
         factory = factory_image(args.boot.read_bytes(), package) if args.boot else None
         args.output.write_bytes(package)
         if factory is not None:

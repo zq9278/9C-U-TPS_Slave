@@ -2,6 +2,9 @@
 build/
 __pycache__/
 *.pyc
+out/
+.cache/
+node_modules/
 
 # MX project scratch/temp
 # *.mxproject

@@ -4,6 +4,7 @@
 
 #include "Modules/communication/communication.h"
 #include "Modules/communication/Protocol/protocol_common.h"
+#include "Modules/Debug/debug_rtt.h"
 
 /* PID 调试协议帧格式常量。 */
 #define PID_DEBUG_FRAME_MAGIC_1             0xC5U
@@ -261,5 +262,5 @@ uint8_t PidDebugProtocol_SendSample(pid_debug_target_t target,
     *cursor++ = '\r';
     *cursor++ = '\n';
 
-    return (Communication_WriteLogBuffer(frame, sizeof(frame)) == (int)sizeof(frame)) ? 1U : 0U;
+    return (DebugRtt_Telemetry(frame,sizeof(frame)) == (int)sizeof(frame)) ? 1U : 0U;
 }

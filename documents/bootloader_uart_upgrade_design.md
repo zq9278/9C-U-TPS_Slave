@@ -8,7 +8,7 @@
 - 当前实际业务通信：`Modules/communication/communication.c` 使用 USART3，PD8 TX / PD9 RX，115200、8N1。USART1 PC4/PC5 用于日志和调试。README 中旧 USART2 描述不能作为实现依据。
 - 当前业务帧 AA55、32 字节载荷继续使用；升级数据使用独立帧和独占通信状态。
 - 已有 `build/Debug` ELF 的 text=125004、data=568；Flash 约 125572 字节。它是已有产物，不代表当前源码重建结果。108 KiB App 容量必须通过新的 Release 构建验证；不允许超限后继续发布。
-- 改造前 Release 基线为 Flash81596字节。加入升级逻辑并偏移链接后，GCC14.3.1构建：Release App Flash82444 / RAM24448字节；Debug（-Og -g3）App Flash90388 / RAM24464字节；Boot Flash7696 / RAM3136字节。容量均满足分区限制。已验证构建和模拟Flash，尚未实机验证；编译仍有原有告警和Boot RAM代码段RWX链接提示，不代表零告警或安全验收。
+- 本轮OTA+RTT构建（GCC14.3.1）：Release App Flash84012 / RAM26488字节；Debug（-Og -g3）App Flash92100 / RAM26504字节；Boot Flash8360 / RAM4584字节。均满足分区限制。已验证构建和模拟Flash，尚未实机验证；保留原有未使用函数告警及Boot RAM代码段RWX链接提示。
 - v1 采用固定 Boot + 单 App 原地升级。断电可回到 Boot 从头重传；不提供旧版本自动回滚，不承诺断点续传。
 - Qt 在原有串口链路上执行升级；若 Qt 运行在 RK3576，就直接使用已连接 USART3 的系统串口。升级时该串口只能有一个拥有者。若 Qt 在 PC，则必须通过实际连接到 USART3 的串口链路，不能默认 USB 可直连 MCU。
 

@@ -29,6 +29,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "Modules/Debug/debug_rtt.h"
+#include "Config/product_config.h"
+#include "Modules/Log/module_log.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -83,7 +86,8 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+  DebugRtt_Init();
+  LOG_I("App %s startup",PRODUCT_FIRMWARE_VERSION_STRING);
   /* USER CODE END Init */
 
   /* Configure the system clock */

@@ -10,6 +10,30 @@
 option(TPS_BUILD_BOOT "Build standalone serial Bootloader" OFF)
 option(TPS_LEGACY_APP "Build original SWD-only application at Flash base" OFF)
 set(TPS_HW_REV 1 CACHE STRING "Production board hardware revision")
+option(TPS_RTT "Enable non-blocking J-Link RTT diagnostics" ON)
+include(Config/version.cmake)
+if(NOT TPS_APP_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+(\\.[0-9]+)?$")
+    message(FATAL_ERROR "Invalid TPS_APP_VERSION")
+endif()
+string(REPLACE "." ";" TPS_VERSION_PARTS "${TPS_APP_VERSION}")
+list(LENGTH TPS_VERSION_PARTS TPS_VERSION_COUNT)
+if(TPS_VERSION_COUNT EQUAL 3)
+    list(APPEND TPS_VERSION_PARTS 0)
+endif()
+foreach(PART IN LISTS TPS_VERSION_PARTS)
+    if(PART GREATER 255)
+        message(FATAL_ERROR "Version component exceeds 255")
+    endif()
+endforeach()
+list(GET TPS_VERSION_PARTS 0 TPS_VERSION_MAJOR)
+list(GET TPS_VERSION_PARTS 1 TPS_VERSION_MINOR)
+list(GET TPS_VERSION_PARTS 2 TPS_VERSION_PATCH)
+list(GET TPS_VERSION_PARTS 3 TPS_VERSION_BUILD)
+math(EXPR TPS_APP_VERSION_CODE "(${TPS_VERSION_MAJOR} << 24) | (${TPS_VERSION_MINOR} << 16) | (${TPS_VERSION_PATCH} << 8) | ${TPS_VERSION_BUILD}")
+configure_file(Config/firmware_version.h.in ${CMAKE_BINARY_DIR}/generated/firmware_version.h @ONLY)
+if(NOT TPS_HW_REV MATCHES "^[0-9]+$" OR TPS_HW_REV GREATER 65535)
+    message(FATAL_ERROR "TPS_HW_REV must be 0..65535")
+endif()
 if(TPS_BUILD_BOOT)
     set(TPS_LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/Bootloader/boot.ld")
 elseif(TPS_LEGACY_APP)
@@ -63,6 +87,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/System/app_tasks.c
     App/System/app_rtos_hooks.c
     Shared/Upgrade/upgrade.c
+    Shared/Upgrade/firmware_identity.c
+    Modules/Debug/debug_rtt.c
 
     # BSP / drivers
     BSP/Gpio/bsp_gpio.c
@@ -99,6 +125,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
+    ${CMAKE_BINARY_DIR}/generated
+    ThirdParty/SEGGER_RTT/RTT ThirdParty/SEGGER_RTT/Config
     ${CMAKE_SOURCE_DIR}
 
     # App / architecture include directories
@@ -136,7 +164,11 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add project symbols (macros)
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
     UP_HW_REV=${TPS_HW_REV}
+    TPS_RTT=$<BOOL:${TPS_RTT}>
 )
+if(TPS_RTT)
+    target_sources(${CMAKE_PROJECT_NAME} PRIVATE ThirdParty/SEGGER_RTT/RTT/SEGGER_RTT.c)
+endif()
 if(NOT TPS_LEGACY_APP)
     target_compile_definitions(STM32_Drivers PRIVATE TPS_APP_OFFSET=0x4000U)
     target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE TPS_APP_UPGRADE=1)

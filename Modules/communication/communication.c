@@ -7,6 +7,7 @@
 #include "semphr.h"
 #include "task.h"
 #include "usart.h"
+#include "Modules/Debug/debug_rtt.h"
 
 /* 底层 UART DMA 收发缓冲大小。 */
 #define COMM_UART_RX_BUFFER_SIZE 256U
@@ -275,20 +276,15 @@ uint8_t Communication_SendText(uint16_t frame_id, const char *text)
 
 void Communication_WriteLog(const char *text)
 {
-    if ((text == NULL) || (s_initialized == 0U))
-    {
-        return;
-    }
-
-    (void)BspUart_WriteString(&s_log_uart1.port, text);
+    if (text != NULL) (void)DebugRtt_Write(text,strlen(text));
 }
 
 int Communication_WriteLogBuffer(const uint8_t *data, size_t length)
 {
-    if ((data == NULL) || (length == 0U) || (s_initialized == 0U))
+    if ((data == NULL) || (length == 0U))
     {
         return 0;
     }
 
-    return (BspUart_Write(&s_log_uart1.port, data, length) != 0U) ? (int)length : 0;
+    return DebugRtt_Write(data,length);
 }

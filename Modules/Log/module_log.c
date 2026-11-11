@@ -3,7 +3,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
-#include "usart.h"
+#include "Modules/Debug/debug_rtt.h"
 
 /* 统一日志格式：[Level] message\r\n */
 void ModuleLog_Printf(const char *level, const char *fmt, ...)
@@ -47,12 +47,7 @@ int __io_putchar(int ch)
 {
     uint8_t data = (uint8_t)ch;
 
-    /* 优先走通信模块日志接口；若通信尚未初始化，则回退为 HAL 阻塞发送。 */
-    if (Communication_WriteLogBuffer(&data, 1U) == 1)
-    {
-        return ch;
-    }
-
-    (void)HAL_UART_Transmit(&huart1, &data, 1U, 2U);
+    /* Never block control or consume the business UART if no probe is present. */
+    (void)DebugRtt_Write(&data,1U);
     return ch;
 }

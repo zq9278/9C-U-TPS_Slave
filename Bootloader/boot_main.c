@@ -1,6 +1,12 @@
 #include "boot_engine.h"
 #include "main.h"
 #include <string.h>
+#if TPS_RTT
+#include "SEGGER_RTT.h"
+#define BOOT_LOG(text) SEGGER_RTT_WriteString(0,text)
+#else
+#define BOOT_LOG(text) ((void)0)
+#endif
 static UART_HandleTypeDef uart;
 static BootEngine engine;
 static UpParser parser;
@@ -100,6 +106,10 @@ int main(void) {
     int requested=software_reset && mail[0]==UP_MAILBOX_MAGIC && mail[1]==~UP_MAILBOX_MAGIC && mail[2]==1 && mail[3]==~1UL;
     mail[0]=0; __HAL_RCC_CLEAR_RESET_FLAGS();
     safe_outputs(); HAL_Init(); uart_init();
+#if TPS_RTT
+    SEGGER_RTT_Init();
+    BOOT_LOG("[BOOT] 0.1.0 target=9C01 UART3 115200\r\n");
+#endif
     BootFlash flash={flash_read,flash_erase,flash_write,flash_healthy}; Boot_Init(&engine,flash);
     uint32_t start=HAL_GetTick();
     for(;;) {
@@ -107,7 +117,10 @@ int main(void) {
         uint8_t byte; UpFrame frame;
         if(HAL_UART_Receive(&uart,&byte,1,1)==HAL_OK && Up_Parse(&parser,byte,HAL_GetTick(),&frame)) {
             size_t n=Boot_Handle(&engine,&frame);
-            if(HAL_UART_Transmit(&uart,engine.response,(uint16_t)n,1000)==HAL_OK && engine.reset_requested) {
+            if(frame.command==UP_BEGIN) BOOT_LOG("[BOOT] BEGIN processed\r\n");
+            if(frame.command==UP_END) BOOT_LOG("[BOOT] END processed\r\n");
+            if(HAL_UART_Transmit(&uart,engine.response,(uint16_t)n,1000)==HAL_OK &&
+               frame.command==UP_RUN && engine.reset_requested && Up_Get16(engine.response+14)==UP_OK) {
                 /* HAL blocking transmit waits for TC, including the final stop bit. */
                 NVIC_SystemReset();
             }

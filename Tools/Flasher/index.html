@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>TPS100 烧录与 RTT 调试</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'">
+<link rel="stylesheet" href="style.css"></head><body>
+<header><div class="eyebrow">9C · U-TPS / SLAVE</div><h1>烧录与 RTT 调试</h1><p>STM32G070RBT6 · 首次安装 Boot + App，后续由 ARM 上位机通过 USART3 升级。</p><span id="status" role="status">正在加载</span></header>
+<main>
+<section><h2><span>01</span>固件交付</h2><div id="firmware" class="info">正在核对固件…</div>
+<div class="row"><button id="output" class="quiet">打开固件目录 / OTA 包</button><button id="build" class="quiet">重新编译并打包</button></div>
+<p class="note">完整镜像写入 0x08000000；OTA 包 .tpsfw 供 Mender / ARM 上位机使用。当前软件验证不代表实机验收。</p></section>
+<section><h2><span>02</span>J-Link 烧录</h2>
+<div class="row settings"><label class="grow">J-Link 程序 <input id="jlink" readonly></label><button id="choose" class="quiet">选择 JLink.exe</button>
+<label>探针序列号 <input id="serial" placeholder="单探针可留空" inputmode="numeric" maxlength="12"></label>
+<label>SWD 速度 <select id="speed"><option value="1000">1000 kHz</option><option value="4000">4000 kHz</option><option value="8000">8000 kHz</option></select></label></div>
+<div class="row actions"><p class="note">停止治疗，连接 SWD、GND、VTref，关闭其他调试会话。</p><button id="verify" class="secondary">仅回读校验</button><button id="flash" class="primary">烧录完整固件</button></div>
+<div id="progress-wrap" hidden><p id="progress-label"></p><progress id="progress" max="3" value="0"></progress></div>
+<details id="flash-details"><summary>烧录执行日志</summary><pre id="flash-log">启动不会连接探针或烧录设备。</pre></details></section>
+<section><div class="row heading"><h2><span>03</span>J-Link RTT 调试</h2><b id="rtt-state">未连接</b></div>
+<p class="note">非阻塞日志 / 只读查询。连接固定使用 1000 kHz，不执行复位、暂停或治疗操作。</p>
+<div class="row"><button id="connect" class="secondary">连接 RTT</button><button id="disconnect" class="quiet" disabled>断开</button><button id="rtt-info" class="quiet" disabled>读取版本</button><button id="rtt-status" class="quiet" disabled>读取运行状态</button><button id="rtt-help" class="quiet" disabled>帮助</button><label class="check"><input type="checkbox" id="pause">暂停显示</label><button id="clear" class="quiet">清空</button><button id="save" class="quiet">保存日志</button></div>
+<pre id="rtt-log" aria-live="off">等待连接 RTT。日志上行通道 0；PID 二进制采样独立在通道 1。</pre></section>
+</main><footer id="source"></footer><script src="renderer.js"></script></body></html>

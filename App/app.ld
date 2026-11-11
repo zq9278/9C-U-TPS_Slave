@@ -96,6 +96,7 @@ SECTIONS
   /* Constant data goes into FLASH */
   .rodata :
   {
+    KEEP(*(.firmware_identity))
     . = ALIGN(4);
     *(.rodata)         /* .rodata sections (constants, strings, etc.) */
     *(.rodata*)        /* .rodata* sections (constants, strings, etc.) */

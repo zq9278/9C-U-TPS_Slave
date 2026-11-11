@@ -1,0 +1,12 @@
+{
+  "name": "tps100-flasher",
+  "version": "1.0.0",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test backend.test.cjs",
+    "package": "python ../../scripts/package_flasher.py"
+  },
+  "devDependencies": {"electron": "45.0.0"}
+}

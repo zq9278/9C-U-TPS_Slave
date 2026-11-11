@@ -26,6 +26,17 @@ class PackTests(unittest.TestCase):
         with self.assertRaises(ValueError): p.make_header(self.image, 0, 2, 1)
         with self.assertRaises(ValueError): p.version_code('1.256.0')
 
+    def test_compiled_identity_version_is_authoritative(self):
+        identity = bytearray(64)
+        struct.pack_into('<8sIHHIIII',identity,0,b'TPSID001',0x10100,3,0,p.TARGET,p.APP_BASE,0x10000,1)
+        identity[32:38] = b'0.1.1\0'
+        parsed = p.inspect_identity(self.image + identity)
+        self.assertEqual(parsed['version_code'],p.version_code('0.1.1'))
+        self.assertEqual(parsed['hardware'],3)
+        identity[32:38] = b'0.2.1\0'
+        with self.assertRaises(ValueError): p.inspect_identity(self.image + identity)
+        with self.assertRaises(ValueError): p.inspect_identity(self.image)
+
 
 if __name__ == '__main__':
     unittest.main()

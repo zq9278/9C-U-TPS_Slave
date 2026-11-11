@@ -13,13 +13,9 @@
 #define PRODUCT_VARIANT_ID                              0U
 
 /*
- * 固件版本占位。发布版本确定后在这里统一填写。
- * 当前 0.0.0 表示尚未设置正式发布版本。
+ * 固件版本由 Config/version.cmake 生成；禁止单独手写回复版本或包头。
  */
-#define PRODUCT_FIRMWARE_VERSION_MAJOR                  0U
-#define PRODUCT_FIRMWARE_VERSION_MINOR                  0U
-#define PRODUCT_FIRMWARE_VERSION_PATCH                  0U
-#define PRODUCT_FIRMWARE_VERSION_STRING                 "0.0.0"
+#include "firmware_version.h"
 
 /*
  * 产品功能开关：是否允许输出耗材熔断脉冲。

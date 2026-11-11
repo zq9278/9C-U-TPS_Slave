@@ -11,7 +11,7 @@
 - 打包文件 `.tpsfw` 才是 Qt 输入，不能把 ELF/HEX/合并烧录文件当作升级载荷。
 - 首次通过 SWD 在 0x08000000 烧 `tps_factory.bin`；串口升级使用 `tps_app.tpsfw`。不能直接把偏移 App bin 烧到 0x08000000。
 - 新 App 保留原业务协议，升级过程中串口必须独占，暂停心跳定时发送、参数同步、遥测消费等普通通信。恢复业务前重新初始化普通接收状态机。
-- 当前 Boot 版本编码 0x00010000，即 **0.1.0.0**；当前 App 产品版本仍是项目原有占位 **0.0.0**，发布前固件工程师需统一版本后重新打包。
+- 当前 Boot 版本编码 0x00010000，即 **0.1.0.0**；App 当前为 **0.1.1**，从Config/version.cmake生成回复版本和二进制身份。打包器读取实际编译身份，禁止包头和App回复不同。
 - 硬件修订号由 Boot 构建参数 `TPS_HW_REV` 指定，当前默认 1；生产时须对照实际板型确认。上位机不能修改设备返回的硬件编号来绕过检查。
 
 ## 1. App 进入 Boot
@@ -22,7 +22,7 @@
 | ID | type | payload | 行为 |
 |---|---:|---|---|
 | 0x10F0 | 1 UINT8 | 00 | 读取 App 版本 |
-| 0x11F0 | 3 TEXT | UTF-8/ASCII 版本字符串，如 `0.0.0` | 无末尾 NUL，长度 <=31 |
+| 0x11F0 | 3 TEXT | ASCII 版本字符串，如 `0.1.1` | 无末尾 NUL，长度 <=31 |
 | 0x10F1 | 5 UINT32 | `55 44 50 31`（0x31504455 小端） | 请求进入 Boot |
 | 0x11F1 | 1 UINT8 | 00 / 01 / 02 / 03 | 接受 / 忙 / 安全输出确认失败 / 参数错误或普通非升级构建 |
 
@@ -123,13 +123,13 @@ cmake --preset Release
 cmake --build --preset Release -j 8
 cmake -S . -B build/Boot -G Ninja '-DCMAKE_BUILD_TYPE=Release' '-DCMAKE_TOOLCHAIN_FILE=cmake/gcc-arm-none-eabi.cmake' '-DTPS_BUILD_BOOT=ON'
 cmake --build build/Boot -j 8
-python Tools/FirmwarePack/pack_firmware.py build/Release/tps_app.bin --version 0.0.0 --output build/Release/tps_app.tpsfw --boot build/Boot/tps_boot.bin --factory-output build/Release/tps_factory.bin
+python Tools/FirmwarePack/pack_firmware.py build/Release/tps_app.bin --output build/Release/tps_app.tpsfw --boot build/Boot/tps_boot.bin --factory-output build/Release/tps_factory.bin
 python -m unittest discover -s Tools/FirmwarePack -v
 ```
 
 普通旧地址固件可在独立构建目录设置 `-DTPS_LEGACY_APP=ON`，该模式拒绝ENTER_BOOT。默认构建现在是偏移App；Debug使用 `-Og -g3`，两种配置都受108KiB链接限制。
 
-本次GCC 14.3.1构建结果：Boot Flash7696字节 / RAM3136字节；Release App Flash82444字节 / RAM24448字节；Debug App Flash90388字节 / RAM24464字节。RAM统计包含链接脚本预留的堆栈区，不能替代运行时栈高水位检查。
+本轮OTA+RTT的GCC14.3.1构建：Boot Flash8360 / RAM4584字节；Release App Flash84012 / RAM26488字节；Debug App Flash92100 / RAM26504字节。均满足分区容量。RAM含链接脚本预留堆栈，不能替代运行时高水位检查。统一交付可执行 `python scripts/build_release.py`，产物在out/Release。
 
 跨语言固定测试向量：`Tools/FirmwarePack/protocol_vectors.json`；生成脚本 `make_vectors.py`。每条包含完整wire_hex和字段说明，可与 Qt编解码进行逐字节比对。
 

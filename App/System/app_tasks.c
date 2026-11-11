@@ -23,6 +23,7 @@
 #include "Config/product_config.h"
 #include "Shared/Upgrade/upgrade.h"
 #include "tim.h"
+#include "Modules/Debug/debug_rtt.h"
 
 /* ControlTask is the only writer of the stop acknowledgement. Once requested,
  * neither queued business nor debug commands may restart the actuators. */
@@ -45,7 +46,7 @@ static volatile uint8_t s_upgrade_control_ready;
 
 /* 各任务栈深，单位为 StackType_t 个数。 */
 #define APP_TASK_STACK_WORDS       356U
-#define COMM_RX_TASK_STACK_WORDS   320U
+#define COMM_RX_TASK_STACK_WORDS   448U
 #define COMM_TX_TASK_STACK_WORDS   288U
 #define SENSOR_TASK_STACK_WORDS    320U
 #define CONTROL_TASK_STACK_WORDS   448U
@@ -817,6 +818,7 @@ static void CommRxTask(void *argument)
     for (;;)
     {
         Communication_PollRx();
+        DebugRtt_Poll();
         vTaskDelay(pdMS_TO_TICKS(COMM_RX_PERIOD_MS));
     }
 }
