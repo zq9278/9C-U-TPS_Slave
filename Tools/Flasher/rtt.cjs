@@ -1,5 +1,5 @@
 'use strict';
-const {spawn}=require('node:child_process');
+const {spawn}=require('./processes.cjs');
 class Rtt {
   constructor(notify) {this.notify=notify;this.child=null;this.pending=new Map();this.counter=0;this.connected=false;}
   start(exe,args,env) {

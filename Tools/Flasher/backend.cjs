@@ -1,7 +1,7 @@
 'use strict';
 const fs=require('node:fs'), path=require('node:path'), os=require('node:os');
 const crypto=require('node:crypto');
-const {spawn}=require('node:child_process');
+const {spawn}=require('./processes.cjs');
 const ROOT=path.resolve(__dirname,'../..');
 const sha=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 function crc32(bytes) {

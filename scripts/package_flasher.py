@@ -51,7 +51,7 @@ def main():
     (dest/'electron.exe').rename(dest/'TPS100-Flasher.exe')
     (dest/'resources/default_app.asar').unlink(missing_ok=True)
     application=dest/'resources/app';application.mkdir()
-    for name in ('main.cjs','backend.cjs','publisher.cjs','rtt.cjs','preload.cjs','index.html','renderer.js','style.css'):
+    for name in ('main.cjs','backend.cjs','publisher.cjs','processes.cjs','rtt.cjs','preload.cjs','index.html','renderer.js','style.css'):
         shutil.copy2(APP/name,application/name)
     (application/'package.json').write_text(json.dumps({k:package[k] for k in ('name','version','main')})+'\n',encoding='utf-8')
     payload=dest/'resources/payload'

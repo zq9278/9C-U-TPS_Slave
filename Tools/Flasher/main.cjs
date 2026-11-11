@@ -4,6 +4,7 @@ const fs=require('node:fs'),path=require('node:path');
 const {ROOT,Programmer,findJLink,validateOptions}=require('./backend.cjs');
 const {Rtt}=require('./rtt.cjs');
 const {Publisher}=require('./publisher.cjs');
+const {stopChildren}=require('./processes.cjs');
 // Smoke checks use a separate profile and lock, leaving an operator's running
 // programmer and its saved publishing configuration untouched.
 if(process.argv.includes('--smoke-test'))app.setPath('userData',path.join(app.getPath('temp'),'tps-flasher-smoke-profile'));
@@ -106,8 +107,9 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
     win.removeMenu();win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
     win.webContents.on('will-navigate',e=>e.preventDefault());
     win.on('close',e=>{
-      if(active&&active!=='rtt'){e.preventDefault();emit('log','请等待当前操作完成再关闭。\n');}
-      else if(rtt.child){e.preventDefault();rtt.close().finally(()=>{active=null;win.close();});}
+      // User-requested unconditional close: no dialogs, network waits or busy
+      // guards. Terminate only our own subprocesses, then exit all windows.
+      e.preventDefault();stopChildren();app.exit(0);
     });
     await win.loadFile(path.join(__dirname,'index.html'));
     if(process.argv.includes('--smoke-test')) {
