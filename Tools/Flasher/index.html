@@ -18,4 +18,6 @@
 <p class="note">非阻塞日志 / 只读查询。连接固定使用 1000 kHz，不执行复位、暂停或治疗操作。</p>
 <div class="row"><button id="connect" class="secondary">连接 RTT</button><button id="disconnect" class="quiet" disabled>断开</button><button id="rtt-info" class="quiet" disabled>读取版本</button><button id="rtt-status" class="quiet" disabled>读取运行状态</button><button id="rtt-help" class="quiet" disabled>帮助</button><label class="check"><input type="checkbox" id="pause">暂停显示</label><button id="clear" class="quiet">清空</button><button id="save" class="quiet">保存日志</button></div>
 <pre id="rtt-log" aria-live="off">等待连接 RTT。日志上行通道 0；PID 二进制采样独立在通道 1。</pre></section>
-</main><footer id="source"></footer><script src="renderer.js"></script></body></html>
+</main><footer id="source"></footer>
+<dialog id="success-dialog"><div class="success-mark">✓</div><h2 id="success-title">操作成功</h2><p id="success-detail"></p><button id="success-close" class="primary">确定</button></dialog>
+<script src="renderer.js"></script></body></html>

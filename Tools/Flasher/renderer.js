@@ -25,21 +25,27 @@ async function refresh(){
   render();
 }
 function opts(){return {serial:$('serial').value.trim(),speed:$('speed').value};}
+function showSuccess(title,detail){
+  $('success-title').textContent=title;$('success-detail').textContent=detail;
+  if(!$('success-dialog').open)$('success-dialog').showModal();
+}
+$('success-close').onclick=()=>$('success-dialog').close();
 async function task(fn){
   if(busy)return;busy=true;render();
   try{await fn();}catch(e){state(e.message,true);append('flash-log',e.message+'\n');}
   finally{busy=false;render();}
 }
-$('build').onclick=()=>task(async()=>{state('编译中');await window.tps.invoke('build');await refresh();state('构建和固件校验完成',false,true);});
+$('build').onclick=()=>task(async()=>{state('编译中');await window.tps.invoke('build');await refresh();state('构建和固件校验完成',false,true);showSuccess('构建成功','固件编译、打包及文件校验已完成。');});
 for(const id of ['flash','verify'])$(id).onclick=()=>task(async()=>{
-  state(id==='flash'?'等待烧录确认':'等待校验确认');$('progress-wrap').hidden=false;$('progress').value=0;
+  state(id==='flash'?'正在烧录':'正在校验');$('progress-wrap').hidden=false;$('progress').value=0;
   const result=await window.tps.invoke(id,opts());
   if(result.canceled){state('已取消');return;}
   state('Flash 回读 SHA256 校验通过',false,true);
   append('flash-log',`\n${result.version} 回读一致；已请求复位运行。App 业务启动仍需 UART 版本/心跳确认。\n`);
+  showSuccess(id==='flash'?'烧录成功':'校验成功',`版本 ${result.version}\n完整 Flash 回读 SHA256 一致。\n已发送复位运行命令。`);
 });
 $('choose').onclick=()=>task(async()=>{await window.tps.invoke('choose-jlink');await refresh();});
-$('upload').onclick=()=>task(async()=>{state('准备服务器发布');const result=await window.tps.invoke('upload');if(result.canceled){state('已取消上传');return;}state('上传已核对：'+result.name,false,true);});
+$('upload').onclick=()=>task(async()=>{state('准备服务器发布');const result=await window.tps.invoke('upload');if(result.canceled){state('已取消上传');return;}state('上传已核对：'+result.name,false,true);showSuccess('上传成功',`${result.name}\n服务器负载哈希和大小已核对。\n仅上传 Releases，未创建部署。`);});
 $('publish-settings').onclick=()=>task(async()=>{if(await window.tps.invoke('publish-settings'))state('本机发布设置已保存');});
 $('connect').onclick=()=>task(async()=>{state('连接 RTT');const info=await window.tps.invoke('rtt-connect',opts());connected=true;append('rtt-log',`\nRTT ${info.control_block} · ${info.speed_khz} kHz\n`);state('RTT 已连接',false,true);});
 $('disconnect').onclick=()=>task(async()=>{await window.tps.invoke('rtt-disconnect');connected=false;state('RTT 已断开');});

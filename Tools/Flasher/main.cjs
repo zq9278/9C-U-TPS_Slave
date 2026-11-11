@@ -41,12 +41,7 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
         if(selected.canceled)return {canceled:true};
         emit('log','正在验证App包并查询Mender服务器版本…\n');
         const prepared=await publisher.prepare(selected.filePaths[0]);
-        const settings=publisher.settings();
-        const answer=await dialog.showMessageBox(win,{type:'question',title:'上传新固件到 Releases',buttons:['取消','上传新包'],defaultId:0,cancelId:0,
-          message:prepared.name,
-          detail:`App实际版本 ${prepared.info.version}\nHW ${prepared.info.hw_min}..${prepared.info.hw_max}\nSHA256 ${prepared.info.sha256}\n`+
-            `设备类型 eyemeter-thermal-aarch64 / 模块 eyemeter-tps-mcu\n${settings.mode==='signed'?'使用TPS密钥签名':'未签名发布（沿用现有TPS格式）'}\n仅上传Releases，不创建部署，不触发设备安装。`});
-        if(answer.response!==1)return {canceled:true};
+        emit('log',`开始上传 ${prepared.name}，App ${prepared.info.version}\n`);
         const result=await publisher.upload(prepared);
         emit('log',`已上传并核对：${result.name}\nArtifact ID ${result.artifact_id}\n发布记录 ${result.folder}\n未创建部署任务。\n`);return result;
       }finally{active=null;}
@@ -67,13 +62,7 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
       }finally{active=null;}
     }
     if(action==='flash'||action==='verify') {
-      noTask();const o=options(arg);const info=programmer.inspect();
-      const answer=await dialog.showMessageBox(win,{type:'warning',buttons:['取消',action==='flash'?'确认烧录':'确认校验'],defaultId:0,cancelId:0,
-        title:action==='flash'?'烧录完整固件':'读取并校验 Flash',
-        message:action==='flash'?`确认将 ${info.identity.version} 的 Boot + App + 元数据写入 STM32G070RB？`:'校验会暂停 CPU，并在结束后请求复位运行。',
-        detail:'请先停止治疗并确认连接的是 TPS Slave。烧录会覆盖现有固件；请关闭其他 J-Link 调试会话。'});
-      if(answer.response!==1)return {canceled:true};
-      noTask();active=action;
+      noTask();const o=options(arg);active=action;
       try{return await programmer.flash(o,t=>emit('log',t),n=>emit('progress',n),action==='verify');}finally{active=null;}
     }
     if(action==='rtt-connect') {
@@ -117,8 +106,12 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
         await new Promise(r=>setTimeout(r,1000));
         const okay=await win.webContents.executeJavaScript(`document.querySelector('#status').textContent!=='正在加载' && document.querySelector('#rtt-info').disabled && !!document.querySelector('#upload') && !!document.querySelector('#publish-settings') && document.documentElement.scrollWidth<=document.documentElement.clientWidth`);
         if(!okay)throw Error('Renderer smoke test failed');
+        const successOkay=await win.webContents.executeJavaScript(`(() => {showSuccess('烧录成功','界面测试预览；未连接探针或实际烧录。');const d=document.getElementById('success-dialog');const okay=d.open && document.getElementById('success-title').textContent==='烧录成功';document.getElementById('success-close').click();return okay && !d.open;})()`);
+        if(!successOkay)throw Error('Success modal failed');
+        console.log('PASS: success modal opens and closes');
         if(bundled){programmer.inspect();programmer.verifyRuntime();}
         await win.webContents.executeJavaScript(`document.getElementById('rtt-log').textContent='[APP] RTT 日志预览\\nRTT> app=0.1.1 target=0x9C01 hw=1\\n';`);
+        if(process.argv.includes('--preview-success'))await win.webContents.executeJavaScript(`showSuccess('烧录成功','版本 0.1.1\\n完整 Flash 回读 SHA256 一致。\\n界面预览；未实际烧录。')`);
         const capture=await win.webContents.capturePage();
         fs.writeFileSync(process.env.TPS_SMOKE_OUTPUT||path.join(app.getPath('temp'),'tps-flasher-preview.png'),capture.toPNG());
         console.log('PASS: GUI, firmware hashes and runtime; no probe connection');app.quit();
