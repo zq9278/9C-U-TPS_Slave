@@ -1079,20 +1079,20 @@ static void ControlTask(void *argument)
             //enqueue_tx_u8(PROTOCOL_ID_U8_MODE_CURVES, runtime.phase_char);
         }
 
-        if ((controller.pid_debug_stream_enabled != 0U) &&
+        if ((controller.pid_debug_stream_enabled != 0U) && (runtime.running_outputs != 0U) &&
             ((int32_t)(now - next_pid_debug_tx) >= 0))
         {
             /* PID 调试数据走日志串口格式，不占用 RK3576 业务协议。 */
             next_pid_debug_tx = now + pdMS_TO_TICKS(PID_DEBUG_TELEMETRY_MS);
-            (void)PidDebugProtocol_SendSample(PID_DEBUG_TARGET_HEAT_LEFT,
+            if(controller.cfg.press_enable_L) (void)PidDebugProtocol_SendSample(PID_DEBUG_TARGET_HEAT_LEFT,
                                               2U,
                                               (uint32_t)(now * portTICK_PERIOD_MS),
                                               &controller.heat_left_pid);
-            (void)PidDebugProtocol_SendSample(PID_DEBUG_TARGET_HEAT_RIGHT,
+            if(controller.cfg.press_enable_R) (void)PidDebugProtocol_SendSample(PID_DEBUG_TARGET_HEAT_RIGHT,
                                               2U,
                                               (uint32_t)(now * portTICK_PERIOD_MS),
                                               &controller.heat_right_pid);
-            (void)PidDebugProtocol_SendSample((pid_debug_target_t)runtime.pid_stage,
+            if(runtime.pump_pwm > 0U) (void)PidDebugProtocol_SendSample((pid_debug_target_t)runtime.pid_stage,
                                               (uint8_t)((controller.cfg.press_enable_L!=0U) && (controller.cfg.press_enable_R!=0U)),
                                               (uint32_t)(now * portTICK_PERIOD_MS),
                                               &controller.pressure_pid);

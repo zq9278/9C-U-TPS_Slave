@@ -233,10 +233,11 @@ uint8_t PidDebugProtocol_SendSample(pid_debug_target_t target,
 
     /* Text mirror for the shared RTT console; binary up-channel 1 stays compatible. */
     char text[320];
+    const double units = target >= PID_DEBUG_TARGET_HEAT_LEFT ? 100.0 : 1.0;
     int count=snprintf(text,sizeof(text),"RTT> PID sample=1 target=%u profile=%u tick=%lu kp=%.6g ki=%.6g kd=%.6g p=%.6g i=%.6g d=%.6g error=%.6g output=%.6g mapped=%.6g setpoint=%.6g measurement=%.6g\r\n",
         (unsigned)target,(unsigned)profile,(unsigned long)tick_ms,(double)pid->config.kp,(double)pid->config.ki,(double)pid->config.kd,
-        (double)pid->debug.p,(double)pid->debug.i,(double)pid->debug.d,(double)pid->debug.error,(double)pid->debug.output,
-        (double)pid->debug.mapped_output,(double)pid->debug.setpoint,(double)pid->debug.measurement);
+        (double)pid->debug.p,(double)pid->debug.i,(double)pid->debug.d,(double)pid->debug.error/units,(double)pid->debug.output,
+        (double)pid->debug.mapped_output,(double)pid->debug.setpoint/units,(double)pid->debug.measurement/units);
     if(count>0 && (size_t)count<sizeof(text)) DebugRtt_Write(text,(size_t)count);
 
     /* 顺序打包：标识头、版本、目标、tick、PID 配置和本次计算结果。 */
