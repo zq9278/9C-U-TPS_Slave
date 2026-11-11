@@ -3,15 +3,20 @@ const {app,BrowserWindow,ipcMain,dialog,shell,screen}=require('electron');
 const fs=require('node:fs'),path=require('node:path');
 const {ROOT,Programmer,findJLink,validateOptions}=require('./backend.cjs');
 const {Rtt}=require('./rtt.cjs');
+const {Publisher}=require('./publisher.cjs');
+// Smoke checks use a separate profile and lock, leaving an operator's running
+// programmer and its saved publishing configuration untouched.
+if(process.argv.includes('--smoke-test'))app.setPath('userData',path.join(app.getPath('temp'),'tps-flasher-smoke-profile'));
 if(!app.requestSingleInstanceLock()) {app.quit();} else {
   app.setName('TPS100-Flasher');
   const bundled=fs.existsSync(path.join(process.resourcesPath,'payload/bundle.json'));
   const payload=bundled?path.join(process.resourcesPath,'payload'):null;
   const programmer=new Programmer({payload});
+  const publisher=new Publisher({settingsFile:path.join(app.getPath('userData'),'publisher.json'),records:path.join(app.getPath('documents'),'TPS100-Published')});
   let win, active=null, chosenJLink=findJLink();
   const emit=(event,data)=>{if(win&&!win.isDestroyed())win.webContents.send('event',event,data);};
   const rtt=new Rtt((event,data)=>{if(event==='rtt-state'&&!data&&active==='rtt'&&!rtt.child)active=null;emit(event,data);});
-  function noTask() {if(active||programmer.busy||rtt.child)throw Error('请先结束当前任务或断开 RTT');}
+  function noTask() {if(active||programmer.busy||publisher.busy||rtt.child)throw Error('请先结束当前任务或断开 RTT');}
   function options(value) {validateOptions(value);return {...value,jlink:chosenJLink};}
   ipcMain.handle('action',async(event,action,arg)=>{
     if(event.sender!==win.webContents)throw Error('Invalid sender');
@@ -27,6 +32,38 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
     }
     if(action==='build') {
       noTask();active='build';try{return await programmer.build(t=>emit('log',t));}finally{active=null;}
+    }
+    if(action==='upload') {
+      noTask();active='upload';
+      try {
+        const selected=await dialog.showOpenDialog(win,{title:'选择要发布的 TPS App 升级包',defaultPath:path.join(programmer.folder(),'tps_app.tpsfw'),properties:['openFile'],filters:[{name:'TPS MCU App',extensions:['tpsfw']}]});
+        if(selected.canceled)return {canceled:true};
+        emit('log','正在验证App包并查询Mender服务器版本…\n');
+        const prepared=await publisher.prepare(selected.filePaths[0]);
+        const settings=publisher.settings();
+        const answer=await dialog.showMessageBox(win,{type:'question',title:'上传新固件到 Releases',buttons:['取消','上传新包'],defaultId:0,cancelId:0,
+          message:prepared.name,
+          detail:`App实际版本 ${prepared.info.version}\nHW ${prepared.info.hw_min}..${prepared.info.hw_max}\nSHA256 ${prepared.info.sha256}\n`+
+            `设备类型 eyemeter-thermal-aarch64 / 模块 eyemeter-tps-mcu\n${settings.privateKey&&settings.publicKey?'使用TPS密钥签名':'尚未配置TPS签名密钥，请取消并打开发布设置'}\n仅上传Releases，不创建部署，不触发设备安装。`});
+        if(answer.response!==1)return {canceled:true};
+        const result=await publisher.upload(prepared);
+        emit('log',`已上传并核对：${result.name}\nArtifact ID ${result.artifact_id}\n发布记录 ${result.folder}\n未创建部署任务。\n`);return result;
+      }finally{active=null;}
+    }
+    if(action==='publish-settings') {
+      noTask();active='settings';
+      try {
+        const answer=await dialog.showMessageBox(win,{type:'question',title:'本机发布设置',buttons:['取消','配置TPS签名密钥'],defaultId:0,cancelId:0,
+          message:'发布端设置只保存在本机，不包含在分发包中。',detail:'管理员凭据默认按接入说明读取。请选择TPS产品私钥和设备已信任公钥，工具独立验签后才允许上传。'});
+        if(answer.response===0)return false;
+        const settings=publisher.settings();
+        if(answer.response===1){
+          const key=await dialog.showOpenDialog(win,{title:'选择TPS Artifact签名私钥',properties:['openFile']});if(key.canceled)return false;
+          const pub=await dialog.showOpenDialog(win,{title:'选择设备已信任的TPS验签公钥',properties:['openFile']});if(pub.canceled)return false;
+          settings.privateKey=key.filePaths[0];settings.publicKey=pub.filePaths[0];delete settings.allowUnsigned;
+        }
+        fs.mkdirSync(path.dirname(publisher.settingsFile),{recursive:true});fs.writeFileSync(publisher.settingsFile,JSON.stringify(settings,null,2));return true;
+      }finally{active=null;}
     }
     if(action==='flash'||action==='verify') {
       noTask();const o=options(arg);const info=programmer.inspect();
@@ -49,7 +86,7 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
       try{const result=await rtt.call('connect',{serial:o.serial});rtt.connected=true;emit('rtt-state',true);return result;}
       catch(e){await rtt.close();active=null;throw e;}
     }
-    if(action==='rtt-disconnect') {if(active&&active!=='rtt')throw Error('当前正在烧录或构建');try{await rtt.close();}finally{active=null;}return true;}
+    if(action==='rtt-disconnect') {if(active&&active!=='rtt')throw Error('当前任务未完成');try{await rtt.close();}finally{active=null;}return true;}
     if(action==='rtt-command') {
       if(active!=='rtt'||!rtt.connected||!['help','info','status'].includes(arg))throw Error('RTT 未连接或命令无效');
       return rtt.call('command',arg);
@@ -69,14 +106,14 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
     win.removeMenu();win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
     win.webContents.on('will-navigate',e=>e.preventDefault());
     win.on('close',e=>{
-      if(active==='flash'||active==='verify'||active==='build'){e.preventDefault();emit('log','请等待当前操作完成再关闭。\n');}
+      if(active&&active!=='rtt'){e.preventDefault();emit('log','请等待当前操作完成再关闭。\n');}
       else if(rtt.child){e.preventDefault();rtt.close().finally(()=>{active=null;win.close();});}
     });
     await win.loadFile(path.join(__dirname,'index.html'));
     if(process.argv.includes('--smoke-test')) {
       try {
         await new Promise(r=>setTimeout(r,1000));
-        const okay=await win.webContents.executeJavaScript(`document.querySelector('#status').textContent!=='正在加载' && document.querySelector('#rtt-info').disabled && document.documentElement.scrollWidth<=document.documentElement.clientWidth`);
+        const okay=await win.webContents.executeJavaScript(`document.querySelector('#status').textContent!=='正在加载' && document.querySelector('#rtt-info').disabled && !!document.querySelector('#upload') && !!document.querySelector('#publish-settings') && document.documentElement.scrollWidth<=document.documentElement.clientWidth`);
         if(!okay)throw Error('Renderer smoke test failed');
         if(bundled){programmer.inspect();programmer.verifyRuntime();}
         await win.webContents.executeJavaScript(`document.getElementById('rtt-log').textContent='[APP] RTT 日志预览\\nRTT> app=0.1.1 target=0x9C01 hw=1\\n';`);

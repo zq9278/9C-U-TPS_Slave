@@ -5,7 +5,7 @@
 <header><div class="eyebrow">9C · U-TPS / SLAVE</div><h1>烧录与 RTT 调试</h1><p>STM32G070RBT6 · 首次安装 Boot + App，后续由 ARM 上位机通过 USART3 升级。</p><span id="status" role="status">正在加载</span></header>
 <main>
 <section><h2><span>01</span>固件交付</h2><div id="firmware" class="info">正在核对固件…</div>
-<div class="row"><button id="output" class="quiet">打开固件目录 / OTA 包</button><button id="build" class="quiet">重新编译并打包</button></div>
+<div class="row"><button id="output" class="quiet">打开固件目录 / OTA 包</button><button id="build" class="quiet">重新编译并打包</button><button id="publish-settings" class="quiet">发布设置</button><button id="upload" class="secondary">上传新包到服务器</button></div>
 <p class="note">完整镜像写入 0x08000000；OTA 包 .tpsfw 供 Mender / ARM 上位机使用。当前软件验证不代表实机验收。</p></section>
 <section><h2><span>02</span>J-Link 烧录</h2>
 <div class="row settings"><label class="grow">J-Link 程序 <input id="jlink" readonly></label><button id="choose" class="quiet">选择 JLink.exe</button>

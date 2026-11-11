@@ -1,4 +1,4 @@
-# TPS100-Flasher 1.0.0
+# TPS100-Flasher 1.1.0
 
 目标：9C-U-TPS Slave / STM32G070RBT6。解压完整文件夹后运行 TPS100-Flasher.exe，不要单独复制 EXE。
 
@@ -21,6 +21,20 @@
 PID二进制采样使用独立上行通道1；此工具不修改PID，不启停治疗。Boot也可输出RTT日志，但有效App上电约500ms后跳转，连接时通常看到App。
 
 ## 后续 OTA
+
+## 上传到 Mender Releases
+
+“上传新包到服务器”选择新的 `.tpsfw` App包，在发布前核对弹窗中的名称、App实际版本和SHA256。工具查询服务器已有 `tps-mcu-1.0.*`，从用户指定的 `tps-mcu-1.0.2-20261111` 起递增patch（1.0.3、1.0.4…），日期段沿用20261111。不会覆盖现有Artifact；上传前再次查重，遇到并发新版本会要求重新准备。
+
+固定兼容类型 `eyemeter-thermal-aarch64`、模块 `eyemeter-tps-mcu`、负载名 `firmware.tpsfw`，与服务器既有包一致。`d0b82a98-300b-41ae-b5d6-530f80fe87cd` 是9C-TPS-130设备ID，仅用于核对device_type。按钮仅上传Releases，不创建部署或触发安装。
+
+发布名独立于MCU版本：外层名称1.0.2不代表负载App也变成1.0.2；包内 `eyemeter.tps-mcu.version` 永远来自.tpsfw真实版本。需要更新MCU程序版本时先修改Config/version.cmake重新构建。
+
+管理员凭据仅在本机从 `D:/Technology_stack/Web/mender/admin-credentials.json` 读取，绝不打包或记录用户名、密码、JWT。其他发布电脑可在Electron用户数据目录的publisher.json配置credentials路径。服务器依次使用aliyun、hk、oregon、oracle1、oracle2入口，强制验证TLS，上传POST不因断线盲目重发。
+
+“发布设置”选择TPS签名私钥和设备已信任公钥（只保存路径，不复制密钥），签名后独立验签；未配置或验签不通过时拒绝上传，不支持未签名发布。设备信任策略仍由ARM客户端执行。
+
+发布文件与upload.json记录保存在Windows“文档/TPS100-Published/<发布名>”；其中包括外层Artifact SHA256、负载哈希、服务器Artifact ID和核对结果。上传响应丢失时按同名及哈希查询结果，不直接换入口重复POST；不确定结果必须人工核查后处理本地记录。
 
 “打开固件目录”中的 tps_app.tpsfw 交给ARM上位机工程师，由Mender封装分发；USART3 PD8/PD9，115200/8N1，ARM设备节点现场确认（当前约定/dev/ttyS1）。不要把tps_factory.bin作为UART载荷。
 

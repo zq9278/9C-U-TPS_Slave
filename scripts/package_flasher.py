@@ -51,7 +51,7 @@ def main():
     (dest/'electron.exe').rename(dest/'TPS100-Flasher.exe')
     (dest/'resources/default_app.asar').unlink(missing_ok=True)
     application=dest/'resources/app';application.mkdir()
-    for name in ('main.cjs','backend.cjs','rtt.cjs','preload.cjs','index.html','renderer.js','style.css'):
+    for name in ('main.cjs','backend.cjs','publisher.cjs','rtt.cjs','preload.cjs','index.html','renderer.js','style.css'):
         shutil.copy2(APP/name,application/name)
     (application/'package.json').write_text(json.dumps({k:package[k] for k in ('name','version','main')})+'\n',encoding='utf-8')
     payload=dest/'resources/payload'
@@ -70,7 +70,7 @@ def main():
     shutil.copy2(APP/'README.md',dest/'使用说明.txt')
     shutil.copy2(args.jlink/'Doc/LicenseIncGUI.txt',dest/'SEGGER-LICENSE.txt')
     docs=dest/'交接文档';docs.mkdir()
-    for name in ('ota_requirements_acceptance.md','uart_upgrade_handoff.md','rtt_debug.md'):
+    for name in ('ota_requirements_acceptance.md','uart_upgrade_handoff.md','rtt_debug.md','产品OTA档案.md'):
         shutil.copy2(ROOT/'documents'/name,docs/name)
     shutil.copy2(ROOT/'Tools/FirmwarePack/protocol_vectors.json',docs/'protocol_vectors.json')
     for name,info in manifest['files'].items():

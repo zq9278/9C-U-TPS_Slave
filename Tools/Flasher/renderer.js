@@ -6,6 +6,7 @@ function render(){
   for(const id of ['flash','verify'])$(id).disabled=busy||connected||!available;
   $('build').hidden=bundled;$('build').disabled=busy||connected;
   $('choose').hidden=bundled;$('choose').disabled=busy||connected;
+  $('upload').disabled=busy||connected;$('publish-settings').disabled=busy||connected;
   for(const id of ['serial','speed'])$(id).disabled=busy||connected;
   $('connect').disabled=busy||connected;$('disconnect').disabled=busy||!connected;
   for(const id of ['rtt-info','rtt-status','rtt-help'])$(id).disabled=busy||!connected;
@@ -38,6 +39,8 @@ for(const id of ['flash','verify'])$(id).onclick=()=>task(async()=>{
   append('flash-log',`\n${result.version} 回读一致；已请求复位运行。App 业务启动仍需 UART 版本/心跳确认。\n`);
 });
 $('choose').onclick=()=>task(async()=>{await window.tps.invoke('choose-jlink');await refresh();});
+$('upload').onclick=()=>task(async()=>{state('准备服务器发布');const result=await window.tps.invoke('upload');if(result.canceled){state('已取消上传');return;}state('上传已核对：'+result.name,false,true);});
+$('publish-settings').onclick=()=>task(async()=>{if(await window.tps.invoke('publish-settings'))state('本机发布设置已保存');});
 $('connect').onclick=()=>task(async()=>{state('连接 RTT');const info=await window.tps.invoke('rtt-connect',opts());connected=true;append('rtt-log',`\nRTT ${info.control_block} · ${info.speed_khz} kHz\n`);state('RTT 已连接',false,true);});
 $('disconnect').onclick=()=>task(async()=>{await window.tps.invoke('rtt-disconnect');connected=false;state('RTT 已断开');});
 for(const name of ['info','status','help'])$('rtt-'+name).onclick=()=>task(async()=>{await window.tps.invoke('rtt-command',name);state('命令已发送，回复见 RTT 日志');});
