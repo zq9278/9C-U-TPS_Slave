@@ -10,6 +10,19 @@ test('PID command validation and sample parser reject malformed values',()=>{
   assert.equal(A.decode('RTT> PID sample=1 target=3 tick=1'),null);
 });
 const config={durationMs:6000,gapMs:1500,limits:Object.fromEntries(device.channels.map(c=>[c.id,[-5,60]]))};
+test('stability pressure conversion consistently drives limits, statistics and report trace in mmHg',()=>{
+  const S=require('./platform/stability.js');
+  const channels=S.channelsFor(device.channels);
+  const original={time:200,deviceTick:200,running:1,log_drops:0,values:{tempL:36,tempR:37,pressL:10,pressR:20}};
+  const converted=S.convertSample(original,channels);
+  assert.equal(original.values.pressL,10);assert.equal(converted.values.tempL,36);assert.ok(Math.abs(converted.values.pressL-75.006168270417)<1e-10);
+  const limits=Object.fromEntries(channels.map(c=>[c.id,c.group==='pressure'?[0,100]:[0,60]]));
+  const run=new Run({...config,limits},channels,{},0);run.push(converted);run.finish(true,400);
+  const report=run.report();assert.equal(report.schema,2);assert.equal(report.stats.pressL.unit,'mmHg');assert.equal(report.stats.pressL.violations,0);assert.equal(report.stats.pressR.violations,1);
+  assert.equal(report.stats.pressL.mean,converted.values.pressL);assert.equal(report.trace[0].values.pressR,converted.values.pressR);assert.equal(run.history[0].values.pressL,converted.values.pressL);
+  assert.deepEqual(report.channels.find(c=>c.id==='pressL'),{id:'pressL',unit:'mmHg',sourceUnit:'kPa',scale:S.KPA_TO_MMHG});
+  assert.deepEqual(S.channelsFor(channels).map(c=>c.scale),[1,1,1,1]);
+});
 const sample=(time,tick=time,value=30)=>({time,deviceTick:tick,running:1,log_drops:0,values:Object.fromEntries(device.channels.map(c=>[c.id,value]))});
 test('stability passes continuous observations with correct statistics and bounded trace',()=>{
   const r=new Run(config,device.channels,{app:'0.1.2'},0);

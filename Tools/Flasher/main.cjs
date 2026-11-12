@@ -137,6 +137,8 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
           if(!document.getElementById('pid-values').textContent.includes('40'))return false;
           connected=true;monitoring=true;render();document.getElementById('stability-start').click();
           if(!stability||stability.result!=='RUNNING'||!document.getElementById('pid-write').disabled)return false;
+          ingest('RTT> tick=323 running=0 tempL=36.25 tempR=36.5 pressL=10 pressR=20 free_heap=4000 log_drops=0\\n');drawStability();
+          if(document.getElementById('stability-value-pressL').textContent!=='75.01'||document.getElementById('stability-stat-pressR-mean').textContent!=='150.01'||stability.history.length!==1||stability.report().stats.pressL.unit!=='mmHg')return false;
           document.getElementById('stability-stop').click();if(stability.result!=='ABORTED'||document.getElementById('stability-export').disabled)return false;
           stability=null;stabilityNotified=false;connected=false;monitoring=false;pidHistory.clear();
           document.getElementById('identity-tab').click();
@@ -152,6 +154,10 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
         if(bundled){programmer.inspect();programmer.verifyRuntime();}
         await win.webContents.executeJavaScript(`document.getElementById('rtt-log').textContent='等待连接设备。';`);
         if(process.argv.includes('--preview-success'))await win.webContents.executeJavaScript(`showSuccess('烧录成功','版本 0.1.1\\n完整 Flash 回读 SHA256 一致。\\n界面预览；未实际烧录。')`);
+        if(process.argv.includes('--preview-tests')){
+          await win.webContents.executeJavaScript(`navigate('tests');window.scrollTo(0,0);`);
+          await new Promise(resolve=>setTimeout(resolve,200));
+        }
         const capture=await win.webContents.capturePage();
         fs.writeFileSync(process.env.TPS_SMOKE_OUTPUT||path.join(app.getPath('temp'),'tps-flasher-preview.png'),capture.toPNG());
         console.log('PASS: GUI, firmware hashes and runtime; no probe connection');app.quit();

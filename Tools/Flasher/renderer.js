@@ -6,6 +6,7 @@ let replay=null,replayIndex=0,replayPlaying=false,replayStart=0,replayHostStart=
 let monitoring=false,polling=false,frozen=false,frozenEnd=0,recording=false,recorded=[],recordIdentity={},lastUiTime=0;
 let pidRequest=0,pidBusy=false,pidMode='heat',pidStream=false,stability=null,stabilityNotified=false;
 const pidPending=new Map(),pidHistory=new Map(),pidCache=new Map();
+let stabilityChannels=[];
 const pidGroups=[{target:3,profile:2,name:'左眼温度'},{target:4,profile:2,name:'右眼温度'},
   ...[0,1].flatMap(profile=>['升压','保压','脉冲'].map((stage,target)=>({target,profile,name:(profile?'双眼':'单眼')+'压力 · '+stage})))];
 const visible=new Set(),pageNames={overview:'设备概览',workbench:'调试工作台',firmware:'固件与发布',tests:'检查与诊断',logs:'日志与记录',settings:'连接与设置'};
@@ -41,6 +42,7 @@ function render(){
 }
 function configure(d){
   device=P.validateDevice(d);
+  stabilityChannels=Stability.channelsFor(d.channels);
   $('parameter-notice').textContent=d.parameterNotice;$('telemetry-notice').textContent='RTT 状态快照 · 5 Hz 请求 · 非传感器原始采样';
   for(const c of d.channels){
     visible.add(c.id);const card=document.createElement('div');card.className='metric';card.style.setProperty('--metric-color',c.color);
@@ -54,8 +56,11 @@ function configure(d){
   }
   for(const field of d.parameters){const row=document.createElement('div');row.className='parameter-field';const name=document.createElement('span'),value=document.createElement('strong');name.textContent=field.name;value.id='param-'+field.id;value.textContent='—';row.append(name,value);$('parameter-fields').append(row);}
   selectPidMode('heat');
-  for(const c of d.channels){const label=document.createElement('label');label.textContent=c.name+'下限 / 上限（'+c.unit+'）';const row=document.createElement('div');row.className='stability-range';
-    for(const [bound,value] of [['min',c.group==='temperature'?0:-5],['max',60]]){const input=document.createElement('input');input.type='number';input.step='any';input.value=value;input.id='limit-'+c.id+'-'+bound;input.setAttribute('aria-label',c.name+bound);row.append(input);}label.append(row);$('stability-limits').append(label);}
+  for(const c of stabilityChannels){const label=document.createElement('label');label.textContent=c.name+'下限 / 上限（'+c.unit+'）';const row=document.createElement('div');row.className='stability-range';
+    for(const [bound,value] of [['min',c.group==='temperature'?0:-5*Stability.KPA_TO_MMHG],['max',c.group==='temperature'?60:60*Stability.KPA_TO_MMHG]]){const input=document.createElement('input');input.type='number';input.step='any';input.value=Number(value.toFixed(2));input.id='limit-'+c.id+'-'+bound;input.setAttribute('aria-label',c.name+bound);row.append(input);}label.append(row);$('stability-limits').append(label);
+    const card=document.createElement('div');card.className='metric';card.style.setProperty('--metric-color',c.color);const name=document.createElement('div');name.className='metric-label';name.textContent=c.name+' · '+c.unit;const value=document.createElement('div');value.className='metric-value';value.id='stability-value-'+c.id;value.textContent='—';const note=document.createElement('div');note.className='metric-note';note.id='stability-note-'+c.id;note.textContent='等待测试数据';card.append(name,value,note);$('stability-metrics').append(card);
+    const tr=document.createElement('tr');for(const key of ['name','min','max','mean','stddev','span','violations']){const cell=document.createElement(key==='name'?'th':'td');if(key==='name'){cell.scope='row';cell.textContent=c.name+' ('+c.unit+')';}else{cell.id='stability-stat-'+c.id+'-'+key;cell.textContent='—';}tr.append(cell);}$('stability-statistics').append(tr);
+  }
 }
 function identity(){return replay?replay.identity||{}:live.identity;}
 function updateIdentity(){if(!device)return;const data=identity();for(const f of device.parameters)$('param-'+f.id).textContent=data[f.id]||'—';
@@ -80,7 +85,7 @@ function ingest(text){
     if(event.type==='identity'){live.identity=event.values;updateIdentity();}
     if(event.type==='sample'){
       const s=live.push(event.sample);
-      stability?.push(s);
+      stability?.push(Stability.convertSample(s,stabilityChannels));
       if(recording){if(recorded.length<50000)recorded.push(s);else{recording=false;state('录制达到 50000 点上限，请保存记录');}}
       if($('check-result').dataset.pending==='1'){$('check-result').textContent=`已收到设备状态回复\n设备Tick ${s.deviceTick} · 治疗标志 ${s.running}\n设备App ${live.identity.app||'尚未收到身份回复'}`;delete $('check-result').dataset.pending;}
     }
@@ -169,20 +174,29 @@ function drawPid(){const g=currentPid();if(!g)return;const samples=replay?[]:pid
 $('pid-heat').onclick=()=>selectPidMode('heat');$('pid-pressure').onclick=()=>selectPidMode('pressure');$('pid-group').onchange=()=>{fillPid();drawPid();};
 $('pid-read').onclick=()=>pidAction(false);$('pid-write').onclick=()=>pidAction(true);
 for(const enabled of [0,1])$('pid-stream-'+(enabled?'on':'off')).onclick=async()=>{pidBusy=true;render();try{const v=await pidCall('stream',[enabled]);if(v.stream!==enabled)throw Error('数据流回执不一致');pidStream=!!enabled;state(enabled?'PID 实时数据流已开启':'PID 实时数据流已关闭',false,true);}catch(e){state(e.message,true);}finally{pidBusy=false;render();}};
-function drawStability(){if(!stability)return;const r=stability.report();$('stability-badge').textContent={RUNNING:'测试进行中',PASS:'通过',FAIL:'未通过',ABORTED:'手动结束 · 未完成'}[r.result];$('stability-badge').className='tag '+(['FAIL','ABORTED'].includes(r.result)?'warning':'');
+function drawStability(){
+  if(!device)return;const now=Date.now(),end=stability?.end??now,history=stability?.history??[];
+  for(const group of ['temperature','pressure']){const channels=stabilityChannels.filter(c=>c.group===group);drawTelemetryChart($('stability-'+group+'-chart'),history,channels,end,Number($('stability-window').value),new Set(channels.map(c=>c.id)));}
+  if(!stability)return;const r=stability.report();$('stability-badge').textContent={RUNNING:'测试进行中',PASS:'通过',FAIL:'未通过',ABORTED:'手动结束 · 未完成'}[r.result];$('stability-badge').className='tag '+(['FAIL','ABORTED'].includes(r.result)?'warning':'');
+  const fresh=r.result==='RUNNING'&&connected&&stability.last&&now-stability.last.time<=r.config.gapMs;
+  $('stability-elapsed').textContent=(r.elapsedMs/60000).toFixed(1)+' / '+(r.config.durationMs/60000).toFixed(1)+' 分钟';$('stability-count').textContent=String(r.samples);$('stability-events').textContent=String(r.eventCount);$('stability-max-gap').textContent=Math.round(r.maxGapMs)+' ms';
+  $('stability-chart-state').textContent=r.result!=='RUNNING'?'测试已结束 · 曲线已保留':fresh?'实时采集中 · 5 Hz':'等待数据 · 快照已过期';
   $('stability-progress').value=Math.min(100,r.elapsedMs/r.config.durationMs*100);
   const lines=[`结果 ${r.result} · 已运行 ${(r.elapsedMs/60000).toFixed(1)} / ${(r.config.durationMs/60000).toFixed(1)} 分钟`,`有效快照 ${r.samples} · 最大数据间隔 ${Math.round(r.maxGapMs)} ms · 异常事件 ${r.eventCount}`];
-  for(const c of device.channels){const s=r.stats[c.id];lines.push(`${c.name}：最小 ${s.min?.toFixed(2)??'—'} / 最大 ${s.max?.toFixed(2)??'—'} / 均值 ${s.mean?.toFixed(2)??'—'} / 标准差 ${s.stddev?.toFixed(3)??'—'} ${c.unit} · 越限 ${s.violations} 次`);}
+  for(const c of stabilityChannels){const s=r.stats[c.id];$('stability-value-'+c.id).textContent=stability.last?.values[c.id]?.toFixed(2)??'—';$('stability-note-'+c.id).textContent=fresh?'测试实时值':r.result==='RUNNING'?'历史快照 · 已过期':'测试结束值';
+    for(const key of ['min','max','mean','stddev','span','violations']){const value=key==='span'&&s.count?s.max-s.min:s[key];$('stability-stat-'+c.id+'-'+key).textContent=key==='violations'?String(value):value?.toFixed(key==='stddev'?3:2)??'—';}
+    lines.push(`${c.name}：最小 ${s.min?.toFixed(2)??'—'} / 最大 ${s.max?.toFixed(2)??'—'} / 均值 ${s.mean?.toFixed(2)??'—'} / 标准差 ${s.stddev?.toFixed(3)??'—'} ${c.unit} · 越限 ${s.violations} 次`);}
   lines.push(...r.events.slice(-8).map(e=>new Date(e.time).toLocaleTimeString()+' '+e.message));$('stability-result').textContent=lines.join('\n');
   if(r.result!=='RUNNING'&&!stabilityNotified){stabilityNotified=true;render();if(r.result==='PASS')showSuccess('稳定性测试通过',`完成 ${(r.elapsedMs/60000).toFixed(1)} 分钟观察，共 ${r.samples} 个有效快照。\n配置阈值内未发现异常，可导出报告。`);else state('稳定性测试'+(r.result==='FAIL'?'未通过，请查看异常记录':'已手动结束，未完成预定时长'),r.result==='FAIL');}
 }
 $('stability-start').onclick=()=>{try{if(!connected||replay||!live.latest()||Date.now()-live.latest().time>1500||!live.identity.app)throw Error('请先连接设备并取得身份和新鲜状态快照');
   const limits={};for(const c of device.channels)limits[c.id]=['min','max'].map(k=>{const text=$('limit-'+c.id+'-'+k).value;if(!text.trim())throw Error('请填写测点上下限');return Number(text);});
-  stability=new Stability.Run({durationMs:Number($('stability-minutes').value)*60000,gapMs:Number($('stability-gap').value)*1000,limits},device.channels,live.identity);stabilityNotified=false;monitoring=true;render();drawStability();state('稳定性测试已开始');
+  stability=new Stability.Run({durationMs:Number($('stability-minutes').value)*60000,gapMs:Number($('stability-gap').value)*1000,limits},stabilityChannels,live.identity);stabilityNotified=false;monitoring=true;render();drawStability();state('稳定性测试已开始');
 }catch(e){state(e.message,true);}};
 $('stability-stop').onclick=()=>{stability?.finish(true);drawStability();render();};
 for(const format of ['export','csv'])$('stability-'+format).onclick=()=>task(async()=>{if(!stability||stability.result==='RUNNING')return;const r=stability.report();
-  const content=format==='export'?JSON.stringify(r,null,2):'\uFEFF'+['result,channel,unit,count,min,max,mean,stddev,violations',...device.channels.map(c=>{const s=r.stats[c.id];return [r.result,c.id,s.unit,s.count,s.min,s.max,s.mean,s.stddev,s.violations].join(',');})].join('\r\n');
+  const content=format==='export'?JSON.stringify(r,null,2):'\uFEFF'+['result,channel,unit,count,min,max,mean,stddev,violations',...stabilityChannels.map(c=>{const s=r.stats[c.id];return [r.result,c.id,s.unit,s.count,s.min,s.max,s.mean,s.stddev,s.violations].join(',');})].join('\r\n');
   if(await window.tps.invoke(format==='csv'?'save-csv':'save-recording',{content,kind:'stability'}))showSuccess('报告导出成功',format==='csv'?'已导出测点统计 CSV。':'已导出配置、结果、异常事件、统计量及每秒采样记录。');
 });
+$('stability-window').onchange=drawStability;
 refresh().then(()=>state('就绪 · 等待连接设备')).catch(e=>state(e.message,true));
