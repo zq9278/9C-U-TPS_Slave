@@ -66,7 +66,7 @@ function run(command,args,{cwd=ROOT,log=()=>{},timeout=120000}={}) {
     child.stdout.on('data',read);child.stderr.on('data',read);
     child.once('error',e=>{clearTimeout(timer);reject(e);});
     child.once('close',code=>{clearTimeout(timer);expired?reject(Error('操作超时，设备状态未确认')):
-      code!==0?reject(Error(`工具退出码 ${code}\n${output.slice(-1200)}`)):resolve(output);});
+      code!==0?reject(Error(`工具退出码 ${code}\n${output.trim()?output.slice(-12000):'工具没有返回错误详情。请核对J-Link USB连接、驱动、探针序列号和目标板供电。'}\n\n任务未成功，请查看完整任务日志。`)):resolve(output);});
   });
 }
 function script(verifyOnly=false) {

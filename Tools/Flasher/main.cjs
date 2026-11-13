@@ -171,6 +171,9 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
         const successOkay=await win.webContents.executeJavaScript(`(() => {showSuccess('烧录成功','界面测试预览；未连接探针或实际烧录。');const d=document.getElementById('success-dialog');const okay=d.open && document.getElementById('success-title').textContent==='烧录成功';document.getElementById('success-close').click();return okay && !d.open;})()`);
         if(!successOkay)throw Error('Success modal failed');
         console.log('PASS: success modal opens and closes');
+        const failureOkay=await win.webContents.executeJavaScript(`(async()=>{await task(async()=>{throw Error("Error invoking remote method 'action': Error: 工具退出码 1 / J-Link 测试错误");});const d=document.getElementById('success-dialog');const ok=d.open&&d.classList.contains('failure')&&document.getElementById('success-detail').textContent.includes('工具退出码 1')&&!document.getElementById('success-detail').textContent.includes('Error invoking remote method')&&document.getElementById('flash-details').open;document.getElementById('success-close').click();showSuccess('测试成功','成功样式恢复测试');const restored=d.open&&!d.classList.contains('failure');document.getElementById('success-close').click();document.getElementById('flash-details').open=false;return ok&&restored;})()`);
+        if(!failureOkay)throw Error('Failure modal / success style restoration failed');
+        console.log('PASS: failed task opens red modal, preserves diagnostic text; success restores green modal');
         if(bundled){programmer.inspect();powerProgrammer.inspect();programmer.verifyRuntime();}
         await win.webContents.executeJavaScript(`document.getElementById('rtt-log').textContent='等待连接设备。';`);
         if(process.argv.includes('--preview-success'))await win.webContents.executeJavaScript(`showSuccess('烧录成功','版本 0.1.1\\n完整 Flash 回读 SHA256 一致。\\n界面预览；未实际烧录。')`);

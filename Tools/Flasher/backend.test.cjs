@@ -1,7 +1,7 @@
 'use strict';
 const {test}=require('node:test');const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto');
-const {Programmer,inspect,crc32,script,validateOptions,safePath,sha}=require('./backend.cjs');
+const {Programmer,inspect,crc32,script,validateOptions,safePath,sha,run}=require('./backend.cjs');
 function fixture(t) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'tps-test-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   const folder=path.join(root,'out/Release');fs.mkdirSync(folder,{recursive:true});
@@ -49,4 +49,7 @@ test('exit code zero without readback is not success; busy always clears',async 
 });
 test('verify does not issue loadfile or erase; uses complete readback',()=>{
   assert.doesNotMatch(script(true),/loadfile|erase/i);assert.match(script(true),/savebin "readback.bin" 0x08000000 0x20000/);
+});
+test('failed tool retains diagnostic output and exit code for result dialog',async()=>{
+  await assert.rejects(run(process.execPath,['-e',"console.log('Connection failure detail');console.log('x'.repeat(2000));process.exit(1)"]),e=>e.message.includes('退出码 1')&&e.message.includes('Connection failure detail'));
 });
