@@ -45,7 +45,7 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
         const prepared=await publisher.prepare(selected.filePaths[0]);
         emit('log',`开始上传 ${prepared.name}，App ${prepared.info.version}\n`);
         const result=await publisher.upload(prepared);
-        emit('log',`已上传并核对：${result.name}\nArtifact ID ${result.artifact_id}\n部署任务 ${result.deployment_id} · ${result.deployment_status}\n目标设备 ${result.device_reference}\n发布记录 ${result.folder}\n请在机器上手动确认更新。\n`);return result;
+        emit('log',`已上传并核对：${result.name}\nArtifact ID ${result.artifact_id}\n部署任务 ${result.deployment_id} · ${result.deployment_status}\n全部兼容 TPS130：${result.deployment_devices.length} 台\n${result.deployment_devices.join('\n')}\n发布记录 ${result.folder}\n请在各机器上手动确认更新。\n`);return result;
       }finally{active=null;}
     }
     if(action==='deploy-existing') {

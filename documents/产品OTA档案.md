@@ -26,3 +26,10 @@
 创建接口POST /api/management/v1/deployments/deployments，body含name、artifact_name、devices。devices固定为单个设备d0b82a98-300b-41ae-b5d6-530f80fe87cd。发布前核对设备类型、Artifact ID、模块、负载大小及SHA256。创建后读取详情，验证artifact_name及filter中唯一identity.id的$in目标，仅含指定设备。现有精确目标任务复用；创建结果不确定时查询核对，不重复POST。
 
 本机upload.json记录任务ID和状态；“补建/核对更新任务”可选历史upload.json继续处理，无需重新上传。机器端手动安装策略来自已交接的ARM客户端，不由此工具绕过。
+
+
+## Studio 2.1.3 全部TPS130设备发布（替代2.1.2单设备策略）
+
+按用户要求，上传按钮向全部兼容TPS130设备分配更新任务。枚举inventory设备列表并分页，筛选device_type=eyemeter-thermal-aarch64，固定模块eyemeter-tps-mcu。包括离线库存，不向其他类型产品发任务；不依赖参考UUID在线。
+
+POST的devices是当前兼容设备ID清单，而非服务器所有产品。upload.json保存deployment_scope=all-compatible和deployment_devices，随后核对服务器filter中唯一identity.id的$in清单与记录完全相同。重试固定这次清单，新增设备等下一次发布。历史单设备记录继续按旧清单处理，不自动修改已有任务。安装仍由每台机器人工开始并确认。

@@ -108,22 +108,43 @@ class Publisher {
   async prepare(file) {
     if(this.busy)throw Error('上传正在进行');
     const data=fs.readFileSync(file),info=payloadInfo(data),connection=await this.connect();
-    const r=await this.transport(connection.server,'/api/management/v1/inventory/devices/'+DEVICE,{token:connection.token});
-    if(r.data.id!==DEVICE||!r.data.attributes?.some(a=>a.name==='device_type'&&a.value===DEVICE_TYPE))throw Error('指定设备身份或兼容类型不匹配');
+    await this.compatibleDevices(connection);
     const artifacts=await this.list(connection),name=nextName(artifacts);
     return {file,data,info,connection,name};
+  }
+  async compatibleDevices(connection) {
+    const ids=new Set(),seen=new Set();
+    for(let page=1;page<=100;page++){
+      const r=await this.transport(connection.server,`/api/management/v1/inventory/devices?page=${page}&per_page=100`,{token:connection.token});
+      if(!Array.isArray(r.data))throw Error('设备列表格式无效');
+      for(const d of r.data){
+        if(typeof d.id!=='string'||!/^[\w-]+$/.test(d.id)||seen.has(d.id))throw Error('设备列表ID无效或分页重复');seen.add(d.id);
+        if(d.attributes?.some(a=>a.name==='device_type'&&a.value===DEVICE_TYPE))ids.add(d.id);
+      }
+      if(r.data.length<100){if(!ids.size)throw Error('服务器没有兼容的 TPS130 设备');return [...ids].sort();}
+    }throw Error('设备列表分页过多');
   }
   async deploy(record,connection,folder) {
     if(record.state!=='VERIFIED'||record.device_reference!==DEVICE||record.device_type!==DEVICE_TYPE||record.module!==MODULE)throw Error('发布记录未核对或设备不匹配');
     const save=()=>fs.writeFileSync(path.join(folder,'upload.json'),JSON.stringify(record,null,2)+'\n');
-    const device=await this.transport(connection.server,'/api/management/v1/inventory/devices/'+DEVICE,{token:connection.token});
-    if(device.data.id!==DEVICE||!device.data.attributes?.some(a=>a.name==='device_type'&&a.value===DEVICE_TYPE))throw Error('部署目标设备身份或兼容类型不匹配');
+    let targets;
+    if(record.deployment_scope==='all-compatible'){
+      const current=await this.compatibleDevices(connection);
+      targets=record.deployment_devices||current;
+      if(!Array.isArray(targets)||!targets.length||new Set(targets).size!==targets.length||targets.some(id=>!current.includes(id)))throw Error('已记录目标设备不再兼容，请核查服务器');
+      targets=[...targets].sort();record.deployment_devices=targets;save();
+    }else{
+      const device=await this.transport(connection.server,'/api/management/v1/inventory/devices/'+DEVICE,{token:connection.token});
+      if(device.data.id!==DEVICE||!device.data.attributes?.some(a=>a.name==='device_type'&&a.value===DEVICE_TYPE))throw Error('部署目标设备身份或兼容类型不匹配');
+      targets=[DEVICE];
+    }
     const artifacts=await this.list(connection),a=artifacts.find(a=>a.id===record.artifact_id&&a.name===record.name);
     if(!a||!a.device_types_compatible?.includes(DEVICE_TYPE)||!a.updates?.some(u=>u.type_info?.type===MODULE&&u.files?.some(f=>f.name==='firmware.tpsfw'&&f.checksum===record.source_payload.sha256&&f.size===record.source_payload.size)))throw Error('部署前服务器负载核对失败');
     const exactTarget=d=>{
       const terms=d.filter?.terms;
       return Array.isArray(terms)&&terms.length===1&&terms[0].scope==='identity'&&terms[0].attribute==='id'&&terms[0].type==='$in'&&
-        Array.isArray(terms[0].value)&&terms[0].value.length===1&&terms[0].value[0]===DEVICE;
+        Array.isArray(terms[0].value)&&terms[0].value.length===targets.length&&
+        [...terms[0].value].sort().every((id,i)=>id===targets[i]);
     };
     const details=async id=>{
       if(typeof id!=='string'||!/^[\w-]+$/.test(id))throw Error('部署ID无效');
@@ -148,7 +169,7 @@ class Publisher {
       if(['POSTING','UNCERTAIN','CREATED'].includes(record.deployment_state))throw Error('之前创建任务结果未确认，停止重复POST；请核对服务器后使用“补建/核对更新任务”');
       record.deployment_state='POSTING';save();
       try{
-        const r=await this.transport(connection.server,DEPLOY_API,{method:'POST',token:connection.token,headers:{'Content-Type':'application/json'},body:Buffer.from(JSON.stringify({name:record.name,artifact_name:record.name,devices:[DEVICE]}))});
+        const r=await this.transport(connection.server,DEPLOY_API,{method:'POST',token:connection.token,headers:{'Content-Type':'application/json'},body:Buffer.from(JSON.stringify({name:record.name,artifact_name:record.name,devices:targets}))});
         record.deployment_id=r.headers?.location?.split('/').filter(Boolean).at(-1)||r.data?.id;record.deployment_state='CREATED';save();
       }catch(e){record.deployment_state=e.status>=400&&e.status<500?'REJECTED':'UNCERTAIN';save();
         found=await find();if(!found)throw Error('包已上传，但更新任务未确认；请补建/核对更新任务，不要重复上传。');
@@ -156,7 +177,7 @@ class Publisher {
       if(!found)found=await find();
       if(!found)throw Error('包已上传，但服务器任务尚未核对到；请稍后补建/核对更新任务');
     }
-    record.deployment_id=found.id;record.deployment_status=found.status;record.deployment_devices=[DEVICE];record.deployment_state='VERIFIED';record.deployment_created=true;save();
+    record.deployment_id=found.id;record.deployment_status=found.status;record.deployment_devices=targets;record.deployment_state='VERIFIED';record.deployment_created=true;save();
     return {...record,folder};
   }
   async resumeDeployment(file) {
@@ -172,7 +193,7 @@ class Publisher {
       const packed=artifact(data,name,this.settings());
       fs.mkdirSync(this.records,{recursive:true});const folder=path.join(this.records,name);fs.mkdirSync(folder,{recursive:false});
       const output=path.join(folder,name+'.mender');fs.writeFileSync(output,packed.bytes,{flag:'wx'});
-      const record={name,device_reference:DEVICE,device_type:DEVICE_TYPE,module:MODULE,source_payload:packed.info,
+      const record={name,device_reference:DEVICE,device_type:DEVICE_TYPE,module:MODULE,deployment_scope:'all-compatible',source_payload:packed.info,
         signed:packed.signed,artifact_sha256:hash(packed.bytes),state:'PREPARED',deployment_created:false};
       const save=()=>fs.writeFileSync(path.join(folder,'upload.json'),JSON.stringify(record,null,2)+'\n');save();
       const boundary='tps-'+crypto.randomBytes(16).toString('hex');

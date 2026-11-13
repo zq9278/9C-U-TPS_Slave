@@ -29,6 +29,7 @@ test('upload reconciles lost artifact POST, then creates only the exact device t
   const file=path.join(dir,'app.tpsfw');fs.writeFileSync(file,fixture());const info=payloadInfo(fixture());
   let uploaded=false,posts=0,deployPosts=0;
   const transport=async(base,route,opts)=>{
+    if(route.startsWith('/api/management/v1/inventory/devices?'))return {data:[{id:DEVICE,attributes:[{name:'device_type',value:'eyemeter-thermal-aarch64'}]}]};
     if(route.includes('/inventory/devices/'))return {data:{id:DEVICE,attributes:[{name:'device_type',value:'eyemeter-thermal-aarch64'}]}};
     if(route.includes('/deployments/deployments')){
       if(opts.method==='POST'){deployPosts++;assert.deepEqual(JSON.parse(opts.body).devices,[DEVICE]);return {headers:{location:'/deployments/task-1'},data:''};}
@@ -75,4 +76,27 @@ test('uncertain deployment never repeats POST and wrong target fails verificatio
 test('server version race rejects before upload',async()=>{
   const p=new Publisher({transport:async()=>({data:[{id:'existing',name:'tps-mcu-1.0.2-20261111'}]})});
   await assert.rejects(p.upload({name:'tps-mcu-1.0.2-20261111',connection:{server:'test',token:'test'},data:fixture()}),/新版本/);assert.equal(p.busy,false);
+});
+
+test('fleet upload targets all compatible devices including offline inventory, excludes other products',async t=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'tps-fleet-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const info=payloadInfo(fixture()),name='tps-mcu-1.0.2-20261111',type='eyemeter-thermal-aarch64';
+  const record={name,state:'VERIFIED',artifact_id:'artifact',device_reference:DEVICE,device_type:type,module:'eyemeter-tps-mcu',source_payload:info,deployment_scope:'all-compatible'};
+  const ids=[DEVICE,'tps-offline','tps-online'].sort();let posted=null;
+  const p=new Publisher({transport:async(base,route,opts)=>{
+    if(route.includes('/inventory/'))return {data:[...ids.map(id=>({id,attributes:[{name:'device_type',value:type}]})),{id:'other-product',attributes:[{name:'device_type',value:'SND100'}]}]};
+    if(route.includes('/artifacts'))return {data:[{id:'artifact',name,device_types_compatible:[type],updates:[{type_info:{type:record.module},files:[{name:'firmware.tpsfw',checksum:info.sha256,size:info.size}]}]}]};
+    if(opts.method==='POST'){posted=JSON.parse(opts.body);return {headers:{location:'/fleet-task'}};}
+    if(route.endsWith('/fleet-task'))return {data:{id:'fleet-task',artifact_name:name,status:'pending',filter:{terms:[{scope:'identity',attribute:'id',type:'$in',value:ids}]}}};
+    return {data:[]};
+  }});
+  const result=await p.deploy(record,{server:'test'},dir);assert.deepEqual(posted.devices,ids);assert.deepEqual(result.deployment_devices,ids);assert.equal(result.deployment_scope,'all-compatible');
+  const frozen=[...result.deployment_devices];p.compatibleDevices=async()=>[...ids,'new-device'];
+  await p.deploy(result,{server:'test'},dir);assert.deepEqual(result.deployment_devices,frozen);
+});
+
+test('fleet discovery fails on empty compatible list or repeated inventory pages',async()=>{
+  const p=new Publisher({transport:async()=>({data:[{id:'other',attributes:[]}]})});await assert.rejects(p.compatibleDevices({server:'test'}),/没有兼容/);
+  p.transport=async()=>({data:Array.from({length:100},(_,i)=>({id:'device-'+i,attributes:[{name:'device_type',value:'eyemeter-thermal-aarch64'}]}))});
+  await assert.rejects(p.compatibleDevices({server:'test'}),/分页重复/);
 });
