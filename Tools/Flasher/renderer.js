@@ -1,6 +1,6 @@
 'use strict';
 const $=id=>document.getElementById(id),P=DebugPlatform;
-let busy=false,connected=false,bundled=false,available=false,logText='',device=null;
+let busy=false,connected=false,bundled=false,available=false,powerAvailable=false,logText='',device=null;
 const live=new P.TelemetryStore(),decoder=new P.LineDecoder();
 let replay=null,replayIndex=0,replayPlaying=false,replayStart=0,replayHostStart=0;
 let monitoring=false,polling=false,frozen=false,frozenEnd=0,recording=false,recorded=[],recordIdentity={},lastUiTime=0;
@@ -9,7 +9,7 @@ const pidPending=new Map(),pidHistory=new Map(),pidCache=new Map();
 let stabilityChannels=[];
 const pidGroups=[{target:3,profile:2,name:'左眼温度'},{target:4,profile:2,name:'右眼温度'},
   ...[0,1].flatMap(profile=>['升压','保压','脉冲'].map((stage,target)=>({target,profile,name:(profile?'双眼':'单眼')+'压力 · '+stage})))];
-const visible=new Set(),pageNames={overview:'设备概览',workbench:'调试工作台',firmware:'固件与发布',tests:'检查与诊断',logs:'日志与记录',settings:'连接与设置'};
+const visible=new Set(),pageNames={overview:'设备概览',workbench:'调试工作台',power:'电源板烧录',firmware:'固件与发布',tests:'检查与诊断',logs:'日志与记录',settings:'连接与设置'};
 function state(text,error=false,success=false){$('status').textContent=text;$('status').className=error?'error':success?'success':'';}
 function navigate(name){for(const [key,title] of Object.entries(pageNames)){$('page-'+key).hidden=key!==name;document.querySelector(`[data-page="${key}"]`).classList.toggle('selected',key===name);if(key===name)$('page-label').textContent=title;}draw();}
 for(const b of document.querySelectorAll('[data-page]'))b.onclick=()=>navigate(b.dataset.page);
@@ -24,6 +24,7 @@ function render(){
   $('stability-export').disabled=!stability||testing;$('stability-csv').disabled=!stability||testing;
   $('load-session').disabled=testing;$('monitor').disabled=testing||busy||!connected||!!replay;
   for(const id of ['flash','verify'])$(id).disabled=busy||connected||!available;
+  for(const id of ['power-flash','power-verify'])$(id).disabled=busy||connected||!powerAvailable;
   $('build').hidden=bundled;$('build').disabled=busy||connected;
   $('choose').hidden=bundled;$('choose').disabled=busy||connected;
   for(const id of ['upload','deploy-existing','publish-settings'])$(id).disabled=busy||connected;
@@ -67,7 +68,8 @@ function updateIdentity(){if(!device)return;const data=identity();for(const f of
   const box=$('overview-identity');box.replaceChildren();for(const [name,value] of [['产品','TPS130'],['目标板',device.board],['设备实测 App',live.identity.app||'尚未读取'],['硬件修订',live.identity.hw||'尚未读取'],['连接通道',connected?'J-Link RTT':'未连接']]){const a=document.createElement('dt'),b=document.createElement('dd');a.textContent=name;b.textContent=value;box.append(a,b);}
 }
 async function refresh(){
-  const data=await window.tps.invoke('info');bundled=data.bundled;available=!!data.firmware;
+  const data=await window.tps.invoke('info');bundled=data.bundled;available=!!data.firmware;powerAvailable=!!data.powerFirmware;
+  if(data.powerFirmware){const m=data.powerFirmware;$('power-firmware').textContent=`PowerManage 电源板 · ${m.device}\nFlash 16 KiB / RAM 4 KiB · 烧录地址 ${m.flash_address}\n源码构建标识 ${m.build_id}${m.source.dirty?' · 本地源码快照':''}\n程序 ${m.files['power_app.bin'].size} B · 完整镜像 ${m.files['power_flash.bin'].size} B\nSHA256 ${m.files['power_flash.bin'].sha256}\n固件未提供独立版本号，构建标识不代表设备实测版本。\n实机验证 ${m.hardware_validation}`;}else $('power-firmware').textContent='未找到有效电源板固件：'+data.powerError;
   if(!device)configure(data.device);
   $('jlink').value=data.jlink;$('source').textContent=data.root;$('software-version').textContent='TPS130 Studio '+data.version;
   if(data.firmware){const m=data.firmware;$('firmware').textContent=`内置 App ${m.identity.version} · ${m.device} · Target 0x${m.identity.target.toString(16).toUpperCase()} · HW ${m.identity.hardware} · RTT ON\nBoot 16 KiB / App 108 KiB / Metadata 4 KiB\nFactory SHA256  ${m.files['tps_factory.bin'].sha256}\nOTA SHA256      ${m.files['tps_app.tpsfw'].sha256}\n源码 ${m.source.commit.slice(0,12)}${m.source.dirty?' + 工作区快照':''} · 实机验收 ${m.hardware_validation.status}`;
@@ -106,6 +108,8 @@ function draw(){
 }
 $('build').onclick=()=>task(async()=>{state('编译中');await window.tps.invoke('build');await refresh();state('构建完成',false,true);showSuccess('构建成功','固件编译、打包及文件校验已完成。');});
 for(const id of ['flash','verify'])$(id).onclick=()=>task(async()=>{state(id==='flash'?'正在烧录':'正在校验');$('progress-wrap').hidden=false;$('progress').value=0;const r=await window.tps.invoke(id,opts());if(r.canceled)return;state('Flash 回读校验通过',false,true);showSuccess(id==='flash'?'烧录成功':'校验成功',`版本 ${r.version}\n完整 Flash 回读 SHA256 一致。\n已发送复位运行命令。`);});
+for(const id of ['power-flash','power-verify'])$(id).onclick=()=>task(async()=>{state(id==='power-flash'?'正在烧录电源板':'正在校验电源板');$('power-progress-wrap').hidden=false;$('power-progress').value=0;const r=await window.tps.invoke(id,opts());state('电源板完整 Flash 回读校验通过',false,true);showSuccess(id==='power-flash'?'电源板烧录成功':'电源板校验成功',`PowerManage / STM32F030F4\n构建 ${r.build_id}\n完整 16 KiB Flash 回读 SHA256 一致。\n已发送复位运行命令。`);});
+$('power-output').onclick=()=>task(()=>window.tps.invoke('power-output'));
 function deploymentSuccess(r){state('更新任务已核对：'+r.name,false,true);showSuccess('更新任务已就绪',`${r.name}\n服务器负载及更新任务已核对。\n任务状态：${r.deployment_status}\n${r.deployment_scope==='all-compatible'?'全部兼容 TPS130 设备':'历史定向任务'} · ${r.deployment_devices?.length??1} 台\n请在各机器更新页手动开始并确认写入。`);}
 $('upload').onclick=()=>task(async()=>{state('上传并向全部 TPS130 分配更新任务');const r=await window.tps.invoke('upload');if(r.canceled){state('已取消上传');return;}deploymentSuccess(r);});
 $('deploy-existing').onclick=()=>task(async()=>{state('核对已上传包的定向更新任务');const r=await window.tps.invoke('deploy-existing');if(!r.canceled)deploymentSuccess(r);});
@@ -137,7 +141,7 @@ $('output').onclick=()=>task(()=>window.tps.invoke('output'));$('save').onclick=
 $('clear').onclick=()=>{logText='';$('rtt-log').textContent='';};$('pause').onchange=renderLogs;$('log-filter').oninput=renderLogs;
 window.tps.onEvent((event,value)=>{
   if(event==='log')append('flash-log',value);
-  if(event==='progress'){const labels=['','连接、下载及校验','核对完整 Flash 回读','Flash 回读 SHA256 一致'];$('progress').value=value;$('progress-label').textContent=labels[value];}
+  if(event==='progress'){const labels=['','连接、下载及校验','核对完整 Flash 回读','Flash 回读 SHA256 一致'];for(const prefix of ['','power-']){$(prefix+'progress').value=value;$(prefix+'progress-label').textContent=labels[value];}}
   if(event==='rtt-log')ingest(value);
   if(event==='rtt-state'){connected=!!value;if(!connected){monitoring=false;recording=false;pidStream=false;stability?.disconnect();for(const job of pidPending.values()){clearTimeout(job.timer);job.reject(Error('RTT 已断开'));}pidPending.clear();live.disconnect();decoder.reset();}render();updateIdentity();draw();}
 });

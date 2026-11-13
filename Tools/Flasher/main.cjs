@@ -3,6 +3,7 @@ const {app,BrowserWindow,ipcMain,dialog,shell,screen}=require('electron');
 const fs=require('node:fs'),path=require('node:path');
 const {ROOT,Programmer,findJLink,validateOptions}=require('./backend.cjs');
 const {Rtt}=require('./rtt.cjs');
+const {PowerProgrammer}=require('./powermanage.cjs');
 const {Publisher}=require('./publisher.cjs');
 const {stopChildren}=require('./processes.cjs');
 // Smoke checks use a separate profile and lock, leaving an operator's running
@@ -14,18 +15,20 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
   const bundled=fs.existsSync(path.join(process.resourcesPath,'payload/bundle.json'));
   const payload=bundled?path.join(process.resourcesPath,'payload'):null;
   const programmer=new Programmer({payload});
+  const powerProgrammer=new PowerProgrammer({payload});
   const publisher=new Publisher({settingsFile:path.join(app.getPath('userData'),'publisher.json'),records:path.join(app.getPath('documents'),'TPS130-Published')});
   let win, active=null, chosenJLink=findJLink();
   const emit=(event,data)=>{if(win&&!win.isDestroyed())win.webContents.send('event',event,data);};
   const rtt=new Rtt((event,data)=>{if(event==='rtt-state'&&!data&&active==='rtt'&&!rtt.child)active=null;emit(event,data);});
-  function noTask() {if(active||programmer.busy||publisher.busy||rtt.child)throw Error('请先结束当前任务或断开 RTT');}
+  function noTask() {if(active||programmer.busy||powerProgrammer.busy||publisher.busy||rtt.child)throw Error('请先结束当前任务或断开 RTT');}
   function options(value) {validateOptions(value);return {...value,jlink:chosenJLink};}
   ipcMain.handle('action',async(event,action,arg)=>{
     if(event.sender!==win.webContents)throw Error('Invalid sender');
     if(action==='info') {
       let firmware=null,error='';try{firmware=programmer.inspect();}catch(e){error=e.message;}
       const device=JSON.parse(fs.readFileSync(path.join(__dirname,'devices/tps130/manifest.json'),'utf8'));
-      return {bundled,root:bundled?process.resourcesPath:ROOT,jlink:programmer.runtime({jlink:chosenJLink}),firmware,error,version:app.getVersion(),device};
+      let powerFirmware=null,powerError='';try{powerFirmware=powerProgrammer.inspect();}catch(e){powerError=e.message;}
+      return {bundled,root:bundled?process.resourcesPath:ROOT,jlink:programmer.runtime({jlink:chosenJLink}),firmware,error,powerFirmware,powerError,version:app.getVersion(),device};
     }
     if(action==='choose-jlink') {
       noTask();if(bundled)throw Error('分发版已内置 J-Link');
@@ -71,6 +74,11 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
         fs.mkdirSync(path.dirname(publisher.settingsFile),{recursive:true});fs.writeFileSync(publisher.settingsFile,JSON.stringify(settings,null,2));return true;
       }finally{active=null;}
     }
+    if(action==='power-flash'||action==='power-verify'){
+      noTask();const o=options(arg);active=action;
+      try{return await powerProgrammer.flash(o,t=>emit('log',t),n=>emit('progress',n),action==='power-verify');}finally{active=null;}
+    }
+    if(action==='power-output'){const error=await shell.openPath(powerProgrammer.folder());if(error)throw Error(error);return true;}
     if(action==='flash'||action==='verify') {
       noTask();const o=options(arg);active=action;
       try{return await programmer.flash(o,t=>emit('log',t),n=>emit('progress',n),action==='verify');}finally{active=null;}
@@ -133,8 +141,10 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
         const deploymentUi=await win.webContents.executeJavaScript(`(() => {if(!document.getElementById('deploy-existing')||!document.getElementById('upload').textContent.includes('创建更新任务'))return false;deploymentSuccess({name:'UI test only',deployment_status:'pending'});const ok=document.getElementById('success-dialog').open&&document.getElementById('success-detail').textContent.includes('手动开始');document.getElementById('success-close').click();return ok;})()`);
         if(!deploymentUi)throw Error('Deployment UI smoke test failed');
         const workbenchOkay=await win.webContents.executeJavaScript(`(() => {
-          const pages=['overview','workbench','firmware','tests','logs','settings'];
+          const pages=['overview','workbench','power','firmware','tests','logs','settings'];
           for(const page of pages){navigate(page);if(document.getElementById('page-'+page).hidden || document.documentElement.scrollWidth>document.documentElement.clientWidth+1)return false;}
+          if(!powerAvailable||!document.getElementById('power-firmware').textContent.includes('STM32F030F4')||document.getElementById('power-flash').disabled)return false;
+          connected=true;render();if(!document.getElementById('power-flash').disabled)return false;connected=false;render();
           navigate('workbench');
           ingest('RTT> app=0.1.1 target=0x9C01 hw=1 base=0x08004000 boot_min=0x00010000\\n');
           ingest('RTT> tick=123 running=0 tempL=36.25 tempR=36.5 pressL=12.3 pressR=12.4 free_heap=4000 log_drops=0\\n');
@@ -157,11 +167,11 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
           replay=null;live.samples=[];live.identity={};decoder.reset();logText='';render();updateIdentity();draw();return true;
         })()`);
         if(!workbenchOkay)throw Error('Device workbench / replay / navigation failed');
-        console.log('PASS: device adapter, six pages, real protocol fixture parsing and offline replay');
+        console.log('PASS: seven pages, power-board identity and RTT exclusion, protocol parsing and offline replay');
         const successOkay=await win.webContents.executeJavaScript(`(() => {showSuccess('烧录成功','界面测试预览；未连接探针或实际烧录。');const d=document.getElementById('success-dialog');const okay=d.open && document.getElementById('success-title').textContent==='烧录成功';document.getElementById('success-close').click();return okay && !d.open;})()`);
         if(!successOkay)throw Error('Success modal failed');
         console.log('PASS: success modal opens and closes');
-        if(bundled){programmer.inspect();programmer.verifyRuntime();}
+        if(bundled){programmer.inspect();powerProgrammer.inspect();programmer.verifyRuntime();}
         await win.webContents.executeJavaScript(`document.getElementById('rtt-log').textContent='等待连接设备。';`);
         if(process.argv.includes('--preview-success'))await win.webContents.executeJavaScript(`showSuccess('烧录成功','版本 0.1.1\\n完整 Flash 回读 SHA256 一致。\\n界面预览；未实际烧录。')`);
         if(process.argv.includes('--preview-tests')){

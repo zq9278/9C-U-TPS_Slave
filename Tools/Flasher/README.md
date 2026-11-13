@@ -1,6 +1,10 @@
-# TPS130 Studio 2.1.3
+# TPS130 Studio 2.2.0
 
 本工具已从单页烧录器重构为设备调试平台：设备概览、TPS130专属工作台、固件与发布、检查与诊断、日志与记录、连接设置。运行TPS130-Studio.exe；新产品图标已写入窗口、任务栏和EXE。
+
+新增独立“电源板烧录”模块：PowerManage / STM32F030F4，Flash16KiB、RAM4KiB、烧录地址0x08000000。使用电源板自身SWD，探针序列号和速度沿用连接设置。提供烧录、仅校验和打开固件目录，与Slave烧录、RTT、发布任务互斥。点击直接执行，完整16KiB回读SHA256匹配后弹窗；校验也会暂停CPU并复位。运行前停止治疗，结束后核对电源板及整机供电。
+
+PowerManage无已声明的固件版本接口，界面展示源码构建标识，不当作设备实测版本。内置电源板文件在resources/payload/firmware-powermanage；Slave文件仍在resources/payload/firmware。电源板仅SWD烧录，不套用Slave OTA分区、协议或服务器发布流程。构建说明见documents/powermanage_flasher.md。
 
 调试工作台把实时数值、温压曲线和设备参数放在同页。连接RTT后自动轮询真实状态快照；无设备时显示空值，不生成模拟数据。支持曲线通道开关、30秒/1分钟/5分钟/10分钟窗口、暂停查看、数据录制、JSON离线回放及CSV导出。
 

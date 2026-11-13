@@ -1,11 +1,11 @@
 {
   "name": "tps130-studio",
-  "version": "2.1.3",
+  "version": "2.2.0",
   "private": true,
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "test": "node --test backend.test.cjs publisher.test.cjs platform.test.cjs",
+    "test": "node --test backend.test.cjs powermanage.test.cjs publisher.test.cjs platform.test.cjs",
     "package": "python ../../scripts/package_flasher.py"
   },
   "devDependencies": {

@@ -9,6 +9,7 @@ import subprocess
 import sys
 import zipfile
 from build_release import ROOT, sha, source_info
+from build_powermanage import SOURCE as POWER_SOURCE, OUT as POWER_OUT, source_info as power_source_info
 
 APP = ROOT / 'Tools/Flasher'
 
@@ -27,6 +28,7 @@ def main():
             parser.error('Missing J-Link file: ' + name)
     if not args.skip_build:
         subprocess.run([sys.executable,str(ROOT/'scripts/build_release.py'),'--hw-rev',str(args.hw_rev)],cwd=ROOT,check=True)
+        subprocess.run([sys.executable,str(ROOT/'scripts/build_powermanage.py')],cwd=ROOT,check=True)
     manifest = json.loads((ROOT/'out/Release/release.json').read_text(encoding='utf-8'))
     snapshot = source_info()
     if manifest['source']['snapshot_sha256'] != snapshot['snapshot_sha256']:
@@ -37,6 +39,10 @@ def main():
     validation=json.loads((ROOT/'out/validation.json').read_text(encoding='utf-8'))
     if not validation['software_pass'] or validation['source']['snapshot_sha256']!=snapshot['snapshot_sha256']:
         parser.error('Run scripts/test.py against the current source before packaging')
+    power=json.loads((POWER_OUT/'release.json').read_text(encoding='utf-8'))
+    if power['source']!=power_source_info(POWER_SOURCE):parser.error('Power-board source changed: run scripts/build_powermanage.py')
+    for name,info in power['files'].items():
+        if sha(POWER_OUT/name)!=info['sha256']:parser.error('Power-board hash mismatch: '+name)
     # Freeze a bridge executable so the user does not need Python or pylink.
     subprocess.run([sys.executable,'-m','PyInstaller','--noconfirm','--clean','--onefile',
                     '--name','tps-rtt-bridge','--distpath',str(ROOT/'.cache/rtt-dist'),
@@ -59,7 +65,7 @@ def main():
                     '--set-file-version',package['version'],'--set-product-version',package['version']],check=True)
     (dest/'resources/default_app.asar').unlink(missing_ok=True)
     application=dest/'resources/app';application.mkdir()
-    for name in ('main.cjs','backend.cjs','publisher.cjs','processes.cjs','rtt.cjs','preload.cjs','index.html','renderer.js','style.css'):
+    for name in ('main.cjs','backend.cjs','powermanage.cjs','publisher.cjs','processes.cjs','rtt.cjs','preload.cjs','index.html','renderer.js','style.css'):
         shutil.copy2(APP/name,application/name)
     for name in ('assets','devices','platform'):
         shutil.copytree(APP/name,application/name)
@@ -68,6 +74,8 @@ def main():
     firmware=payload/'firmware';firmware.mkdir(parents=True)
     for name in list(manifest['files'])+['release.json','SHA256SUMS.txt']:
         shutil.copy2(ROOT/'out/Release'/name,firmware/name)
+    power_folder=payload/'firmware-powermanage';power_folder.mkdir()
+    for name in list(power['files'])+['release.json','SHA256SUMS.txt']:shutil.copy2(POWER_OUT/name,power_folder/name)
     shutil.copy2(ROOT/'out/validation.json',payload/'software-validation.json')
     shutil.copy2(ROOT/'.cache/rtt-dist/tps-rtt-bridge.exe',payload/'tps-rtt-bridge.exe')
     runtime=payload/'jlink'
@@ -80,12 +88,14 @@ def main():
     shutil.copy2(APP/'README.md',dest/'使用说明.txt')
     shutil.copy2(args.jlink/'Doc/LicenseIncGUI.txt',dest/'SEGGER-LICENSE.txt')
     docs=dest/'交接文档';docs.mkdir()
-    for name in ('ota_requirements_acceptance.md','uart_upgrade_handoff.md','rtt_debug.md','产品OTA档案.md','debug_platform_architecture.md'):
+    for name in ('ota_requirements_acceptance.md','uart_upgrade_handoff.md','rtt_debug.md','产品OTA档案.md','debug_platform_architecture.md','powermanage_flasher.md'):
         shutil.copy2(ROOT/'documents'/name,docs/name)
     shutil.copy2(ROOT/'Tools/FirmwarePack/protocol_vectors.json',docs/'protocol_vectors.json')
     for name,info in manifest['files'].items():
         if sha(firmware/name)!=info['sha256']:
             raise RuntimeError('Copied firmware hash mismatch')
+    for name,info in power['files'].items():
+        if sha(power_folder/name)!=info['sha256']:raise RuntimeError('Copied power-board hash mismatch')
     archive=dest.parent/(dest.name+'.zip')
     with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as output:
         for file in sorted(dest.rglob('*')):
