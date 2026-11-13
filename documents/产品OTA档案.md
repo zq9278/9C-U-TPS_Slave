@@ -16,4 +16,13 @@
 - 本次任务范围：实现桌面上传按钮、版本递增与上传核对，不创建Deployment，不运行设备安装。发布默认未签名；测试密钥仅用于主机测试，不用于产品发布。
 - 发布记录：Windows文档/TPS100-Published/<name>，保留.mender和upload.json。软件包不包含用户凭据或私钥。
 - ARM Linux安装器/签名策略/健康检查内部源码：本机未找到，参考服务器现有模块及用户OTA需求；实机安装和回滚未验证。
-- 验证：主机测试覆盖命名、坏CRC、签名公钥匹配、并发版本冲突、POST响应丢失后哈希核对、禁止部署。新外层包已被原厂mender-artifact工具解析；不是实机安装验证。
+- 验证：主机测试覆盖命名、坏CRC、签名公钥匹配、并发版本冲突、POST响应丢失后哈希核对、仅指定设备定向部署。新外层包已被原厂mender-artifact工具解析；不是实机安装验证。
+
+
+## Studio 2.1.2 发布流程修正
+
+依据下位机OTA改造需求第6节，工程用户在机器更新页查询任务并手动开始，MCU写入前二次确认。Studio上传按钮现在上传核对后创建定向部署，不能将“只上传Releases”当作机器可发现任务。
+
+创建接口POST /api/management/v1/deployments/deployments，body含name、artifact_name、devices。devices固定为单个设备d0b82a98-300b-41ae-b5d6-530f80fe87cd。发布前核对设备类型、Artifact ID、模块、负载大小及SHA256。创建后读取详情，验证artifact_name及filter中唯一identity.id的$in目标，仅含指定设备。现有精确目标任务复用；创建结果不确定时查询核对，不重复POST。
+
+本机upload.json记录任务ID和状态；“补建/核对更新任务”可选历史upload.json继续处理，无需重新上传。机器端手动安装策略来自已交接的ARM客户端，不由此工具绕过。

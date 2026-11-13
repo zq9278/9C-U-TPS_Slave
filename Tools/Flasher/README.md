@@ -1,4 +1,4 @@
-# TPS130 Studio 2.1.1
+# TPS130 Studio 2.1.2
 
 本工具已从单页烧录器重构为设备调试平台：设备概览、TPS130专属工作台、固件与发布、检查与诊断、日志与记录、连接设置。运行TPS130-Studio.exe；新产品图标已写入窗口、任务栏和EXE。
 
@@ -38,9 +38,9 @@ PID二进制采样保留独立上行通道1，通道0提供文本镜像用于工
 
 ## 上传到 Mender Releases
 
-“上传新包到服务器”选择新的 `.tpsfw` App包后直接上传，不再二次确认；名称、实际版本及哈希核对结果保留在日志和记录中。工具查询服务器已有 `tps-mcu-1.0.*`，从用户指定的 `tps-mcu-1.0.2-20261111` 起递增patch（1.0.3、1.0.4…），日期段沿用20261111。不会覆盖现有Artifact；上传前再次查重，遇到并发新版本会要求重新准备。烧录、校验、构建及上传成功后显示明显的绿色成功弹窗，失败不会显示成功。
+“上传并创建更新任务”选择新的 `.tpsfw` App包后直接上传，不再二次确认；名称、实际版本及哈希核对结果保留在日志和记录中。工具查询服务器已有 `tps-mcu-1.0.*`，从用户指定的 `tps-mcu-1.0.2-20261111` 起递增patch（1.0.3、1.0.4…），日期段沿用20261111。不会覆盖现有Artifact；上传前再次查重，遇到并发新版本会要求重新准备。烧录、校验、构建及上传成功后显示明显的绿色成功弹窗，失败不会显示成功。
 
-固定兼容类型 `eyemeter-thermal-aarch64`、模块 `eyemeter-tps-mcu`、负载名 `firmware.tpsfw`，与服务器既有包一致。`d0b82a98-300b-41ae-b5d6-530f80fe87cd` 是9C-TPS-130设备ID，仅用于核对device_type。按钮仅上传Releases，不创建部署或触发安装。
+固定兼容类型 `eyemeter-thermal-aarch64`、模块 `eyemeter-tps-mcu`、负载名 `firmware.tpsfw`，与服务器既有包一致。`d0b82a98-300b-41ae-b5d6-530f80fe87cd` 是9C-TPS-130设备ID，仅用于核对device_type。按钮上传并核对Releases后，仅为此设备创建定向任务；设备端按既有要求手动开始并确认写入。
 
 发布名独立于MCU版本：外层名称1.0.2不代表负载App也变成1.0.2；包内 `eyemeter.tps-mcu.version` 永远来自.tpsfw真实版本。需要更新MCU程序版本时先修改Config/version.cmake重新构建。
 
@@ -55,3 +55,10 @@ PID二进制采样保留独立上行通道1，通道0提供文本镜像用于工
 软件包已内置本次Release固件、RTT桥接程序、J-Link运行时和原厂许可，不需要Python/编译器。使用合法SEGGER探针，保留原厂许可；外部分发按SEGGER许可办理。
 
 源码开发：Tools/Flasher 执行 npm ci、npm start。构建固件：python scripts/build_release.py；打包：python scripts/package_flasher.py。详见同包交接文档。当前实机验证标记以release.json为准，不把模拟测试当成硬件验收。
+
+
+## 上传后创建更新任务（2.1.2）
+
+上传按钮直接执行：核对App、分配服务器发布名、上传并核对负载、核对固定设备身份及类型、创建并核对定向任务。目标仅为d0b82a98-300b-41ae-b5d6-530f80fe87cd，不使用All devices或其他分组。成功弹窗显示任务状态，机器端仍需手动开始和确认写入。已有同包且目标精确一致的任务会复用。
+
+upload.json保存deployment_id、deployment_state、deployment_status和deployment_devices。上传成功而任务未确认时显示分步错误，不声称整体成功。“补建/核对更新任务”选择已上传包的upload.json，不重新上传或递增发布号。POST响应丢失时先按同包及精确目标查询，不盲目重发；仍不确定则保留UNCERTAIN，需要核查服务器。可恢复之前仅上传的历史记录。未安装或任务完成情况以服务器状态和实机版本为准。

@@ -45,7 +45,15 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
         const prepared=await publisher.prepare(selected.filePaths[0]);
         emit('log',`开始上传 ${prepared.name}，App ${prepared.info.version}\n`);
         const result=await publisher.upload(prepared);
-        emit('log',`已上传并核对：${result.name}\nArtifact ID ${result.artifact_id}\n发布记录 ${result.folder}\n未创建部署任务。\n`);return result;
+        emit('log',`已上传并核对：${result.name}\nArtifact ID ${result.artifact_id}\n部署任务 ${result.deployment_id} · ${result.deployment_status}\n目标设备 ${result.device_reference}\n发布记录 ${result.folder}\n请在机器上手动确认更新。\n`);return result;
+      }finally{active=null;}
+    }
+    if(action==='deploy-existing') {
+      noTask();active='deploy';
+      try{
+        const selected=await dialog.showOpenDialog(win,{title:'选择已上传包的 upload.json 发布记录',defaultPath:path.join(app.getPath('documents'),'TPS130-Published'),properties:['openFile'],filters:[{name:'Upload record',extensions:['json']}]});
+        if(selected.canceled)return {canceled:true};
+        return await publisher.resumeDeployment(selected.filePaths[0]);
       }finally{active=null;}
     }
     if(action==='publish-settings') {
@@ -122,6 +130,8 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
         await new Promise(r=>setTimeout(r,1000));
         const okay=await win.webContents.executeJavaScript(`document.querySelector('#status').textContent!=='正在加载' && document.querySelector('#rtt-info').disabled && !!document.querySelector('#upload') && !!document.querySelector('#publish-settings') && document.documentElement.scrollWidth<=document.documentElement.clientWidth`);
         if(!okay)throw Error('Renderer smoke test failed');
+        const deploymentUi=await win.webContents.executeJavaScript(`(() => {if(!document.getElementById('deploy-existing')||!document.getElementById('upload').textContent.includes('创建更新任务'))return false;deploymentSuccess({name:'UI test only',deployment_status:'pending'});const ok=document.getElementById('success-dialog').open&&document.getElementById('success-detail').textContent.includes('手动开始');document.getElementById('success-close').click();return ok;})()`);
+        if(!deploymentUi)throw Error('Deployment UI smoke test failed');
         const workbenchOkay=await win.webContents.executeJavaScript(`(() => {
           const pages=['overview','workbench','firmware','tests','logs','settings'];
           for(const page of pages){navigate(page);if(document.getElementById('page-'+page).hidden || document.documentElement.scrollWidth>document.documentElement.clientWidth+1)return false;}

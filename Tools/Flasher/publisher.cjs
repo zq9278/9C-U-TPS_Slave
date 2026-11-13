@@ -6,6 +6,7 @@ const SERVERS=['aliyun','hk','oregon','oracle1','oracle2'].map(h=>`https://${h}.
 const DEVICE='d0b82a98-300b-41ae-b5d6-530f80fe87cd';
 const DEVICE_TYPE='eyemeter-thermal-aarch64',MODULE='eyemeter-tps-mcu';
 const API='/api/management/v1/deployments/artifacts';
+const DEPLOY_API='/api/management/v1/deployments/deployments';
 const DEFAULT_CREDENTIALS='D:/Technology_stack/Web/mender/admin-credentials.json';
 const hash=data=>crypto.createHash('sha256').update(data).digest('hex');
 function nextName(artifacts) {
@@ -29,7 +30,7 @@ function payloadInfo(data) {
   return {version,hw_min:min,hw_max:max,sha256:hash(data),size:data.length};
 }
 // USTAR containers matching the existing server Artifact v3 layout. Names are
-// fixed, payload is App-only; no deployment API or signed download URL logging.
+// fixed, payload is App-only; no signed download URL logging.
 function tar(entries) {
   const parts=[];
   for(const [name,content] of entries){const data=Buffer.isBuffer(content)?content:Buffer.from(content),h=Buffer.alloc(512);
@@ -112,6 +113,57 @@ class Publisher {
     const artifacts=await this.list(connection),name=nextName(artifacts);
     return {file,data,info,connection,name};
   }
+  async deploy(record,connection,folder) {
+    if(record.state!=='VERIFIED'||record.device_reference!==DEVICE||record.device_type!==DEVICE_TYPE||record.module!==MODULE)throw Error('发布记录未核对或设备不匹配');
+    const save=()=>fs.writeFileSync(path.join(folder,'upload.json'),JSON.stringify(record,null,2)+'\n');
+    const device=await this.transport(connection.server,'/api/management/v1/inventory/devices/'+DEVICE,{token:connection.token});
+    if(device.data.id!==DEVICE||!device.data.attributes?.some(a=>a.name==='device_type'&&a.value===DEVICE_TYPE))throw Error('部署目标设备身份或兼容类型不匹配');
+    const artifacts=await this.list(connection),a=artifacts.find(a=>a.id===record.artifact_id&&a.name===record.name);
+    if(!a||!a.device_types_compatible?.includes(DEVICE_TYPE)||!a.updates?.some(u=>u.type_info?.type===MODULE&&u.files?.some(f=>f.name==='firmware.tpsfw'&&f.checksum===record.source_payload.sha256&&f.size===record.source_payload.size)))throw Error('部署前服务器负载核对失败');
+    const exactTarget=d=>{
+      const terms=d.filter?.terms;
+      return Array.isArray(terms)&&terms.length===1&&terms[0].scope==='identity'&&terms[0].attribute==='id'&&terms[0].type==='$in'&&
+        Array.isArray(terms[0].value)&&terms[0].value.length===1&&terms[0].value[0]===DEVICE;
+    };
+    const details=async id=>{
+      if(typeof id!=='string'||!/^[\w-]+$/.test(id))throw Error('部署ID无效');
+      const r=await this.transport(connection.server,DEPLOY_API+'/'+id,{token:connection.token});
+      if(r.data.artifact_name!==record.name||!exactTarget(r.data))throw Error('部署目标范围或固件不匹配');
+      return r.data;
+    };
+    const find=async()=>{
+      if(record.deployment_id)return details(record.deployment_id);
+      for(const status of ['pending','inprogress','finished']){
+        for(let page=1;page<=100;page++){
+          const r=await this.transport(connection.server,DEPLOY_API+`?status=${status}&page=${page}&per_page=100`,{token:connection.token});
+          if(!Array.isArray(r.data))throw Error('部署列表格式无效');
+          for(const d of r.data)if(d.artifact_name===record.name){const full=await this.transport(connection.server,DEPLOY_API+'/'+d.id,{token:connection.token});if(exactTarget(full.data)&&full.data.artifact_name===record.name)return full.data;}
+          if(r.data.length<100)break;
+          if(page===100)throw Error('部署列表分页过多');
+        }
+      }return null;
+    };
+    let found=await find();
+    if(!found){
+      if(['POSTING','UNCERTAIN','CREATED'].includes(record.deployment_state))throw Error('之前创建任务结果未确认，停止重复POST；请核对服务器后使用“补建/核对更新任务”');
+      record.deployment_state='POSTING';save();
+      try{
+        const r=await this.transport(connection.server,DEPLOY_API,{method:'POST',token:connection.token,headers:{'Content-Type':'application/json'},body:Buffer.from(JSON.stringify({name:record.name,artifact_name:record.name,devices:[DEVICE]}))});
+        record.deployment_id=r.headers?.location?.split('/').filter(Boolean).at(-1)||r.data?.id;record.deployment_state='CREATED';save();
+      }catch(e){record.deployment_state=e.status>=400&&e.status<500?'REJECTED':'UNCERTAIN';save();
+        found=await find();if(!found)throw Error('包已上传，但更新任务未确认；请补建/核对更新任务，不要重复上传。');
+      }
+      if(!found)found=await find();
+      if(!found)throw Error('包已上传，但服务器任务尚未核对到；请稍后补建/核对更新任务');
+    }
+    record.deployment_id=found.id;record.deployment_status=found.status;record.deployment_devices=[DEVICE];record.deployment_state='VERIFIED';record.deployment_created=true;save();
+    return {...record,folder};
+  }
+  async resumeDeployment(file) {
+    if(this.busy)throw Error('发布正在进行');this.busy=true;
+    try{const record=JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));return await this.deploy(record,await this.connect(),path.dirname(file));}
+    finally{this.busy=false;}
+  }
   async upload(prepared) {
     if(this.busy)throw Error('上传正在进行');this.busy=true;
     try{
@@ -133,7 +185,8 @@ class Publisher {
       const list=await this.list(connection);const found=list.filter(a=>a.name===name);
       const match=found.find(a=>a.signed===packed.signed&&a.artifact_provides?.['eyemeter.tps-mcu.version']===packed.info.version&&a.device_types_compatible?.includes(DEVICE_TYPE)&&a.updates?.some(u=>u.type_info?.type===MODULE&&u.files?.some(f=>f.name==='firmware.tpsfw'&&f.checksum===packed.info.sha256&&f.size===data.length)));
       if(!match){record.state='UNCONFIRMED';save();throw Error(postError?'上传结果未确认；请检查服务器和本地upload.json，勿直接重复上传':'服务器未核对到相同负载，不能显示成功');}
-      record.state='VERIFIED';record.artifact_id=match.id;save();return {...record,folder};
+      record.state='VERIFIED';record.artifact_id=match.id;save();
+      try{return await this.deploy(record,connection,folder);}catch(e){throw Error(`包 ${name} 已上传；${e.message}\n发布记录 ${path.join(folder,'upload.json')}`);}
     }finally{this.busy=false;}
   }
 }

@@ -26,7 +26,7 @@ function render(){
   for(const id of ['flash','verify'])$(id).disabled=busy||connected||!available;
   $('build').hidden=bundled;$('build').disabled=busy||connected;
   $('choose').hidden=bundled;$('choose').disabled=busy||connected;
-  for(const id of ['upload','publish-settings'])$(id).disabled=busy||connected;
+  for(const id of ['upload','deploy-existing','publish-settings'])$(id).disabled=busy||connected;
   for(const id of ['serial','speed'])$(id).disabled=busy||connected;
   $('connect').disabled=busy||connected||!!replay;$('disconnect').disabled=busy||!connected;
   for(const id of ['rtt-info','rtt-status','rtt-help','check-device'])$(id).disabled=busy||!connected||!!replay;
@@ -106,7 +106,9 @@ function draw(){
 }
 $('build').onclick=()=>task(async()=>{state('编译中');await window.tps.invoke('build');await refresh();state('构建完成',false,true);showSuccess('构建成功','固件编译、打包及文件校验已完成。');});
 for(const id of ['flash','verify'])$(id).onclick=()=>task(async()=>{state(id==='flash'?'正在烧录':'正在校验');$('progress-wrap').hidden=false;$('progress').value=0;const r=await window.tps.invoke(id,opts());if(r.canceled)return;state('Flash 回读校验通过',false,true);showSuccess(id==='flash'?'烧录成功':'校验成功',`版本 ${r.version}\n完整 Flash 回读 SHA256 一致。\n已发送复位运行命令。`);});
-$('upload').onclick=()=>task(async()=>{state('准备服务器发布');const r=await window.tps.invoke('upload');if(r.canceled){state('已取消上传');return;}state('上传已核对：'+r.name,false,true);showSuccess('上传成功',`${r.name}\n服务器负载已核对。\n未创建部署任务。`);});
+function deploymentSuccess(r){state('更新任务已核对：'+r.name,false,true);showSuccess('更新任务已就绪',`${r.name}\n服务器负载及定向任务已核对。\n任务状态：${r.deployment_status}\n仅分配到指定 TPS130 设备。\n请在机器更新页手动开始并确认写入。`);}
+$('upload').onclick=()=>task(async()=>{state('上传并创建定向更新任务');const r=await window.tps.invoke('upload');if(r.canceled){state('已取消上传');return;}deploymentSuccess(r);});
+$('deploy-existing').onclick=()=>task(async()=>{state('核对已上传包的定向更新任务');const r=await window.tps.invoke('deploy-existing');if(!r.canceled)deploymentSuccess(r);});
 $('choose').onclick=()=>task(async()=>{await window.tps.invoke('choose-jlink');await refresh();});
 $('publish-settings').onclick=()=>task(async()=>{if(await window.tps.invoke('publish-settings'))state('发布设置已保存');});
 $('connect').onclick=()=>task(async()=>{state('连接 RTT');const r=await window.tps.invoke('rtt-connect',opts());connected=true;monitoring=true;decoder.reset();live.disconnect();live.identity={};pidHistory.clear();pidCache.clear();pidStream=false;fillPid();append('rtt-log',`\n连接 RTT ${r.control_block}\n`);await query('info');state('RTT 已连接',false,true);updateIdentity();});
