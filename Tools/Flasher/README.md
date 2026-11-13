@@ -1,8 +1,8 @@
-# TPS130 Studio 2.2.0
+# TPS130 Studio 2.2.1
 
 本工具已从单页烧录器重构为设备调试平台：设备概览、TPS130专属工作台、固件与发布、检查与诊断、日志与记录、连接设置。运行TPS130-Studio.exe；新产品图标已写入窗口、任务栏和EXE。
 
-新增独立“电源板烧录”模块：PowerManage / STM32F030F4，Flash16KiB、RAM4KiB、烧录地址0x08000000。使用电源板自身SWD，探针序列号和速度沿用连接设置。提供烧录、仅校验和打开固件目录，与Slave烧录、RTT、发布任务互斥。点击直接执行，完整16KiB回读SHA256匹配后弹窗；校验也会暂停CPU并复位。运行前停止治疗，结束后核对电源板及整机供电。
+新增独立“电源控制板PCBA烧录”模块：PowerManage / STM32F030F4，Flash16KiB、RAM4KiB、烧录地址0x08000000。使用电源板自身SWD，探针序列号和速度沿用连接设置。提供烧录、仅校验和打开固件目录，与Slave烧录、RTT、发布任务互斥。点击直接执行，完整16KiB回读SHA256匹配后弹窗；校验也会暂停CPU并复位。运行前停止治疗，结束后核对电源板及整机供电。
 
 PowerManage无已声明的固件版本接口，界面展示源码构建标识，不当作设备实测版本。内置电源板文件在resources/payload/firmware-powermanage；Slave文件仍在resources/payload/firmware。电源板仅SWD烧录，不套用Slave OTA分区、协议或服务器发布流程。构建说明见documents/powermanage_flasher.md。
 
@@ -68,3 +68,5 @@ PID二进制采样保留独立上行通道1，通道0提供文本镜像用于工
 机器端仍需手动开始并确认写入。成功弹窗显示任务状态和设备数量，日志及upload.json保存目标ID列表。已有同包且目标清单完全一致的任务复用。
 
 upload.json记录deployment_scope=all-compatible及发布时的deployment_devices快照。重试使用同一快照，不随库存增加而扩大；目标兼容类型发生变化时拒绝执行。任务POST响应丢失先查询，不盲目重发。“补建/核对更新任务”选择已有upload.json继续，无需重新上传。旧版单设备发布记录仍按其原始范围恢复，不静默扩大历史任务。
+
+烧录入口统一为两个独立模块：“热脉动控制板PCBA烧录”（Slave / STM32G070RB）与“电源控制板PCBA烧录”（PowerManage / STM32F030F4）。页面标题、执行按钮和成功提示对应板卡；热脉动控制板模块保留服务器发布入口。

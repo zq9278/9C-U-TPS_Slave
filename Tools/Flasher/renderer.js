@@ -9,7 +9,7 @@ const pidPending=new Map(),pidHistory=new Map(),pidCache=new Map();
 let stabilityChannels=[];
 const pidGroups=[{target:3,profile:2,name:'左眼温度'},{target:4,profile:2,name:'右眼温度'},
   ...[0,1].flatMap(profile=>['升压','保压','脉冲'].map((stage,target)=>({target,profile,name:(profile?'双眼':'单眼')+'压力 · '+stage})))];
-const visible=new Set(),pageNames={overview:'设备概览',workbench:'调试工作台',power:'电源板烧录',firmware:'固件与发布',tests:'检查与诊断',logs:'日志与记录',settings:'连接与设置'};
+const visible=new Set(),pageNames={overview:'设备概览',workbench:'调试工作台',power:'电源控制板PCBA烧录',firmware:'热脉动控制板PCBA烧录',tests:'检查与诊断',logs:'日志与记录',settings:'连接与设置'};
 function state(text,error=false,success=false){$('status').textContent=text;$('status').className=error?'error':success?'success':'';}
 function navigate(name){for(const [key,title] of Object.entries(pageNames)){$('page-'+key).hidden=key!==name;document.querySelector(`[data-page="${key}"]`).classList.toggle('selected',key===name);if(key===name)$('page-label').textContent=title;}draw();}
 for(const b of document.querySelectorAll('[data-page]'))b.onclick=()=>navigate(b.dataset.page);
@@ -107,8 +107,8 @@ function draw(){
   drawPid();drawStability();
 }
 $('build').onclick=()=>task(async()=>{state('编译中');await window.tps.invoke('build');await refresh();state('构建完成',false,true);showSuccess('构建成功','固件编译、打包及文件校验已完成。');});
-for(const id of ['flash','verify'])$(id).onclick=()=>task(async()=>{state(id==='flash'?'正在烧录':'正在校验');$('progress-wrap').hidden=false;$('progress').value=0;const r=await window.tps.invoke(id,opts());if(r.canceled)return;state('Flash 回读校验通过',false,true);showSuccess(id==='flash'?'烧录成功':'校验成功',`版本 ${r.version}\n完整 Flash 回读 SHA256 一致。\n已发送复位运行命令。`);});
-for(const id of ['power-flash','power-verify'])$(id).onclick=()=>task(async()=>{state(id==='power-flash'?'正在烧录电源板':'正在校验电源板');$('power-progress-wrap').hidden=false;$('power-progress').value=0;const r=await window.tps.invoke(id,opts());state('电源板完整 Flash 回读校验通过',false,true);showSuccess(id==='power-flash'?'电源板烧录成功':'电源板校验成功',`PowerManage / STM32F030F4\n构建 ${r.build_id}\n完整 16 KiB Flash 回读 SHA256 一致。\n已发送复位运行命令。`);});
+for(const id of ['flash','verify'])$(id).onclick=()=>task(async()=>{state(id==='flash'?'正在烧录热脉动控制板PCBA':'正在校验热脉动控制板PCBA');$('progress-wrap').hidden=false;$('progress').value=0;const r=await window.tps.invoke(id,opts());if(r.canceled)return;state('热脉动控制板PCBA回读校验通过',false,true);showSuccess(id==='flash'?'热脉动控制板PCBA烧录成功':'热脉动控制板PCBA校验成功',`版本 ${r.version}\n完整 Flash 回读 SHA256 一致。\n已发送复位运行命令。`);});
+for(const id of ['power-flash','power-verify'])$(id).onclick=()=>task(async()=>{state(id==='power-flash'?'正在烧录电源控制板PCBA':'正在校验电源控制板PCBA');$('power-progress-wrap').hidden=false;$('power-progress').value=0;const r=await window.tps.invoke(id,opts());state('电源控制板PCBA回读校验通过',false,true);showSuccess(id==='power-flash'?'电源控制板PCBA烧录成功':'电源控制板PCBA校验成功',`PowerManage / STM32F030F4\n构建 ${r.build_id}\n完整 16 KiB Flash 回读 SHA256 一致。\n已发送复位运行命令。`);});
 $('power-output').onclick=()=>task(()=>window.tps.invoke('power-output'));
 function deploymentSuccess(r){state('更新任务已核对：'+r.name,false,true);showSuccess('更新任务已就绪',`${r.name}\n服务器负载及更新任务已核对。\n任务状态：${r.deployment_status}\n${r.deployment_scope==='all-compatible'?'全部兼容 TPS130 设备':'历史定向任务'} · ${r.deployment_devices?.length??1} 台\n请在各机器更新页手动开始并确认写入。`);}
 $('upload').onclick=()=>task(async()=>{state('上传并向全部 TPS130 分配更新任务');const r=await window.tps.invoke('upload');if(r.canceled){state('已取消上传');return;}deploymentSuccess(r);});
