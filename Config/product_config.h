@@ -19,7 +19,7 @@
 #define PRODUCT_FIRMWARE_VERSION_MAJOR                  0U
 #define PRODUCT_FIRMWARE_VERSION_MINOR                  0U
 #define PRODUCT_FIRMWARE_VERSION_PATCH                  0U
-#define PRODUCT_FIRMWARE_VERSION_STRING                 "0.0.0"
+#define PRODUCT_FIRMWARE_VERSION_STRING                 "2026.09.23"
 
 /*
  * 产品功能开关：是否允许输出耗材熔断脉冲。

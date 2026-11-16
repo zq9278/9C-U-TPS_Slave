@@ -41,15 +41,15 @@ typedef struct
 /* 单眼治疗 PID 参数组。 */
 static TreatmentPressurePidProfile s_press_pid_single_eye = {
     {0.30f, 0.10f, 0.00f}, /* 升压 */
-    {0.40f, 0.40f, 0.10f}, /* 保压 */
-    {0.10f, 0.10f, 0.00f}, /* 脉冲 */
+    {0.30f, 0.40f, 0.10f}, /* 保压 */
+    {0.08f, 0.00f, 0.00f}, /* 脉冲 */
 };
 
 /* 双眼治疗 PID 参数组。 */
 static TreatmentPressurePidProfile s_press_pid_dual_eye = {
     {0.20f, 0.80f, 0.20f}, /* 升压 */
     {0.40f, 0.50f, 0.10f}, /* 保压 */
-    {0.15f, 0.10f, 0.00f}, /* 脉冲 */
+    {0.10f, 0.10f, 0.00f}, /* 脉冲 */
 };
 
 /* 参数版本号，供运行中热切换 PID 配置时判断是否需要重载。 */

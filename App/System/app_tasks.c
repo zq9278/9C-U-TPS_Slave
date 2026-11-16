@@ -1153,7 +1153,8 @@ static void ControlTask(void *argument)
 static void SafetyTask(void *argument)
 {
     uint8_t fault_active = 0U;
-    uint8_t over_pressure_count = 0U;
+    uint8_t over_pressure_timing = 0U;
+    TickType_t over_pressure_start_tick = 0U;
     uint8_t invalid_temp_count = 0U;
     (void)argument;
 
@@ -1234,20 +1235,26 @@ static void SafetyTask(void *argument)
                       (gSensorData.pressR > APP_SAFETY_OVER_PRESSURE_LIMIT_MMHG));
         if (over_pressure_sample != 0U)
         {
-            if (over_pressure_count < SAFETY_OVER_PRESSURE_CONFIRM_COUNT)
+            TickType_t now = xTaskGetTickCount();
+            if (over_pressure_timing == 0U)
             {
-                ++over_pressure_count;
+                over_pressure_start_tick = now;
+                over_pressure_timing = 1U;
             }
+            /* Confirm elapsed time, including tick wrap, not sample count. */
+            over_pressure_fault =
+                (uint8_t)((TickType_t)(now - over_pressure_start_tick) >=
+                          pdMS_TO_TICKS(APP_SAFETY_OVER_PRESSURE_CONFIRM_MS));
         }
         else
         {
-            over_pressure_count = 0U;
+            over_pressure_timing = 0U;
+            over_pressure_fault = 0U;
         }
-        over_pressure_fault =
-            (uint8_t)(over_pressure_count >= SAFETY_OVER_PRESSURE_CONFIRM_COUNT);
 #else
         over_pressure_sample = 0U;
-        over_pressure_count = 0U;
+        over_pressure_timing = 0U;
+        over_pressure_start_tick = 0U;
         over_pressure_fault = 0U;
 #endif
 #if (APP_SAFETY_HEAT_OTP_FAULT_ENABLE != 0U)
