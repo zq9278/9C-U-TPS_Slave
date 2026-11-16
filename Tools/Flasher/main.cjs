@@ -168,6 +168,26 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
         })()`);
         if(!workbenchOkay)throw Error('Device workbench / replay / navigation failed');
         console.log('PASS: seven pages, power-board identity and RTT exclusion, protocol parsing and offline replay');
+        const stagesOkay=await win.webContents.executeJavaScript(`(async()=>{
+          if(document.querySelectorAll('#pid-stage-rows tr').length!==6)return false;
+          const original=pidCall,calls=[];connected=true;
+          try{
+            pidCall=async(operation,args)=>{calls.push({operation,args:[...args]});return {target:args[0],profile:args[1],kp:operation==='set'?args[2]:0.3,ki:operation==='set'?args[3]:0.1,kd:operation==='set'?args[4]:0};};
+            await document.getElementById('pid-read-all').onclick();
+            if(calls.length!==6||new Set(calls.map(c=>c.args.join(':'))).size!==6||document.getElementById('stage-2:1-kp').value!=='0.3')return false;
+            document.getElementById('success-close').click();
+            document.getElementById('stage-1:1-kp').value='1.25';document.getElementById('stage-1:1-ki').value='0.5';document.getElementById('stage-1:1-kd').value='0.125';
+            const g=pidGroups.find(g=>g.target===1&&g.profile===1);await stageAction(g,true);
+            if(JSON.stringify(calls.at(-1))!==JSON.stringify({operation:'set',args:[1,1,1.25,0.5,0.125]})||document.getElementById('stage-state-1:1').textContent!=='设备已确认'||!document.getElementById('success-dialog').open)return false;
+            document.getElementById('success-close').click();selectStageChart(g);if(document.getElementById('pid-group').value!=='1:1')return false;
+            pidCall=async()=>{throw Error('fixture timeout');};await stageAction(g,true);
+            if(!document.getElementById('success-dialog').classList.contains('failure')||!document.getElementById('stage-state-1:1').textContent.includes('未确认'))return false;
+            document.getElementById('success-close').click();
+            return true;
+          }finally{pidCall=original;connected=false;pidCache.clear();resetStages();selectPidMode('heat');document.getElementById('identity-tab').click();document.getElementById('flash-details').open=false;render();navigate('workbench');window.scrollTo(0,0);}
+        })()`);
+        if(!stagesOkay)throw Error('Stage PID table / read-all / per-stage write / error feedback failed');
+        console.log('PASS: six stage groups, sequential read-all, acknowledged stage write, curve linkage and failure dialog');
         const successOkay=await win.webContents.executeJavaScript(`(() => {showSuccess('烧录成功','界面测试预览；未连接探针或实际烧录。');const d=document.getElementById('success-dialog');const okay=d.open && document.getElementById('success-title').textContent==='烧录成功';document.getElementById('success-close').click();return okay && !d.open;})()`);
         if(!successOkay)throw Error('Success modal failed');
         console.log('PASS: success modal opens and closes');
