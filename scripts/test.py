@@ -18,6 +18,7 @@ def main():
     prefix=['wsl','-d',args.wsl_distro,'--'] if os.name=='nt' else []
     flags=['gcc','-std=c11','-Wall','-Wextra','-fsanitize=address,undefined','-g']
     tests=[
+        [sys.executable,'scripts/build_release.py','--preset','Debug'],
         [sys.executable,'-m','unittest','discover','-s','Tools/FirmwarePack','-v'],
         [sys.executable,'-m','unittest','discover','-s','Tools/Flasher','-p','test_rtt_bridge.py','-v'],
         ['node','--test','Tools/Flasher/backend.test.cjs','Tools/Flasher/powermanage.test.cjs','Tools/Flasher/publisher.test.cjs','Tools/Flasher/platform.test.cjs'],
