@@ -195,3 +195,11 @@ Keep dispatch files free from direct HAL control; use queues to reach the right 
 ## License
 
 Internal project. Do not distribute without permission.
+# 生产交付下载
+
+完整 Windows 工具、独立固件与 SHA256 校验文件见 [TPS130 Studio 2.3.0 / App 0.1.5](https://github.com/zq9278/9C-U-TPS_Slave/releases/tag/studio-v2.3.0-app-v0.1.5)。ZIP 解压完整目录后运行 TPS130-Studio.exe，勿单独复制 EXE。
+
+此版本主动熔断关闭，包含热脉动控制板和电源控制板两个 PCBA 烧录模块及阶段 PID 调节。软件验证已通过，生产使用前仍需实板验收。
+
+out/ 保留为本地构建目录，不将历次大型二进制包写入 Git 历史。发布文件存储在 GitHub Releases，发布清单见 documents/releases/。
+

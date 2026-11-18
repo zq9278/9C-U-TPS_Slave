@@ -1,0 +1,98 @@
+{
+  "tag": "studio-v2.3.0-app-v0.1.5",
+  "source_commit": "dd64f26faf1936ad9301c99cce792697a3a13657",
+  "url": "https://github.com/zq9278/9C-U-TPS_Slave/releases/tag/studio-v2.3.0-app-v0.1.5",
+  "release_id": 449630256,
+  "assets": [
+    {
+      "name": "TPS130-Studio-2.3.0-20261116-175146.zip",
+      "size": 273232466,
+      "sha256": "6a5d926464abd281cdb7794ce965a8b7b2228cc20df25b5c75e2ac19897fa1cd",
+      "url": "https://github.com/zq9278/9C-U-TPS_Slave/releases/download/untagged-10e549cdd8b477faf961/TPS130-Studio-2.3.0-20261116-175146.zip"
+    },
+    {
+      "name": "TPS130-Studio-2.3.0-20261116-175146.zip.sha256",
+      "size": 107,
+      "sha256": "a03e8f16da896a8e71df604dc01c034ae61ad1642d861d57bf4a642496179444",
+      "url": "https://github.com/zq9278/9C-U-TPS_Slave/releases/download/untagged-10e549cdd8b477faf961/TPS130-Studio-2.3.0-20261116-175146.zip.sha256"
+    },
+    {
+      "name": "tps_boot.bin",
+      "size": 8360,
+      "sha256": "2a8c051efadb546bc62c93f269303140a535bbaa66a51f5dbc728e53c6d8f72d",
+      "url": "https://github.com/zq9278/9C-U-TPS_Slave/releases/download/untagged-10e549cdd8b477faf961/tps_boot.bin"
+    },
+    {
+      "name": "tps_boot.elf",
+      "size": 33664,
+      "sha256": "4923c9a36abbfe888eb96460bd604fe86d3d363559295972f7c2ff0e9dcecd21",
+      "url": "https://github.com/zq9278/9C-U-TPS_Slave/releases/download/untagged-10e549cdd8b477faf961/tps_boot.elf"
+    },
+    {
+      "name": "tps_app.bin",
+      "size": 93424,
+      "sha256": "cd97b8e1376ad8184759f7e662fb5b59a25145817499f66788e13af81450f832",
+      "url": "https://github.com/zq9278/9C-U-TPS_Slave/releases/download/untagged-10e549cdd8b477faf961/tps_app.bin"
+    },
+    {
+      "name": "tps_app.elf",
+      "size": 437672,
+      "sha256": "6792f22f2e26b925ef40d558854877e017497a8ed3979685460bd43c798f98a8",
+      "url": "https://github.com/zq9278/9C-U-TPS_Slave/releases/download/untagged-10e549cdd8b477faf961/tps_app.elf"
+    },
+    {
+      "name": "tps_app.tpsfw",
+      "size": 93488,
+      "sha256": "fb01300f84e01135cd6acaa954317c468922298f217dff4382237a78d1a5b248",
+      "url": "https://github.com/zq9278/9C-U-TPS_Slave/releases/download/untagged-10e549cdd8b477faf961/tps_app.tpsfw"
+    },
+    {
+      "name": "tps_factory.bin",
+      "size": 131072,
+      "sha256": "4a0335f653f9b1aea4202524585a3972bcf595ddb14c04ad0c0c338790cc5acf",
+      "url": "https://github.com/zq9278/9C-U-TPS_Slave/releases/download/untagged-10e549cdd8b477faf961/tps_factory.bin"
+    },
+    {
+      "name": "release.json",
+      "size": 195757,
+      "sha256": "2a847169eb50af9d26f562c6fdb5c195c5546a7e559d163465ba466f3d12c850",
+      "url": "https://github.com/zq9278/9C-U-TPS_Slave/releases/download/untagged-10e549cdd8b477faf961/release.json"
+    },
+    {
+      "name": "SHA256SUMS.txt",
+      "size": 482,
+      "sha256": "60c71189d823832f9f3ef2c3ff01fe98d306ffbf19591bf3d5face95824f3439",
+      "url": "https://github.com/zq9278/9C-U-TPS_Slave/releases/download/untagged-10e549cdd8b477faf961/SHA256SUMS.txt"
+    },
+    {
+      "name": "PowerManage-power_app.elf",
+      "size": 26684,
+      "sha256": "749220384f95f701eeef15ea130545fc65984585e2e9f874c16b7e383273a1b8",
+      "url": "https://github.com/zq9278/9C-U-TPS_Slave/releases/download/untagged-10e549cdd8b477faf961/PowerManage-power_app.elf"
+    },
+    {
+      "name": "PowerManage-power_app.bin",
+      "size": 6532,
+      "sha256": "50176731cbf361a86606fffff258e6f005ffabc776430331b52f1f27dc923e0c",
+      "url": "https://github.com/zq9278/9C-U-TPS_Slave/releases/download/untagged-10e549cdd8b477faf961/PowerManage-power_app.bin"
+    },
+    {
+      "name": "PowerManage-power_flash.bin",
+      "size": 16384,
+      "sha256": "57ee9a488badbdb82c6ef9675025f5b3d96b6c04a48c18e83ceeb6ea375e6398",
+      "url": "https://github.com/zq9278/9C-U-TPS_Slave/releases/download/untagged-10e549cdd8b477faf961/PowerManage-power_flash.bin"
+    },
+    {
+      "name": "PowerManage-release.json",
+      "size": 15181,
+      "sha256": "312727682b39df008760277cb237520b2ef11c1b72093bef235fbce04bd380cb",
+      "url": "https://github.com/zq9278/9C-U-TPS_Slave/releases/download/untagged-10e549cdd8b477faf961/PowerManage-release.json"
+    },
+    {
+      "name": "PowerManage-SHA256SUMS.txt",
+      "size": 245,
+      "sha256": "1d3ff16d0526d3bfc98c6a19c8174be1f297d4f46d3cf9e67f03e4de802582ca",
+      "url": "https://github.com/zq9278/9C-U-TPS_Slave/releases/download/untagged-10e549cdd8b477faf961/PowerManage-SHA256SUMS.txt"
+    }
+  ]
+}
