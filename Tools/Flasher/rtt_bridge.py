@@ -63,8 +63,8 @@ class RttMemory:
 
     def write(self, data):
         address, buffer, size, wr, rd = self.descriptor(0, False)
-        count = min(len(data), (rd-wr-1) % size)
-        if not count:
+        count = len(data)
+        if not count or count > (rd-wr-1) % size:
             return 0
         first = min(count, size-wr)
         self.link.memory_write8(buffer+wr, list(data[:first]))
@@ -77,9 +77,21 @@ class RttMemory:
 def valid_command(command):
     if command in ('help', 'info', 'status'):
         return True
-    if not isinstance(command, str) or len(command)>120 or not re.fullmatch(r'pid (get|set|stream) [0-9]+(?: [0-9.eE+-]+)+', command):
+    if not isinstance(command, str) or len(command)>120 or not re.fullmatch(r'pid (get|set|stream|pump|hold) [0-9]+(?: [0-9.eE+-]+)+', command):
         return False
     tokens=command.split(' ')
+    if tokens[1] == 'hold':
+        if len(tokens) != 5 or not all(x.isascii() and x.isdigit() for x in tokens[2:]):
+            return False
+        req, route, target = map(int, tokens[2:])
+        return 1 <= req <= 1000000 and (
+            (route == 0 and target == 0) or
+            (route in (1, 2, 3) and 1 <= target <= 550) or
+            (route == 4 and 1 <= target <= 1000000))
+    if tokens[1] == 'pump':
+        return (len(tokens) == 4 and tokens[3].isdigit() and
+                1 <= int(tokens[2]) <= 1000000 and
+                (int(tokens[3]) == 0 or 30 <= int(tokens[3]) <= 50))
     try:
         values=list(map(float,tokens[2:]))
     except ValueError:
@@ -145,15 +157,19 @@ class Bridge:
         if method != 'command' or len(args)!=1 or not valid_command(args[0]):
             raise ValueError('Unsupported or invalid RTT command')
         data = (args[0] + '\n').encode('ascii')
-        offset, deadline = 0, time.monotonic()+1
-        while offset < len(data) and time.monotonic() < deadline:
-            offset += self.transport.write(data[offset:])
-            if offset < len(data):
-                time.sleep(.01)
-        if offset != len(data):
-            raise RuntimeError('RTT 下行缓冲已满，命令未完整发送')
-        # Transport success isn't a firmware acknowledgement; replies appear in log.
-        return {'queued': True, 'command': args[0]}
+        deadline = time.monotonic() + 1
+        while not self.transport.write(data):
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(.01)
+        else:
+            return {'queued': True, 'command': args[0]}
+        _, _, size, wr, rd = self.transport.descriptor(0, False)
+        pending = (wr - rd) % size
+        halted = self.link.halted() if hasattr(self.link, 'halted') else False
+        state = 'MCU halted' if halted else 'MCU running but RTT command could not be queued'
+        raise RuntimeError(f'RTT TX timeout: {state}; pending={pending}/{size - 1}, '
+                           f'free={size - 1 - pending}, required={len(data)} bytes. No partial command sent.')
 
     def logs(self):
         data = self.transport.read()

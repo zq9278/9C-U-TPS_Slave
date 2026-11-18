@@ -41,7 +41,7 @@
     {
       "id": "pressL",
       "name": "左侧压力",
-      "unit": "kPa",
+      "unit": "mmHg",
       "color": "#168b96",
       "group": "pressure",
       "precision": 2
@@ -49,7 +49,7 @@
     {
       "id": "pressR",
       "name": "右侧压力",
-      "unit": "kPa",
+      "unit": "mmHg",
       "color": "#586cbb",
       "group": "pressure",
       "precision": 2

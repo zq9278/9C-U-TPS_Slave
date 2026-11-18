@@ -23,7 +23,10 @@
 #include "Config/product_config.h"
 #include "Shared/Upgrade/upgrade.h"
 #include "tim.h"
+#include <stdio.h>
+#include <stdbool.h>
 #include "Modules/Debug/debug_rtt.h"
+#include "Modules/Pressure/treatment_pressure_control.h"
 
 /* ControlTask is the only writer of the stop acknowledgement. Once requested,
  * neither queued business nor debug commands may restart the actuators. */
@@ -65,7 +68,7 @@ static volatile uint8_t s_upgrade_control_ready;
 #define RK3576_TELEMETRY_FILTER_ENABLE 1U//滤波
 #define RK3576_TEMP_UPLOAD_OFFSET_LEFT_C  (-0.0f)
 #define RK3576_TEMP_UPLOAD_OFFSET_RIGHT_C (-0.0f)
-#define RK3576_PRESS_UPLOAD_IIR_ALPHA 0.99f
+#define RK3576_PRESS_UPLOAD_IIR_ALPHA 0.9933555f /* 300 ms at the 2 ms control period. */
 #define RK3576_PRESS_FILTER_WINDOW_MS PRESS_TELEMETRY_MS
 #define RK3576_TEMP_FILTER_WINDOW_MS  TEMP_TELEMETRY_MS
 #define RK3576_PRESS_FILTER_SAMPLES ((uint16_t)(RK3576_PRESS_FILTER_WINDOW_MS / CONTROL_PERIOD_MS))
@@ -418,20 +421,11 @@ static void Rk3576TelemetryFilter_PushChannel(TargetWindowFilter *filter,
 static void Rk3576TelemetryFilter_PushPressureLeft(Rk3576TelemetryFilterState *state,
                                                    float sample)
 {
-    float alpha = RK3576_PRESS_UPLOAD_IIR_ALPHA;
+    const float alpha = RK3576_PRESS_UPLOAD_IIR_ALPHA;
 
     if (state == NULL)
     {
         return;
-    }
-
-    if (alpha < 0.0f)
-    {
-        alpha = 0.0f;
-    }
-    else if (alpha > 0.98f)
-    {
-        alpha = 0.98f;
     }
 
     if (state->press_left_iir_valid == 0U)
@@ -913,6 +907,20 @@ static void SensorTask(void *argument)
  * - 执行压力和加热控制；
  * - 发送温度、压力及 PID 调试信息。
  */
+static volatile uint8_t s_bench_safety_fault;
+
+static bool BenchPumpAllowed(const TreatmentAppController *controller, TickType_t now)
+{
+    const uint32_t sample_tick = gSensorData.pressure_tick;
+    const float limit_mmhg = APP_SAFETY_OVER_PRESSURE_LIMIT_MMHG;
+    const float left = gSensorData.pressL;
+    const float right = gSensorData.pressR;
+    return !controller->cfg.running && !controller->paused &&
+           !controller->emergency_stop && !gTreatmentRunning && !s_bench_safety_fault &&
+           sample_tick != 0U && (TickType_t)(now - sample_tick) <= pdMS_TO_TICKS(100U) &&
+           left >= 0.0f && left < limit_mmhg && right >= 0.0f && right < limit_mmhg;
+}
+
 static void ControlTask(void *argument)
 {
     TreatmentAppController controller;
@@ -927,6 +935,12 @@ static void ControlTask(void *argument)
     TickType_t next_pid_debug_tx;
     uint8_t telemetry_filter_active = 0U;
     uint8_t telemetry_tx_enabled = 0U;
+    uint8_t bench_pwm = 0U;
+    TickType_t bench_end = 0U;
+    TickType_t hold_deadline = 0U;
+    uint32_t hold_session = 0U;
+    uint8_t hold_route = 0U;
+    float hold_target_mmhg = 0.0f;
 
     (void)argument;
     TreatmentAppController_Init(&controller);
@@ -945,10 +959,62 @@ static void ControlTask(void *argument)
 
         while (xQueueReceive(gCtrlCmdQueue, &cmd, 0U) == pdTRUE)
         {
+            if (cmd.id == CTRL_CMD_BENCH_HOLD)
+            {
+                char reply[112];
+                bool accepted = false;
+                const bool safe = !s_upgrade_requested && BenchPumpAllowed(&controller, now) &&
+                    gSensorData.pressL < 550.0f &&
+                    gSensorData.pressR < 550.0f;
+                if (cmd.pid_profile == 0U) {
+                    if (hold_session != 0U) TreatmentAppController_SetSystemIdleOutputs();
+                    hold_session = 0U;
+                    accepted = true;
+                } else if (cmd.pid_profile == 4U) {
+                    accepted = safe && hold_session != 0U && hold_session == (uint32_t)cmd.kp &&
+                        (int32_t)(now - hold_deadline) < 0;
+                } else if (safe && hold_session == 0U && bench_pwm == 0U) {
+                    hold_route = cmd.pid_profile;
+                    hold_target_mmhg = cmd.kp;
+                    hold_session = cmd.request_id;
+                    TreatmentAppController_SetSystemIdleOutputs();
+                    TreatmentPressureControl_ResetPid(&controller);
+                    accepted = true;
+                }
+                if (accepted && hold_session != 0U) hold_deadline = now + pdMS_TO_TICKS(2000U);
+                const int len = snprintf(reply, sizeof(reply), "RTT> PID ack=%lu ok=%u reason=%s\r\n",
+                    (unsigned long)cmd.request_id, (unsigned)accepted, accepted ? "none" : "hold_interlock");
+                DebugRtt_Write(reply, (size_t)len);
+                continue;
+            }
+            if (cmd.id == CTRL_CMD_BENCH_PUMP)
+            {
+                char reply[96];
+                const bool accepted = cmd.enabled == 0U ||
+                    (bench_pwm == 0U && hold_session == 0U && !s_upgrade_requested &&
+                     BenchPumpAllowed(&controller, now));
+                if (accepted) {
+                    bench_pwm = cmd.enabled;
+                    bench_end = now + pdMS_TO_TICKS(2000U);
+                    if (bench_pwm == 0U && !controller.cfg.running)
+                        TreatmentPressureControl_SetPumpPwmOutput(0U);
+                }
+                int len = snprintf(reply, sizeof(reply), "RTT> PID ack=%lu ok=%u reason=%s\r\n",
+                    (unsigned long)cmd.request_id, (unsigned)accepted, accepted ? "none" : "pump_interlock");
+                DebugRtt_Write(reply, (size_t)len);
+                continue;
+            }
+            if (cmd.id == CTRL_CMD_STOP || cmd.id == CTRL_CMD_START) {
+                if (hold_session != 0U) TreatmentAppController_SetSystemIdleOutputs();
+                hold_session = 0U;
+                bench_pwm = 0U;
+            }
             if (!s_upgrade_requested) TreatmentAppController_HandleCommand(&controller, &cmd, now);
         }
 
         if (s_upgrade_requested) {
+            hold_session = 0U;
+            bench_pwm = 0U;
             TreatmentAppController_SetSystemIdleOutputs();
             /* Mirror the existing idle route and verify programmed outputs. */
             s_upgrade_control_ready = (TIM15->CCR1 == 0 && TIM14->CCR1 == 0 && TIM17->CCR1 == 0 &&
@@ -976,7 +1042,36 @@ static void ControlTask(void *argument)
             }
         }
 
-        TreatmentAppController_Run(&controller,&gSensorData,now,(float)CONTROL_PERIOD_MS / 1000.0f, &runtime);
+        const float dt_s = (float)CONTROL_PERIOD_MS / 1000.0f;
+        if (hold_session != 0U &&
+            ((int32_t)(now - hold_deadline) >= 0 || !BenchPumpAllowed(&controller, now) ||
+             gSensorData.pressL >= 550.0f || gSensorData.pressR >= 550.0f))
+            hold_session = 0U;
+        if (hold_session != 0U) {
+            const TreatmentPressurePlan plan = {
+                .phase = TREATMENT_PHASE_HOLD,
+                .pid_stage = TREATMENT_PRESS_PID_STAGE_HOLD,
+                .inflating = 1U,
+                .target_pressure_kpa = hold_target_mmhg
+            };
+            const uint8_t saved_left = controller.cfg.press_enable_L;
+            const uint8_t saved_right = controller.cfg.press_enable_R;
+            controller.cfg.press_enable_L = (hold_route & 1U) != 0U;
+            controller.cfg.press_enable_R = (hold_route & 2U) != 0U;
+            memset(&runtime, 0, sizeof(runtime));
+            TreatmentPressureControl_ApplyPlan(&controller, &gSensorData, dt_s, &plan, &runtime);
+            controller.cfg.press_enable_L = saved_left;
+            controller.cfg.press_enable_R = saved_right;
+            runtime.session_active = 0U;
+        } else {
+            TreatmentAppController_Run(&controller, &gSensorData, now, dt_s, &runtime);
+        }
+        if (bench_pwm != 0U) {
+            if ((int32_t)(now - bench_end) >= 0 || !BenchPumpAllowed(&controller, now))
+                bench_pwm = 0U;
+            else
+                TreatmentPressureControl_SetPumpPwmOutput(bench_pwm);
+        }
         telemetry_tx_enabled = (uint8_t)((runtime.session_active != 0U) &&
                                          (controller.paused == 0U));
 
@@ -1084,16 +1179,16 @@ static void ControlTask(void *argument)
         {
             /* PID 调试数据走日志串口格式，不占用 RK3576 业务协议。 */
             next_pid_debug_tx = now + pdMS_TO_TICKS(PID_DEBUG_TELEMETRY_MS);
-            if(controller.cfg.press_enable_L) (void)PidDebugProtocol_SendSample(PID_DEBUG_TARGET_HEAT_LEFT,
+            if(!hold_session && controller.cfg.press_enable_L) (void)PidDebugProtocol_SendSample(PID_DEBUG_TARGET_HEAT_LEFT,
                                               2U,
                                               (uint32_t)(now * portTICK_PERIOD_MS),
                                               &controller.heat_left_pid);
-            if(controller.cfg.press_enable_R) (void)PidDebugProtocol_SendSample(PID_DEBUG_TARGET_HEAT_RIGHT,
+            if(!hold_session && controller.cfg.press_enable_R) (void)PidDebugProtocol_SendSample(PID_DEBUG_TARGET_HEAT_RIGHT,
                                               2U,
                                               (uint32_t)(now * portTICK_PERIOD_MS),
                                               &controller.heat_right_pid);
-            if(runtime.pump_pwm > 0U) (void)PidDebugProtocol_SendSample((pid_debug_target_t)runtime.pid_stage,
-                                              (uint8_t)((controller.cfg.press_enable_L!=0U) && (controller.cfg.press_enable_R!=0U)),
+            if(hold_session || runtime.pump_pwm > 0U) (void)PidDebugProtocol_SendSample((pid_debug_target_t)runtime.pid_stage,
+                                              (uint8_t)(hold_session ? hold_route == 3U : (controller.cfg.press_enable_L && controller.cfg.press_enable_R)),
                                               (uint32_t)(now * portTICK_PERIOD_MS),
                                               &controller.pressure_pid);
         }
@@ -1215,6 +1310,7 @@ static void SafetyTask(void *argument)
                           (over_pressure_fault != 0U) ||
                           (heat_otp_fault != 0U));
 
+        s_bench_safety_fault = fault;
         if ((fault != 0U) && (fault_active == 0U))
         {
             LOG_E("safety fault detect tempL=%d.%02d tempR=%d.%02d pressL=%d.%02d pressR=%d.%02d otpL_level=%u otpR_level=%u otpL_fault=%u otpR_fault=%u",

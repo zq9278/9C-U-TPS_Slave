@@ -47,9 +47,11 @@ class FirmwareTests(unittest.TestCase):
         self.plan = 0x20010500
         self.runtime = 0x20010600
         self.pwm = None
+        self.pulse_ticks = 0
         self.wave = None
         hooks = {self.symbols[name] & ~1: name for name in
-                 ("BspPwm_SetDutyPermille", "ValveControl_SetWave", "ValveControl_ApplyTreatmentRoute", "xTaskGetTickCount")}
+                 ("BspPwm_SetDutyPermille", "BspPwm_GetPeriodTicks", "BspPwm_GetPulse",
+                  "BspPwm_SetPulse", "ValveControl_SetWave", "ValveControl_ApplyTreatmentRoute", "xTaskGetTickCount")}
 
         def intercept(uc, address, size, data):
             name = hooks.get(address)
@@ -57,6 +59,14 @@ class FirmwareTests(unittest.TestCase):
                 return
             if name == "BspPwm_SetDutyPermille":
                 self.pwm = uc.reg_read(UC_ARM_REG_R1)
+                self.pulse_ticks = 3200 * self.pwm // 1000
+            elif name == "BspPwm_GetPeriodTicks":
+                uc.reg_write(UC_ARM_REG_R0, 3200)
+            elif name == "BspPwm_GetPulse":
+                uc.reg_write(UC_ARM_REG_R0, self.pulse_ticks)
+            elif name == "BspPwm_SetPulse":
+                self.pulse_ticks = uc.reg_read(UC_ARM_REG_R1)
+                self.pwm = 1000 * self.pulse_ticks // 3200
             elif name == "ValveControl_SetWave":
                 self.wave = uc.reg_read(UC_ARM_REG_R0)
             elif name == "xTaskGetTickCount":
@@ -66,7 +76,7 @@ class FirmwareTests(unittest.TestCase):
         self.set_field(self.controller, "control_config_t", "press_enable_L", "B", 1)
         self.set_field(self.controller, "control_config_t", "press_enable_R", "B", 1)
         self.call("TreatmentPressureControl_InitPid", self.controller)
-        self.pwm_min, self.pwm_max = 10, 100
+        self.pwm_min, self.pwm_max = 30, 50
 
 
     def expected_pwm(self, raw_output):
@@ -115,6 +125,11 @@ class FirmwareTests(unittest.TestCase):
             for kp, expected in ((1, self.expected_pwm(5)), (2, self.expected_pwm(10)), (100, self.pwm_max)):
                 with self.subTest(stage=stage, kp=kp):
                     self.set_gains(1, stage, kp)
+                    if stage == 1:
+                        target_ticks = 96 + int(min(kp * 5 / 25, 1) * 64)
+                        expected = 1000 * target_ticks // 3200
+                        for _ in range(180):
+                            self.apply(2, 1)
                     self.assertEqual(self.apply(stage + 1, stage), expected)
                     self.assertEqual(self.pwm, expected)
                     self.assertEqual(self.wave, 1)
@@ -128,9 +143,20 @@ class FirmwareTests(unittest.TestCase):
                 self.assertEqual(self.pwm, expected)
 
 
+    def test_hold_slews_up_one_compare_tick_and_stops_immediately(self):
+        self.set_gains(1, 1, 100)
+        self.apply(2, 1)
+        self.assertEqual(self.pulse_ticks, 96)
+        self.apply(2, 1)
+        self.assertEqual(self.pulse_ticks, 96)
+        self.apply(2, 1)
+        self.assertEqual(self.pulse_ticks, 97)
+        self.apply(2, 1, left=11)
+        self.assertEqual(self.pulse_ticks, 0)
+
     def test_pulse_off_stops_and_vents(self):
         self.set_gains(1, 2, 100)
-        self.assertEqual(self.apply(3, 2), 100)
+        self.assertEqual(self.apply(3, 2), self.pwm_max)
         self.assertEqual(self.apply(4, 2, target=0), 0)
         self.assertEqual((self.pwm, self.wave), (0, 0))
 
@@ -206,7 +232,7 @@ class FirmwareTests(unittest.TestCase):
 
     def test_rtt_profile_wrapper_retains_all_six_groups_and_defaults(self):
         address=0x20010700
-        defaults=[[(.30,.10,0),(.30,.40,.10),(.08,0,0)],[(.20,.80,.20),(.40,.50,.10),(.10,.10,0)]]
+        defaults=[[(.50,0,0),(.60,.50,0),(.30,0,0)],[(.50,0,0),(.60,.50,0),(.30,0,0)]]
         for profile in range(2):
             for stage in range(3):
                 self.uc.mem_write(address,b'\0'*12)

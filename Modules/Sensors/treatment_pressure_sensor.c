@@ -125,6 +125,7 @@ void TreatmentPressureSensor_Poll(TreatmentPressureSensor *sensor,
                                            &filtered_right);
         out->pressL = filtered_left;
         out->pressR = filtered_right;
+        out->pressure_tick = now;
     }
     else
     {

@@ -62,11 +62,19 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
     if(action==='publish-settings') {
       noTask();active='settings';
       try {
-        const answer=await dialog.showMessageBox(win,{type:'question',title:'本机发布设置',buttons:['取消','使用未签名格式','配置TPS签名密钥'],defaultId:0,cancelId:0,
+        const answer=await dialog.showMessageBox(win,{type:'question',title:'本机发布设置',buttons:['取消','使用未签名格式','配置TPS签名密钥','选择 Mender 凭据文件'],defaultId:0,cancelId:0,
           message:'默认沿用现有TPS未签名格式。',detail:'发布设置仅保存在本机。管理员凭据按接入说明读取；如以后启用签名，选择TPS私钥和设备已信任公钥。'});
         if(answer.response===0)return false;
         const settings=publisher.settings();
-        if(answer.response===2){
+        if(answer.response===3){
+          const selected=await dialog.showOpenDialog(win,{
+            title:'选择 Mender 管理员凭据文件',properties:['openFile'],
+            filters:[{name:'JSON',extensions:['json']}]
+          });
+          if(selected.canceled)return false;
+          publisher.readCredentials(selected.filePaths[0]);
+          settings.credentials=selected.filePaths[0];
+        }else if(answer.response===2){
           const key=await dialog.showOpenDialog(win,{title:'选择TPS Artifact签名私钥',properties:['openFile']});if(key.canceled)return false;
           const pub=await dialog.showOpenDialog(win,{title:'选择设备已信任的TPS验签公钥',properties:['openFile']});if(pub.canceled)return false;
           settings.privateKey=key.filePaths[0];settings.publicKey=pub.filePaths[0];settings.mode='signed';
@@ -148,7 +156,7 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
           navigate('workbench');
           ingest('RTT> app=0.1.1 target=0x9C01 hw=1 base=0x08004000 boot_min=0x00010000\\n');
           ingest('RTT> tick=123 running=0 tempL=36.25 tempR=36.5 pressL=12.3 pressR=12.4 free_heap=4000 log_drops=0\\n');
-          if(document.getElementById('value-tempL').textContent!=='36.25'||document.getElementById('param-app').textContent!=='0.1.1')return false;
+          if(document.getElementById('value-pressL').textContent!=='12.30'||document.getElementById('value-tempL').textContent!=='36.25'||document.getElementById('param-app').textContent!=='0.1.1')return false;
           document.getElementById('pid-tab').click();if(document.getElementById('pid-content').hidden)return false;
           if(document.getElementById('pid-group').options.length!==2)return false;
           document.getElementById('pid-pressure').click();if(document.getElementById('pid-group').options.length!==6)return false;
@@ -158,7 +166,7 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
           connected=true;monitoring=true;render();document.getElementById('stability-start').click();
           if(!stability||stability.result!=='RUNNING'||!document.getElementById('pid-write').disabled)return false;
           ingest('RTT> tick=323 running=0 tempL=36.25 tempR=36.5 pressL=10 pressR=20 free_heap=4000 log_drops=0\\n');drawStability();
-          if(document.getElementById('stability-value-pressL').textContent!=='75.01'||document.getElementById('stability-stat-pressR-mean').textContent!=='150.01'||stability.history.length!==1||stability.report().stats.pressL.unit!=='mmHg')return false;
+          if(document.getElementById('stability-value-pressL').textContent!=='10.00'||document.getElementById('stability-stat-pressR-mean').textContent!=='20.00'||stability.history.length!==1||stability.report().stats.pressL.unit!=='mmHg')return false;
           document.getElementById('stability-stop').click();if(stability.result!=='ABORTED'||document.getElementById('stability-export').disabled)return false;
           stability=null;stabilityNotified=false;connected=false;monitoring=false;pidHistory.clear();
           document.getElementById('identity-tab').click();
@@ -172,19 +180,19 @@ if(!app.requestSingleInstanceLock()) {app.quit();} else {
           if(document.querySelectorAll('#pid-stage-rows tr').length!==6)return false;
           const original=pidCall,calls=[];connected=true;
           try{
-            pidCall=async(operation,args)=>{calls.push({operation,args:[...args]});return {target:args[0],profile:args[1],kp:operation==='set'?args[2]:0.3,ki:operation==='set'?args[3]:0.1,kd:operation==='set'?args[4]:0};};
+            pidCall=async(operation,args)=>{calls.push({operation,args:[...args]});if(operation==='stream')return {stream:args[0]};return {target:args[0],profile:args[1],kp:operation==='set'?args[2]:0.3,ki:operation==='set'?args[3]:0.1,kd:operation==='set'?args[4]:0};};
             await document.getElementById('pid-read-all').onclick();
             if(calls.length!==6||new Set(calls.map(c=>c.args.join(':'))).size!==6||document.getElementById('stage-2:1-kp').value!=='0.3')return false;
             document.getElementById('success-close').click();
             document.getElementById('stage-1:1-kp').value='1.25';document.getElementById('stage-1:1-ki').value='0.5';document.getElementById('stage-1:1-kd').value='0.125';
             const g=pidGroups.find(g=>g.target===1&&g.profile===1);await stageAction(g,true);
             if(JSON.stringify(calls.at(-1))!==JSON.stringify({operation:'set',args:[1,1,1.25,0.5,0.125]})||document.getElementById('stage-state-1:1').textContent!=='设备已确认'||!document.getElementById('success-dialog').open)return false;
-            document.getElementById('success-close').click();selectStageChart(g);if(document.getElementById('pid-group').value!=='1:1')return false;
+            document.getElementById('success-close').click();await selectStageChart(g);if(document.getElementById('pid-group').value!=='1:1'||!pidStream||calls.at(-1)?.operation!=='stream')return false;
             pidCall=async()=>{throw Error('fixture timeout');};await stageAction(g,true);
             if(!document.getElementById('success-dialog').classList.contains('failure')||!document.getElementById('stage-state-1:1').textContent.includes('未确认'))return false;
             document.getElementById('success-close').click();
             return true;
-          }finally{pidCall=original;connected=false;pidCache.clear();resetStages();selectPidMode('heat');document.getElementById('identity-tab').click();document.getElementById('flash-details').open=false;render();navigate('workbench');window.scrollTo(0,0);}
+          }finally{pidCall=original;connected=false;pidStream=false;pidCache.clear();resetStages();selectPidMode('heat');document.getElementById('identity-tab').click();document.getElementById('flash-details').open=false;render();navigate('workbench');window.scrollTo(0,0);}
         })()`);
         if(!stagesOkay)throw Error('Stage PID table / read-all / per-stage write / error feedback failed');
         console.log('PASS: six stage groups, sequential read-all, acknowledged stage write, curve linkage and failure dialog');

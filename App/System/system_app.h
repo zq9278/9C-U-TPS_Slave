@@ -19,6 +19,7 @@ typedef struct
 {
     float tempL;              /* 左眼温度，单位摄氏度。 */
     float tempR;              /* 右眼温度，单位摄氏度。 */
+    uint32_t pressure_tick; /* Timestamp of the last successful pressure read. */
     float pressL;             /* 左眼压力，单位 kPa。 */
     float pressR;             /* 右眼压力，单位 kPa。 */
     uint8_t heaterPresentL;   /* 左眼眼罩在位状态，1 表示检测到。 */
@@ -73,6 +74,8 @@ typedef enum
     CTRL_CMD_PID_SET_GAINS,
     CTRL_CMD_PID_STREAM_ENABLE,
     CTRL_CMD_PID_GET_GAINS,
+    CTRL_CMD_BENCH_PUMP,
+    CTRL_CMD_BENCH_HOLD,
 } ctrl_cmd_id_t;
 
 /**

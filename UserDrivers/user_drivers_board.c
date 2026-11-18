@@ -75,7 +75,6 @@ static void BoardSoftI2cWriteScl(void *context, uint8_t level)
         return;
     }
 
-    BspGpio_ConfigOutput(lines->scl, GPIO_MODE_OUTPUT_OD, GPIO_PULLUP, GPIO_SPEED_FREQ_LOW);
     BspGpio_Write(lines->scl, level ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
 
@@ -88,15 +87,7 @@ static void BoardSoftI2cWriteSda(void *context, uint8_t level)
         return;
     }
 
-    if (level)
-    {
-        BspGpio_ConfigInput(lines->sda, GPIO_PULLUP);
-    }
-    else
-    {
-        BspGpio_ConfigOutput(lines->sda, GPIO_MODE_OUTPUT_OD, GPIO_PULLUP, GPIO_SPEED_FREQ_LOW);
-        BspGpio_Reset(lines->sda);
-    }
+    BspGpio_Write(lines->sda, level ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
 
 static uint8_t BoardSoftI2cReadSda(void *context)
@@ -108,7 +99,6 @@ static uint8_t BoardSoftI2cReadSda(void *context)
         return 1U;
     }
 
-    BspGpio_ConfigInput(lines->sda, GPIO_PULLUP);
     return (uint8_t)(BspGpio_Read(lines->sda) == GPIO_PIN_SET);
 }
 
@@ -163,6 +153,11 @@ void UserDrivers_BoardInit(void)
     gpio_cfg.active_state = GPIO_PIN_SET;
     BspGpio_Init(&s_ds18b20_dq, &gpio_cfg);
 
+    /* Preload both lines high before switching from CubeMX output mode. */
+    BspGpio_Set(&s_ee_scl);
+    BspGpio_Set(&s_ee_sda);
+    BspGpio_ConfigOutput(&s_ee_scl, GPIO_MODE_OUTPUT_OD, GPIO_PULLUP, GPIO_SPEED_FREQ_LOW);
+    BspGpio_ConfigOutput(&s_ee_sda, GPIO_MODE_OUTPUT_OD, GPIO_PULLUP, GPIO_SPEED_FREQ_LOW);
     s_ee_lines.scl = &s_ee_scl;
     s_ee_lines.sda = &s_ee_sda;
     s_ee_soft_adapter.write_scl = BoardSoftI2cWriteScl;

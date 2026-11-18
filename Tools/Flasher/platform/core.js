@@ -26,7 +26,7 @@
     stale(now=Date.now()){return !this.latest()||now-this.latest().time>1500;}
   }
   function validateRecording(value,device){
-    if(!value||value.schema!==1||value.device!==device.id||!Array.isArray(value.samples)||value.samples.length>50000)throw Error('记录格式、设备型号或数据量不匹配');
+    if(!value||!(value.schema===1||(value.schema===2&&value.pressureUnit==='mmHg'))||value.device!==device.id||!Array.isArray(value.samples)||value.samples.length>50000)throw Error('记录格式、设备型号或数据量不匹配');
     let previous=-Infinity;
     for(const s of value.samples){
       if(!Number.isFinite(s.time)||s.time<0||s.time>8640000000000000||s.time<previous||!Number.isFinite(s.deviceTick)||s.deviceTick<0||![0,1].includes(s.running)||!s.values)throw Error('记录中的时间或状态无效');

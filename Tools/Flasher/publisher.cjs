@@ -86,9 +86,27 @@ class Publisher {
     let s={};try{s=JSON.parse(fs.readFileSync(this.settingsFile,'utf8'));}catch{}
     return {credentials:DEFAULT_CREDENTIALS,...s,mode:s.mode||'unsigned'};
   }
+  readCredentials(file) {
+    let raw;
+    try {
+      raw=fs.readFileSync(file,'utf8');
+    } catch(error) {
+      if(error.code==='ENOENT')throw Error('找不到 Mender 管理员凭据文件。请在「发布设置 → 选择 Mender 凭据文件」中选择本机 JSON 文件。');
+      throw Error('无法读取 Mender 管理员凭据文件，请检查文件权限。');
+    }
+    let credentials;
+    try {
+      credentials=JSON.parse(raw.replace(/^\uFEFF/,''));
+    } catch {
+      throw Error('Mender 管理员凭据文件必须为有效的 JSON。');
+    }
+    if(typeof credentials?.username!=='string'||!credentials.username.trim()||
+       typeof credentials.password!=='string'||!credentials.password)
+      throw Error('Mender 管理员凭据文件需要包含 username 和 password。');
+    return credentials;
+  }
   async connect() {
-    const s=this.settings(),c=JSON.parse(fs.readFileSync(s.credentials,'utf8').replace(/^\uFEFF/,''));
-    if(typeof c.username!=='string'||typeof c.password!=='string')throw Error('管理员凭据文件无效');
+    const c=this.readCredentials(this.settings().credentials);
     for(const server of SERVERS){try{
       const r=await this.transport(server,'/api/management/v1/useradm/auth/login',{method:'POST',body:Buffer.alloc(0),headers:{Authorization:'Basic '+Buffer.from(c.username+':'+c.password).toString('base64')}});
       const token=typeof r.data==='string'?r.data.trim().replace(/^"|"$/g,''):r.data;

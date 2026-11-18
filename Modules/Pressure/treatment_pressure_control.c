@@ -8,13 +8,14 @@
 
 /* 压力 PID 缺省参数与执行器映射常量。PWM 单位为千分比，0 表示停泵。 */
 #define PRESS_PID_DEFAULT_DT_S 0.002f
-#define PRESS_PUMP_MIN_PWM 10U
-#define PRESS_PUMP_MAX_PWM 100U
+#define PRESS_PUMP_MIN_PWM 30U
+#define PRESS_PUMP_MAX_PWM 50U
 #define PRESS_PUMP_RAW_MAX 25.0f
 
 _Static_assert(TREATMENT_CYCLE_VENT_MS < TREATMENT_CYCLE_MS, "Cycle vent must fit within cycle");
 
 static BspPwmChannel s_pump_pwm;
+static float s_hold_pwm_rise_time;
 static uint8_t s_pressure_hw_initialized = 0U;
 
 /* 当前支持“单眼治疗”和“双眼治疗”两套独立压力 PID 参数。 */
@@ -40,16 +41,16 @@ typedef struct
 
 /* 单眼治疗 PID 参数组。 */
 static TreatmentPressurePidProfile s_press_pid_single_eye = {
-    {0.30f, 0.10f, 0.00f}, /* 升压 */
-    {0.30f, 0.40f, 0.10f}, /* 保压 */
-    {0.08f, 0.00f, 0.00f}, /* 脉冲 */
+    {0.50f, 0.00f, 0.00f}, /* 升压 */
+    {0.60f, 0.50f, 0.00f}, /* 保压 */
+    {0.30f, 0.00f, 0.00f}, /* 脉冲 */
 };
 
 /* 双眼治疗 PID 参数组。 */
 static TreatmentPressurePidProfile s_press_pid_dual_eye = {
-    {0.20f, 0.80f, 0.20f}, /* 升压 */
-    {0.40f, 0.50f, 0.10f}, /* 保压 */
-    {0.10f, 0.10f, 0.00f}, /* 脉冲 */
+    {0.50f, 0.00f, 0.00f}, /* 升压 */
+    {0.60f, 0.50f, 0.00f}, /* 保压 */
+    {0.30f, 0.00f, 0.00f}, /* 脉冲 */
 };
 
 /* 参数版本号，供运行中热切换 PID 配置时判断是否需要重载。 */
@@ -168,13 +169,47 @@ static void TreatmentPressureControl_SetWaveValveOutput(uint8_t enabled)
     ValveControl_SetWave(enabled);
 }
 
-static void TreatmentPressureControl_SetPumpPwmOutput(uint16_t pwm)
+void TreatmentPressureControl_SetPumpPwmOutput(uint16_t pwm)
 {
+    s_hold_pwm_rise_time = 0.0f;
     if ((pwm > 0U) && (pwm < PRESS_PUMP_MIN_PWM))
     {
         pwm = PRESS_PUMP_MIN_PWM;
     }
     BspPwm_SetDutyPermille(&s_pump_pwm, (pwm > PRESS_PUMP_MAX_PWM) ? PRESS_PUMP_MAX_PWM : pwm);
+}
+
+/* Hold: use each timer compare count and pace upward changes. */
+static float TreatmentPressureControl_SetHoldPwm(float output, float dt_s)
+{
+    const uint32_t period = BspPwm_GetPeriodTicks(&s_pump_pwm);
+    if (period == 0U || !isfinite(output) || output <= 0.0f) {
+        TreatmentPressureControl_SetPumpPwmOutput(0U);
+        return 0.0f;
+    }
+
+    const uint32_t minimum = period * PRESS_PUMP_MIN_PWM / 1000U;
+    const uint32_t maximum = period * PRESS_PUMP_MAX_PWM / 1000U;
+    const float fraction = fminf(output / PRESS_PUMP_RAW_MAX, 1.0f);
+    const uint32_t target = minimum + (uint32_t)(fraction * (float)(maximum - minimum));
+    uint32_t pulse = BspPwm_GetPulse(&s_pump_pwm);
+
+    if (pulse < minimum) {
+        pulse = minimum;
+        s_hold_pwm_rise_time = 0.0f;
+    } else if (pulse >= target) {
+        pulse = target;
+        s_hold_pwm_rise_time = 0.0f;
+    } else {
+        s_hold_pwm_rise_time += dt_s;
+        const float step_interval_s = 0.0025f;
+        if (s_hold_pwm_rise_time >= step_interval_s) {
+            ++pulse;
+            s_hold_pwm_rise_time -= step_interval_s;
+        }
+    }
+    BspPwm_SetPulse(&s_pump_pwm, pulse);
+    return (1000.0f * (float)pulse) / (float)period;
 }
 
 void TreatmentPressureControl_InitHardware(void)
@@ -581,9 +616,15 @@ void TreatmentPressureControl_ApplyPlan(TreatmentAppController *controller,
         TreatmentPressureControl_SetWaveValveOutput(1U);
         PidController_SetSetpoint(&controller->pressure_pid, plan->target_pressure_kpa);
         pressure_output = PidController_ComputeDt(&controller->pressure_pid, feedback_kpa, dt_s);
-        runtime->pump_pwm = TreatmentPressureControl_ClampPwm(pressure_output, PRESS_PUMP_MAX_PWM);
-        controller->pressure_pid.debug.mapped_output = (float)runtime->pump_pwm;
-        TreatmentPressureControl_SetPumpPwmOutput(runtime->pump_pwm);
+        if (plan->phase == TREATMENT_PHASE_HOLD) {
+            const float actual_pwm = TreatmentPressureControl_SetHoldPwm(pressure_output, dt_s);
+            runtime->pump_pwm = (uint16_t)actual_pwm;
+            controller->pressure_pid.debug.mapped_output = actual_pwm;
+        } else {
+            runtime->pump_pwm = TreatmentPressureControl_ClampPwm(pressure_output, PRESS_PUMP_MAX_PWM);
+            controller->pressure_pid.debug.mapped_output = (float)runtime->pump_pwm;
+            TreatmentPressureControl_SetPumpPwmOutput(runtime->pump_pwm);
+        }
     }
     else
     {

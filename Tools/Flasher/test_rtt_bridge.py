@@ -40,6 +40,11 @@ class RingTests(unittest.TestCase):
         self.assertEqual(memory.bytes[0x600:0x606],b'456789')
         self.assertEqual(memory.writes[-1],0x2000013C)
 
+    def test_full_ring_leaves_command_unwritten(self):
+        memory=Memory();transport=rtt.RttMemory(memory)
+        self.assertEqual(transport.write(b'012345678901'),0)
+        self.assertEqual(memory.writes,[])
+
     def test_bad_pointer_and_reset_never_write(self):
         memory=Memory();transport=rtt.RttMemory(memory)
         struct.pack_into('<I',memory.bytes,0x11C,0x20008FE0)

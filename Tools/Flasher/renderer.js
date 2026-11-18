@@ -3,6 +3,7 @@ const $=id=>document.getElementById(id),P=DebugPlatform;
 let busy=false,connected=false,bundled=false,available=false,powerAvailable=false,logText='',device=null;
 const live=new P.TelemetryStore(),decoder=new P.LineDecoder();
 let replay=null,replayIndex=0,replayPlaying=false,replayStart=0,replayHostStart=0;
+let statusRetryAt=0;
 let monitoring=false,polling=false,frozen=false,frozenEnd=0,recording=false,recorded=[],recordIdentity={},lastUiTime=0;
 let pidRequest=0,pidBusy=false,pidMode='heat',pidStream=false,stability=null,stabilityNotified=false;
 const pidPending=new Map(),pidHistory=new Map(),pidCache=new Map();
@@ -18,13 +19,84 @@ function showSuccess(title,detail){showResult(title,detail);}
 function showFailure(title,error){let message=String(error?.message??error??'未知错误').replace(/^Error invoking remote method ['"]action['"]:\s*(?:Error:\s*)?/,'');state(message,true);append('flash-log',message+'\n');$('flash-details').open=true;showResult(title,message+'\n\n详细输出见“任务日志”。',true);}
 $('success-close').onclick=()=>$('success-dialog').close();
 function append(id,text){$(id).textContent=($(id).textContent+text).slice(-150000);$(id).scrollTop=$(id).scrollHeight;}
+let pumpBusy=false;
+let holdSession=0,holdBusy=false,holdTimer,holdGeneration=0;
+function clearHold(){
+  ++holdGeneration;
+  clearTimeout(holdTimer);
+  holdSession=0;
+}
+function renewHold(generation){
+  holdTimer=setTimeout(async()=>{
+    if(generation!==holdGeneration||!holdSession)return;
+    try{
+      await pidCall('hold',[4,holdSession]);
+      if(generation===holdGeneration)renewHold(generation);
+    }catch(error){
+      if(generation!==holdGeneration)return;
+      clearHold();
+      $('hold-result').textContent='保压续期失败，设备将自动停泵放气：'+error.message;
+      render();
+    }
+  },400);
+}
+$('hold-start').onclick=async()=>{
+  const target=$('hold-target'),route=Number($('hold-route').value);
+  if(holdBusy||holdSession||!target.checkValidity()||![1,2,3].includes(route))return;
+  const generation=++holdGeneration;
+  holdBusy=true;
+  render();
+  try{
+    const result=await pidCall('hold',[route,target.valueAsNumber]);
+    if(generation!==holdGeneration)return;
+    holdSession=result.ack;
+    $('hold-result').textContent='持续保压中，目标 '+target.value+' mmHg。';
+    renewHold(generation);
+  }catch(error){
+    if(generation===holdGeneration)$('hold-result').textContent='启动保压未确认：'+error.message;
+  }finally{
+    holdBusy=false;
+    render();
+  }
+};
+$('hold-stop').onclick=async()=>{
+  clearHold();
+  try{
+    await pidCall('hold',[0,0]);
+    $('hold-result').textContent='设备已确认停止保压。';
+  }catch(error){
+    $('hold-result').textContent='停止命令未确认，固件将因续期超时自动停泵放气：'+error.message;
+  }
+  render();
+};
+async function benchPump(start){
+  const input=$('pump-duty');
+  if(start&&(pumpBusy||!input.value||!input.checkValidity()))return;
+  if(start)pumpBusy=true;
+  render();
+  try{
+    await pidCall('pump',[start?Math.round(input.valueAsNumber*10):0]);
+    $('pump-result').textContent=start?'设备已接受启动，最多运行 2 秒。':'设备已确认停止手动控泵。';
+  }catch(error){
+    $('pump-result').textContent='气泵操作未确认：'+error.message;
+  }finally{
+    if(start)pumpBusy=false;
+    render();
+  }
+}
+$('pump-start').onclick=()=>benchPump(true);
+$('pump-stop').onclick=()=>benchPump(false);
 function render(){
   const testing=stability?.result==='RUNNING';
+  $('pump-start').disabled=!connected||!!replay||testing||pumpBusy||holdBusy||!!holdSession;
+  $('hold-start').disabled=!connected||!!replay||testing||pumpBusy||holdBusy||!!holdSession;
+  $('hold-stop').disabled=!connected||!!replay;
+  $('pump-stop').disabled=!connected||!!replay;
   for(const id of ['pid-read','pid-write','pid-stream-on','pid-stream-off'])$(id).disabled=busy||!connected||!!replay||pidBusy||(testing&&id==='pid-write');
   $('pid-read-all').disabled=busy||!connected||!!replay||pidBusy;
   for(const b of document.querySelectorAll('[data-stage-action]'))b.disabled=busy||!connected||!!replay||pidBusy||(testing&&b.dataset.stageAction==='write');
   for(const input of document.querySelectorAll('.stage-gain'))input.disabled=pidBusy||testing;
-  $('stability-start').disabled=busy||!connected||!!replay||testing||pidBusy;
+  $('stability-start').disabled=busy||!connected||!!replay||testing||pidBusy||holdBusy||!!holdSession;
   $('stability-stop').disabled=!testing;$('stability-config').disabled=testing;
   $('stability-export').disabled=!stability||testing;$('stability-csv').disabled=!stability||testing;
   $('load-session').disabled=testing;$('monitor').disabled=testing||busy||!connected||!!replay;
@@ -50,7 +122,7 @@ function configure(d){
   device=P.validateDevice(d);
   stabilityChannels=Stability.channelsFor(d.channels);
   $('parameter-notice').textContent=d.parameterNotice;$('telemetry-notice').textContent='RTT 状态快照 · 5 Hz 请求 · 非传感器原始采样';
-  for(const c of d.channels){
+  for(const c of stabilityChannels){
     visible.add(c.id);const card=document.createElement('div');card.className='metric';card.style.setProperty('--metric-color',c.color);
     const label=document.createElement('div');label.className='metric-label';label.textContent=c.name;
     const symbol=document.createElement('span');symbol.className='metric-symbol';symbol.textContent=c.group==='temperature'?'◉':'⌁';label.append(symbol);
@@ -64,7 +136,7 @@ function configure(d){
   selectPidMode('heat');
   configureStages();
   for(const c of stabilityChannels){const label=document.createElement('label');label.textContent=c.name+'下限 / 上限（'+c.unit+'）';const row=document.createElement('div');row.className='stability-range';
-    for(const [bound,value] of [['min',c.group==='temperature'?0:-5*Stability.KPA_TO_MMHG],['max',c.group==='temperature'?60:60*Stability.KPA_TO_MMHG]]){const input=document.createElement('input');input.type='number';input.step='any';input.value=Number(value.toFixed(2));input.id='limit-'+c.id+'-'+bound;input.setAttribute('aria-label',c.name+bound);row.append(input);}label.append(row);$('stability-limits').append(label);
+    for(const [bound,value] of [['min',c.group==='temperature'?0:-37.5],['max',c.group==='temperature'?60:450]]){const input=document.createElement('input');input.type='number';input.step='any';input.value=Number(value.toFixed(2));input.id='limit-'+c.id+'-'+bound;input.setAttribute('aria-label',c.name+bound);row.append(input);}label.append(row);$('stability-limits').append(label);
     const card=document.createElement('div');card.className='metric';card.style.setProperty('--metric-color',c.color);const name=document.createElement('div');name.className='metric-label';name.textContent=c.name+' · '+c.unit;const value=document.createElement('div');value.className='metric-value';value.id='stability-value-'+c.id;value.textContent='—';const note=document.createElement('div');note.className='metric-note';note.id='stability-note-'+c.id;note.textContent='等待测试数据';card.append(name,value,note);$('stability-metrics').append(card);
     const tr=document.createElement('tr');for(const key of ['name','min','max','mean','stddev','span','violations']){const cell=document.createElement(key==='name'?'th':'td');if(key==='name'){cell.scope='row';cell.textContent=c.name+' ('+c.unit+')';}else{cell.id='stability-stat-'+c.id+'-'+key;cell.textContent='—';}tr.append(cell);}$('stability-statistics').append(tr);
   }
@@ -89,11 +161,13 @@ function ingest(text){
   logText=(logText+text).slice(-150000);renderLogs();
   for(const line of decoder.feed(text)){const event=DeviceAdapter.decode(line);if(!event)continue;
     if(event.type==='pid-ack'){const job=pidPending.get(event.values.ack);if(job){clearTimeout(job.timer);pidPending.delete(event.values.ack);event.values.ok===1?job.resolve(event.values):job.reject(Error('设备拒绝参数请求：'+event.reason));}continue;}
-    if(event.type==='pid-sample'){const v=event.values,key=v.target+':'+v.profile;let history=pidHistory.get(key);if(!history){history=[];pidHistory.set(key,history);}history.push({time:event.time,deviceTick:v.tick,values:v});if(history.length>6000)history.splice(0,history.length-6000);continue;}
+    if(event.type==='pid-sample'){const v={...event.values};
+      const key=v.target+':'+v.profile;let history=pidHistory.get(key);if(!history){history=[];pidHistory.set(key,history);}history.push({time:event.time,deviceTick:v.tick,values:v});if(history.length>6000)history.splice(0,history.length-6000);continue;}
     if(event.type==='identity'){live.identity=event.values;updateIdentity();}
     if(event.type==='sample'){
+      statusRetryAt=0;
       const s=live.push(event.sample);
-      stability?.push(Stability.convertSample(s,stabilityChannels));
+      stability?.push(s);
       if(recording){if(recorded.length<50000)recorded.push(s);else{recording=false;state('录制达到 50000 点上限，请保存记录');}}
       if($('check-result').dataset.pending==='1'){$('check-result').textContent=`已收到设备状态回复\n设备Tick ${s.deviceTick} · 治疗标志 ${s.running}\n设备App ${live.identity.app||'尚未收到身份回复'}`;delete $('check-result').dataset.pending;}
     }
@@ -104,11 +178,11 @@ function displayedSamples(){return replay?replay.samples.slice(0,replayIndex+1):
 function draw(){
   if(!device)return;const all=displayedSamples(),end=replay?all.at(-1)?.time||Date.now():frozen?frozenEnd:Date.now();
   const samples=all.filter(s=>s.time<=end),last=samples.at(-1),isStale=!replay&&(!connected||!monitoring||!last||Date.now()-last.time>1500);
-  for(const c of device.channels){const value=last?.values[c.id];$('value-'+c.id).textContent=Number.isFinite(value)?value.toFixed(c.precision):'—';$('note-'+c.id).textContent=replay?'离线记录':isStale?last?'历史快照 · 已过期':'等待设备回复':'设备实测 · RTT';}
+  for(const c of stabilityChannels){const value=last?.values[c.id];$('value-'+c.id).textContent=Number.isFinite(value)?value.toFixed(c.precision):'—';$('note-'+c.id).textContent=replay?'离线记录':isStale?last?'历史快照 · 已过期':'等待设备回复':'设备实测 · RTT';}
   $('freshness').textContent=replay?'记录数据':isStale?'数据未更新':'设备回复正常';$('freshness').className='tag '+(isStale?'muted':'');
   $('sample-counter').textContent=`${samples.length} 个有效快照${frozen?' · 查看已暂停':''}`;
   $('runtime-running').textContent=last?String(last.running):'—';$('runtime-tick').textContent=last?last.deviceTick+' ms':'—';$('runtime-heap').textContent=last?.free_heap!==undefined?last.free_heap+' B':'—';$('runtime-drops').textContent=last?.log_drops!==undefined?String(last.log_drops):'—';
-  for(const group of ['temperature','pressure'])drawTelemetryChart($(group+'-chart'),samples,device.channels.filter(c=>c.group===group),end,Number($('time-window').value),visible);
+  for(const group of ['temperature','pressure'])drawTelemetryChart($(group+'-chart'),samples,stabilityChannels.filter(c=>c.group===group),end,Number($('time-window').value),visible);
   if(replay){$('replay-time').textContent=last?new Date(last.time).toLocaleTimeString('zh-CN',{hour12:false}):'空记录';$('replay-position').value=replayIndex;}
   drawPid();drawStability();
 }
@@ -131,11 +205,12 @@ $('record').onclick=()=>{if(recording){recording=false;}else{recorded=[];recordI
 async function saveData(csv){
   const samples=replay?replay.samples:recorded.length?recorded:live.samples;
   if(!samples.length){state('暂无设备数据可导出');return;}
-  const content=csv?P.csv(samples,device.channels):JSON.stringify({schema:1,device:device.id,identity:replay?replay.identity:recorded.length?recordIdentity:live.identity,created_at:new Date().toISOString(),source:'RTT status snapshots',samples},null,2);
+
+  const content=csv?P.csv(samples,stabilityChannels):JSON.stringify({schema:2,pressureUnit:'mmHg',pressureSource:'device-native',device:device.id,identity:replay?replay.identity:recorded.length?recordIdentity:live.identity,created_at:new Date().toISOString(),source:'RTT status snapshots',samples},null,2);
   if(await window.tps.invoke(csv?'save-csv':'save-recording',{content}))showSuccess('保存成功',csv?'已导出设备快照 CSV。':'已保存记录，可离线回放。');
 }
 $('export-session').onclick=()=>task(()=>saveData(false));$('export-csv').onclick=()=>task(()=>saveData(true));
-$('load-session').onclick=()=>task(async()=>{if(recording){state('请先停止录制');return;}const r=await window.tps.invoke('load-recording');if(!r)return;replay=P.validateRecording(r,device);monitoring=false;replayIndex=0;replayPlaying=false;frozen=false;$('replay-position').max=Math.max(0,replay.samples.length-1);render();updateIdentity();draw();state('离线回放 · 不发送设备命令');});
+$('load-session').onclick=()=>task(async()=>{if(recording){state('请先停止录制');return;}const r=await window.tps.invoke('load-recording');if(!r)return;replay=P.validateRecording(r,device);if(replay.schema===2&&replay.pressureSource!=='device-native'){const legacy=stabilityChannels.filter(c=>c.group==='pressure').map(c=>({...c,scale:1/Stability.KPA_TO_MMHG}));replay={...replay,samples:replay.samples.map(s=>Stability.convertSample(s,legacy))};}monitoring=false;replayIndex=0;replayPlaying=false;frozen=false;$('replay-position').max=Math.max(0,replay.samples.length-1);render();updateIdentity();draw();state('离线回放 · 不发送设备命令');});
 $('return-live').onclick=()=>{replay=null;replayPlaying=false;monitoring=connected;render();updateIdentity();draw();};
 $('replay-position').oninput=()=>{replayIndex=Number($('replay-position').value);replayPlaying=false;$('play-replay').textContent='播放';draw();};
 $('play-replay').onclick=()=>{if(!replay?.samples.length)return;replayPlaying=!replayPlaying;if(replayPlaying){if(replayIndex===replay.samples.length-1)replayIndex=0;replayStart=replay.samples[replayIndex].time;replayHostStart=Date.now();}$('play-replay').textContent=replayPlaying?'暂停':'播放';};
@@ -149,9 +224,9 @@ window.tps.onEvent((event,value)=>{
   if(event==='log')append('flash-log',value);
   if(event==='progress'){const labels=['','连接、下载及校验','核对完整 Flash 回读','Flash 回读 SHA256 一致'];for(const prefix of ['','power-']){$(prefix+'progress').value=value;$(prefix+'progress-label').textContent=labels[value];}}
   if(event==='rtt-log')ingest(value);
-  if(event==='rtt-state'){connected=!!value;if(!connected){monitoring=false;recording=false;pidStream=false;stability?.disconnect();for(const job of pidPending.values()){clearTimeout(job.timer);job.reject(Error('RTT 已断开'));}pidPending.clear();live.disconnect();decoder.reset();}render();updateIdentity();draw();}
+  if(event==='rtt-state'){connected=!!value;if(!connected){statusRetryAt=0;if(holdSession||holdBusy){clearHold();$('hold-result').textContent='RTT 已断开，固件将在续期超时后停泵放气。';}monitoring=false;recording=false;pidStream=false;stability?.disconnect();for(const job of pidPending.values()){clearTimeout(job.timer);job.reject(Error('RTT 已断开'));}pidPending.clear();live.disconnect();decoder.reset();}render();updateIdentity();draw();}
 });
-setInterval(async()=>{if(connected&&monitoring&&!replay&&!busy&&!polling){try{await query('status');}catch(e){state('采集请求失败：'+e.message,true);monitoring=false;render();}}},200);
+setInterval(async()=>{if(connected&&monitoring&&!replay&&!busy&&!pidBusy&&!polling&&Date.now()>=statusRetryAt){statusRetryAt=Date.now()+2000;try{await query('status');}catch(e){state('采集请求失败：'+e.message,true);monitoring=false;render();}}},200);
 setInterval(()=>{
   stability?.tick();
   if(replayPlaying&&replay?.samples.length){const t=replayStart+Date.now()-replayHostStart;while(replayIndex<replay.samples.length-1&&replay.samples[replayIndex+1].time<=t)replayIndex++;if(replayIndex===replay.samples.length-1){replayPlaying=false;$('play-replay').textContent='播放';}}
@@ -174,7 +249,7 @@ function configureStages(){
     tr.append(actions);$('pid-stage-rows').append(tr);
   }
 }
-function selectStageChart(g){selectPidMode('pressure');$('pid-group').value=g.target+':'+g.profile;fillPid();drawPid();$('pid-tab').click();$('pid-analysis').scrollIntoView({behavior:'smooth',block:'start'});}
+async function selectStageChart(g){selectPidMode('pressure');$('pid-group').value=g.target+':'+g.profile;fillPid();drawPid();$('pid-tab').click();$('pid-analysis').scrollIntoView({behavior:'smooth',block:'start'});if(connected&&!replay&&!pidStream)await setPidStream(1);}
 function fillStage(g,v){const key=g.target+':'+g.profile;pidCache.set(key,v);for(const k of ['kp','ki','kd'])$(`stage-${key}-${k}`).value=v[k];$('stage-state-'+key).textContent='设备已确认';if($('pid-group').value===key)fillPid();}
 function resetStages(){for(const g of pidGroups.filter(g=>g.target<3)){for(const k of ['kp','ki','kd'])$(`stage-${g.target}:${g.profile}-${k}`).value='';$('stage-state-'+g.target+':'+g.profile).textContent='未读取';}}
 async function requestStage(g,write){const key=g.target+':'+g.profile,args=[g.target,g.profile];
@@ -183,7 +258,7 @@ async function requestStage(g,write){const key=g.target+':'+g.profile,args=[g.ta
   try{const v=await pidCall(write?'set':'get',args);if(v.target!==g.target||v.profile!==g.profile||!['kp','ki','kd'].every(k=>Number.isFinite(v[k])))throw Error('参数回执与请求组不一致');fillStage(g,v);return v;}
   catch(e){$('stage-state-'+key).textContent=write?'未确认，请读取':'读取失败';throw e;}
 }
-async function stageAction(g,write){if(pidBusy)return;pidBusy=true;render();try{const v=await requestStage(g,write);state(g.name+(write?'参数已生效':'参数已读取'),false,true);if(write)showSuccess('阶段 PID 应用成功',`${g.name}\nKp ${v.kp} / Ki ${v.ki} / Kd ${v.kd}\n设备已执行并回读。仅RAM生效，重启恢复默认。`);}catch(e){showFailure('阶段 PID 操作失败',e);}finally{pidBusy=false;render();}}
+async function stageAction(g,write){if(pidBusy)return;pidBusy=true;render();try{const v=await requestStage(g,write);state(g.name+(write?'参数已生效':'参数已读取'),false,true);if(write)showSuccess('阶段 PID 应用成功',`${g.name}\nKp ${v.kp} / Ki ${v.ki} / Kd ${v.kd}\n设备已执行并回读。${v.volatile===0?'已写入 EEPROM，重启后保留。':'本次仅在 RAM 生效。'}`);}catch(e){showFailure('阶段 PID 操作失败',e);}finally{pidBusy=false;render();}}
 $('pid-read-all').onclick=async()=>{if(pidBusy)return;pidBusy=true;render();let count=0;try{for(const g of pidGroups.filter(g=>g.target<3)){await requestStage(g,false);count++;}state('六组阶段 PID 已全部读取',false,true);showSuccess('阶段 PID 读取成功','单眼、双眼的升压、保压、脉冲共六组参数已读取。');}catch(e){showFailure('读取阶段 PID 未完成',`已完成 ${count}/6 组。${e.message}`);}finally{pidBusy=false;render();}};
 function pidCall(operation,args){
   if(!connected||replay)return Promise.reject(Error('请先连接实时设备'));
@@ -196,7 +271,7 @@ function pidCall(operation,args){
 async function pidAction(write){if(pidBusy)return;const g=currentPid();if(!g)return;pidBusy=true;render();
   try{const args=[g.target,g.profile];if(write){const values=['kp','ki','kd'].map(k=>{if(!$('pid-'+k).value.trim())throw Error('请填写全部增益参数');return Number($('pid-'+k).value);});if(values.some(v=>!Number.isFinite(v)||v<0||v>1000))throw Error('增益必须为 0–1000 的有限数值');args.push(...values);}
     const v=await pidCall(write?'set':'get',args);if(v.target!==g.target||v.profile!==g.profile||!['kp','ki','kd'].every(k=>Number.isFinite(v[k])))throw Error('设备参数回执与请求不一致');
-    pidCache.set(g.target+':'+g.profile,v);if(g.target<3)fillStage(g,v);fillPid();state(g.name+(write?'参数已生效':'参数已读取'),false,true);if(write)showSuccess('参数应用成功',`${g.name}\nKp ${v.kp} / Ki ${v.ki} / Kd ${v.kd}\n下位机已执行并回读，重启恢复默认。`);
+    pidCache.set(g.target+':'+g.profile,v);if(g.target<3)fillStage(g,v);fillPid();state(g.name+(write?'参数已生效':'参数已读取'),false,true);if(write)showSuccess('参数应用成功',`${g.name}\nKp ${v.kp} / Ki ${v.ki} / Kd ${v.kd}\n下位机已执行并回读。${v.volatile===0?'已写入 EEPROM，重启后保留。':'本次仅在 RAM 生效。'}`);
   }catch(e){showFailure('PID 参数操作失败',e);$('pid-result').textContent=e.message;}finally{pidBusy=false;render();}
 }
 function drawPid(){const g=currentPid();if(!g)return;const samples=replay?[]:pidHistory.get(g.target+':'+g.profile)||[],last=samples.at(-1),end=frozen?frozenEnd:Date.now();
@@ -204,11 +279,14 @@ function drawPid(){const g=currentPid();if(!g)return;const samples=replay?[]:pid
   $('pid-freshness').textContent=replay?'离线记录不含 PID 流':stale?'等待当前组实时数据':'PID 设备实测 · 10 Hz';$('pid-freshness').className='tag '+(stale?'muted':'');
   const chart=(id,keys,colors)=>{const channels=keys.map((id,i)=>({id,color:colors[i]}));drawTelemetryChart($(id),samples,channels,end,Number($('time-window').value),new Set(keys));};
   chart('pid-response-chart',['setpoint','measurement','error'],['#d6813a','#168b96','#b44c6e']);chart('pid-output-chart',['p','i','d','output','mapped'],['#d6813a','#168b96','#b44c6e','#586cbb','#777']);
-  $('pid-values').textContent=last?`${g.name}${stale?' · 历史快照':''}\n目标(橙) ${last.values.setpoint}  实测(青) ${last.values.measurement}  误差(红) ${last.values.error}\nP(橙) ${last.values.p}  I(青) ${last.values.i}  D(红) ${last.values.d}\nPID输出(蓝) ${last.values.output}  映射输出(灰) ${last.values.mapped}\n运行增益 ${last.values.kp} / ${last.values.ki} / ${last.values.kd}`:'暂无当前参数组的 PID 实测数据';
+  const unit=g.target<3?'mmHg':'°C';
+  const responseValue=field=>`${last.values[field].toFixed(2)} ${unit}`;
+  $('pid-values').textContent=last?`${g.name}${stale?' · 历史快照':''}\n目标(橙) ${responseValue('setpoint')}  实测(青) ${responseValue('measurement')}  误差(红) ${responseValue('error')}\nP(橙) ${last.values.p}  I(青) ${last.values.i}  D(红) ${last.values.d}\nPID输出(蓝) ${last.values.output}  映射输出(灰) ${last.values.mapped}\n运行增益 ${last.values.kp} / ${last.values.ki} / ${last.values.kd}`:'暂无当前参数组的 PID 实测数据';
 }
 $('pid-heat').onclick=()=>selectPidMode('heat');$('pid-pressure').onclick=()=>selectPidMode('pressure');$('pid-group').onchange=()=>{fillPid();drawPid();};
 $('pid-read').onclick=()=>pidAction(false);$('pid-write').onclick=()=>pidAction(true);
-for(const enabled of [0,1])$('pid-stream-'+(enabled?'on':'off')).onclick=async()=>{pidBusy=true;render();try{const v=await pidCall('stream',[enabled]);if(v.stream!==enabled)throw Error('数据流回执不一致');pidStream=!!enabled;state(enabled?'PID 实时数据流已开启':'PID 实时数据流已关闭',false,true);}catch(e){showFailure('PID 数据流操作失败',e);}finally{pidBusy=false;render();}};
+async function setPidStream(enabled){if(pidBusy)return;pidBusy=true;render();try{const v=await pidCall('stream',[enabled]);if(v.stream!==enabled)throw Error('数据流回执不一致');pidStream=!!enabled;state(enabled?'PID 实时数据流已开启':'PID 实时数据流已关闭',false,true);}catch(e){showFailure('PID 数据流操作失败',e);}finally{pidBusy=false;render();}}
+for(const enabled of [0,1])$('pid-stream-'+(enabled?'on':'off')).onclick=()=>setPidStream(enabled);
 function drawStability(){
   if(!device)return;const now=Date.now(),end=stability?.end??now,history=stability?.history??[];
   for(const group of ['temperature','pressure']){const channels=stabilityChannels.filter(c=>c.group===group);drawTelemetryChart($('stability-'+group+'-chart'),history,channels,end,Number($('stability-window').value),new Set(channels.map(c=>c.id)));}
@@ -225,7 +303,7 @@ function drawStability(){
   if(r.result!=='RUNNING'&&!stabilityNotified){stabilityNotified=true;render();if(r.result==='PASS')showSuccess('稳定性测试通过',`完成 ${(r.elapsedMs/60000).toFixed(1)} 分钟观察，共 ${r.samples} 个有效快照。\n配置阈值内未发现异常，可导出报告。`);else if(r.result==='FAIL')showFailure('稳定性测试未通过',`异常事件 ${r.eventCount} 次，请查看测试记录并导出报告。`);else state('稳定性测试已手动结束，未完成预定时长');}
 }
 $('stability-start').onclick=()=>{try{if(!connected||replay||!live.latest()||Date.now()-live.latest().time>1500||!live.identity.app)throw Error('请先连接设备并取得身份和新鲜状态快照');
-  const limits={};for(const c of device.channels)limits[c.id]=['min','max'].map(k=>{const text=$('limit-'+c.id+'-'+k).value;if(!text.trim())throw Error('请填写测点上下限');return Number(text);});
+  const limits={};for(const c of stabilityChannels)limits[c.id]=['min','max'].map(k=>{const text=$('limit-'+c.id+'-'+k).value;if(!text.trim())throw Error('请填写测点上下限');return Number(text);});
   stability=new Stability.Run({durationMs:Number($('stability-minutes').value)*60000,gapMs:Number($('stability-gap').value)*1000,limits},stabilityChannels,live.identity);stabilityNotified=false;monitoring=true;render();drawStability();state('稳定性测试已开始');
 }catch(e){showFailure('无法开始稳定性测试',e);}};
 $('stability-stop').onclick=()=>{stability?.finish(true);drawStability();render();};

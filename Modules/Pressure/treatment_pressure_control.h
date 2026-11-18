@@ -66,6 +66,7 @@ void TreatmentPressureControl_ProfileGains(uint8_t dual, TreatmentPressurePidSta
 uint8_t TreatmentPressureControl_SetProfileGains(uint32_t profile, uint32_t stage,
                                                 float kp, float ki, float kd);
 void TreatmentPressureControl_GetProfileGains(uint32_t profile, uint32_t stage, float gains[3]);
+void TreatmentPressureControl_SetPumpPwmOutput(uint16_t pwm);
 void TreatmentPressureControl_GetPwmLimits(uint32_t *minimum, uint32_t *maximum);
 
 #ifdef __cplusplus

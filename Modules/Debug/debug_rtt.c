@@ -38,7 +38,18 @@ static void pid_command(void) {
     }
     if(!values[0]) goto invalid;
     cmd.request_id=(uint32_t)values[0];
-    if(!strcmp(tokens[1],"stream") && n==4 && values[1]<=1) {
+    if(!strcmp(tokens[1],"hold") && n==5 &&
+       ((values[1]==0 && values[2]==0) ||
+        (values[1]>=1 && values[1]<=3 && values[2]>=1 && values[2]<=550) ||
+        (values[1]==4 && values[2]>=1))) {
+        cmd.id=CTRL_CMD_BENCH_HOLD;
+        cmd.pid_profile=(uint8_t)values[1];
+        cmd.kp=(float)values[2];
+    } else if(!strcmp(tokens[1],"pump") && n==4 &&
+       (values[1]==0 || (values[1]>=30 && values[1]<=50))) {
+        cmd.id=CTRL_CMD_BENCH_PUMP;
+        cmd.enabled=(uint8_t)values[1];
+    } else if(!strcmp(tokens[1],"stream") && n==4 && values[1]<=1) {
         cmd.id=CTRL_CMD_PID_STREAM_ENABLE; cmd.enabled=(uint8_t)values[1];
     } else if((!strcmp(tokens[1],"get") && n==5) || (!strcmp(tokens[1],"set") && n==8)) {
         if(values[1]>4 || !((values[1]<3 && values[2]<2) || (values[1]>=3 && values[2]==2))) goto invalid;
