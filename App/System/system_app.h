@@ -76,6 +76,7 @@ typedef enum
     CTRL_CMD_PID_GET_GAINS,
     CTRL_CMD_BENCH_PUMP,
     CTRL_CMD_BENCH_HOLD,
+    CTRL_CMD_RK_BENCH,
 } ctrl_cmd_id_t;
 
 /**
@@ -89,6 +90,8 @@ typedef enum
 typedef struct
 {
     ctrl_cmd_id_t id;
+    uint16_t bench_command;
+    uint8_t bench_payload[23];
     control_config_t cfg;
     pid_debug_target_t pid_target;
     float kp;
@@ -174,6 +177,7 @@ typedef enum
     TX_DATA_TEXT = 3,
     TX_DATA_U16 = 4,
     TX_DATA_U32 = 5,
+    TX_DATA_BENCH = 6,
 } tx_data_type_t;
 
 /**
@@ -186,6 +190,7 @@ typedef struct
 {
     uint16_t frame_id;
     tx_data_type_t type;
+    uint8_t length;
     union
     {
         float f32;

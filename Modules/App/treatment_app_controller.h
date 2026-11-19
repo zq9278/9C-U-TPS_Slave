@@ -57,6 +57,8 @@ typedef struct
 typedef struct
 {
     control_config_t cfg;
+    uint8_t bench_hold_override;
+    float bench_hold_gains[3];
     PidController pressure_pid;
     PidController heat_left_pid;
     PidController heat_right_pid;

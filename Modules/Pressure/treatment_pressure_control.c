@@ -401,7 +401,12 @@ static void TreatmentPressureControl_ApplyProfile(TreatmentAppController *contro
     gains = TreatmentPressureControl_SelectStageGains(
         TreatmentPressureControl_SelectProfile(profile_kind), stage);
 
-    PidController_SetGains(&controller->pressure_pid, gains->kp, gains->ki, gains->kd);
+    if (controller->bench_hold_override && stage == TREATMENT_PRESS_PID_STAGE_HOLD) {
+        const float *g = controller->bench_hold_gains;
+        PidController_SetGains(&controller->pressure_pid, g[0], g[1], g[2]);
+    } else {
+        PidController_SetGains(&controller->pressure_pid, gains->kp, gains->ki, gains->kd);
+    }
     PidController_Reset(&controller->pressure_pid);
     controller->active_pressure_stage = stage;
     controller->active_pressure_profile_kind = (uint8_t)profile_kind;

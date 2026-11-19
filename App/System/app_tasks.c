@@ -582,6 +582,9 @@ static float Rk3576TelemetryFilter_GetTempRight(const void *state_ptr,
 }
 
 /* 协议层回调：将 UART3 解析出的业务帧投递给 AppTask。 */
+#include <math.h>
+#include "App/System/rk3576_bench.inc"
+
 static void OnProtocolFrame(void *context,
                             CommunicationInterfaceId interface_id,
                             const CommunicationFrameView *frame)
@@ -596,6 +599,10 @@ static void OnProtocolFrame(void *context,
         return;
     }
 
+    if (frame->frame_id >= BENCH_START_AGE && frame->frame_id <= BENCH_QUERY) {
+        if (gCtrlCmdQueue) BenchReceive(frame);
+        return;
+    }
     (void)memset(&cmd, 0, sizeof(cmd));
 
     if (Rk3576Protocol_FrameToAppCommand(frame, &cmd) == 0U)
@@ -843,6 +850,10 @@ static void CommTxTask(void *argument)
 
         switch (tx.type)
         {
+        case TX_DATA_BENCH:
+            (void)Communication_SendFrame(COMM_INTERFACE_RK3576_UART3, tx.frame_id, BENCH_DATA,
+                                          (const uint8_t *)tx.v.text, tx.length);
+            break;
         case TX_DATA_UINT8:
             (void)Communication_SendU8(tx.frame_id, tx.v.u8);
             break;
@@ -935,6 +946,7 @@ static void ControlTask(void *argument)
     TickType_t next_pid_debug_tx;
     uint8_t telemetry_filter_active = 0U;
     uint8_t telemetry_tx_enabled = 0U;
+    RkBench rk_bench = {0};
     uint8_t bench_pwm = 0U;
     TickType_t bench_end = 0U;
     TickType_t hold_deadline = 0U;
@@ -959,6 +971,16 @@ static void ControlTask(void *argument)
 
         while (xQueueReceive(gCtrlCmdQueue, &cmd, 0U) == pdTRUE)
         {
+            if (cmd.id == CTRL_CMD_RK_BENCH) {
+                BenchCommand(&rk_bench, &controller, &cmd, now,
+                    !hold_session && !bench_pwm && !s_upgrade_requested &&
+                    BenchPumpAllowed(&controller, now) &&
+                    gSensorData.pressL < 550.0f && gSensorData.pressR < 550.0f);
+                continue;
+            }
+            if (rk_bench.active && (cmd.id == CTRL_CMD_STOP || cmd.id == CTRL_CMD_START ||
+                                   cmd.id == CTRL_CMD_PAUSE))
+                BenchFinish(&rk_bench, &controller, now, 1);
             if (cmd.id == CTRL_CMD_BENCH_HOLD)
             {
                 char reply[112];
@@ -973,7 +995,7 @@ static void ControlTask(void *argument)
                 } else if (cmd.pid_profile == 4U) {
                     accepted = safe && hold_session != 0U && hold_session == (uint32_t)cmd.kp &&
                         (int32_t)(now - hold_deadline) < 0;
-                } else if (safe && hold_session == 0U && bench_pwm == 0U) {
+                } else if (safe && hold_session == 0U && bench_pwm == 0U && !rk_bench.active) {
                     hold_route = cmd.pid_profile;
                     hold_target_mmhg = cmd.kp;
                     hold_session = cmd.request_id;
@@ -991,12 +1013,12 @@ static void ControlTask(void *argument)
             {
                 char reply[96];
                 const bool accepted = cmd.enabled == 0U ||
-                    (bench_pwm == 0U && hold_session == 0U && !s_upgrade_requested &&
+                    (bench_pwm == 0U && hold_session == 0U && !rk_bench.active && !s_upgrade_requested &&
                      BenchPumpAllowed(&controller, now));
                 if (accepted) {
                     bench_pwm = cmd.enabled;
                     bench_end = now + pdMS_TO_TICKS(2000U);
-                    if (bench_pwm == 0U && !controller.cfg.running)
+                    if (bench_pwm == 0U && !controller.cfg.running && !rk_bench.active)
                         TreatmentPressureControl_SetPumpPwmOutput(0U);
                 }
                 int len = snprintf(reply, sizeof(reply), "RTT> PID ack=%lu ok=%u reason=%s\r\n",
@@ -1013,6 +1035,7 @@ static void ControlTask(void *argument)
         }
 
         if (s_upgrade_requested) {
+            BenchFinish(&rk_bench, &controller, now, 2);
             hold_session = 0U;
             bench_pwm = 0U;
             TreatmentAppController_SetSystemIdleOutputs();
@@ -1047,7 +1070,21 @@ static void ControlTask(void *argument)
             ((int32_t)(now - hold_deadline) >= 0 || !BenchPumpAllowed(&controller, now) ||
              gSensorData.pressL >= 550.0f || gSensorData.pressR >= 550.0f))
             hold_session = 0U;
-        if (hold_session != 0U) {
+        if (rk_bench.active) {
+            if (!gSensorData.pressure_tick ||
+                now - gSensorData.pressure_tick > pdMS_TO_TICKS(100U))
+                BenchFinish(&rk_bench, &controller, now, 3);
+            else if (!BenchPumpAllowed(&controller, now) ||
+                     gSensorData.pressL >= 550.0f || gSensorData.pressR >= 550.0f)
+                BenchFinish(&rk_bench, &controller, now, 2);
+            else if ((uint32_t)(now - rk_bench.start) * portTICK_PERIOD_MS >= rk_bench.duration_s * 1000U)
+                BenchFinish(&rk_bench, &controller, now, 0);
+            else if ((int32_t)(now - rk_bench.lease) >= 0)
+                BenchFinish(&rk_bench, &controller, now, 4);
+        }
+        if (rk_bench.active) {
+            BenchRun(&rk_bench, &controller, now, dt_s, &runtime);
+        } else if (hold_session != 0U) {
             const TreatmentPressurePlan plan = {
                 .phase = TREATMENT_PHASE_HOLD,
                 .pid_stage = TREATMENT_PRESS_PID_STAGE_HOLD,
