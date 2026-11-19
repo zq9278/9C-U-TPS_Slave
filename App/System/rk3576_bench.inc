@@ -7,13 +7,14 @@
 #define BENCH_ACK 0x11D0U
 #define BENCH_STATUS 0x11D1U
 #define BENCH_RESULT 0x11D2U
+#define BENCH_TEMPERATURE 0x11D3U
 
 typedef struct {
     uint32_t id, duration_s, valid_ms, cycles, elapsed_s;
     TickType_t start, lease, report, last_sample;
     uint8_t active, leak, route, reason, phase;
-    bool settled;
-    float target, weighted_pwm, peak_pwm;
+    bool settled, heating, heat_ready;
+    float target, temp_target, weighted_pwm, peak_pwm;
     uint32_t on_ms;
 } RkBench;
 
@@ -55,11 +56,17 @@ static void BenchFinish(RkBench *b, TreatmentAppController *controller,
     if (!b->active) return;
     const uint32_t ms = (uint32_t)(now - b->start) * portTICK_PERIOD_MS;
     b->elapsed_s = ms / 1000U;
-    b->cycles = b->leak ? 0U : ms / TREATMENT_CYCLE_MS;
+    b->cycles = b->leak || (b->heating && !b->heat_ready) ? 0U :
+        ((uint32_t)(now - controller->wave_anchor_tick) * portTICK_PERIOD_MS) / TREATMENT_CYCLE_MS;
     b->reason = reason;
     b->active = 0U;
     controller->bench_hold_override = false;
     TreatmentAppController_SetSystemIdleOutputs();
+    if (b->heating) {
+        TreatmentHeatingControl_ResetPid(controller);
+        TreatmentHeatingControl_UpdateSetpoint(controller);
+        send_sensor_mode(TEMP_ACQUIRE_MODE_IDLE, 0U);
+    }
     TreatmentPressureControl_ResetPid(controller);
     BenchResult(b);
 }
@@ -77,6 +84,15 @@ static void BenchStatus(const RkBench *b, float pwm)
     memcpy(p + 18, &right, 4);
     memcpy(p + 22, &pwm, 4);
     BenchSend(BENCH_STATUS, p, sizeof(p));
+    if (b->heating) {
+        uint8_t temperature[13];
+        const float left_c = gSensorData.tempL, right_c = gSensorData.tempR;
+        memcpy(temperature, &b->id, 4);
+        temperature[4] = b->heat_ready;
+        memcpy(temperature + 5, &left_c, 4);
+        memcpy(temperature + 9, &right_c, 4);
+        BenchSend(BENCH_TEMPERATURE, temperature, sizeof(temperature));
+    }
 }
 
 static void BenchReceive(const CommunicationFrameView *frame)
@@ -85,7 +101,9 @@ static void BenchReceive(const CommunicationFrameView *frame)
     const uint16_t id = frame->frame_id;
     ctrl_cmd_t cmd = {.id = CTRL_CMD_RK_BENCH, .bench_command = id};
     if (frame->payload_length >= 4U) memcpy(&cmd.request_id, frame->payload, 4);
-    if (frame->data_type != BENCH_DATA || frame->payload_length != lengths[id - BENCH_START_AGE] ||
+    const bool valid_length = frame->payload_length == lengths[id - BENCH_START_AGE] ||
+                              (id == BENCH_START_AGE && frame->payload_length == 16U);
+    if (frame->data_type != BENCH_DATA || !valid_length ||
         !cmd.request_id) {
         BenchAck(cmd.request_id, id, 1);
         return;
@@ -125,13 +143,18 @@ static void BenchCommand(RkBench *b, TreatmentAppController *controller,
     }
     const uint8_t *p = cmd->bench_payload;
     const uint8_t route = leak ? 3U : p[4];
+    const uint8_t heat = leak ? 0U : p[11];
+    float temp_target = 0.0f;
+    if (heat) memcpy(&temp_target, p + 12, sizeof(temp_target));
     uint16_t target;
     uint32_t seconds;
     float gains[3];
     memcpy(&target, p + (leak ? 4 : 5), 2);
     memcpy(&seconds, p + (leak ? 6 : 7), 4);
     if (route < 1U || route > 3U || target < 1U || target > 550U ||
-        seconds < 1U || seconds > 86400U || (leak && p[10] > 1U)) {
+        seconds < 1U || seconds > 86400U || (leak && p[10] > 1U) ||
+        heat > 1U || (heat && !(temp_target >= 25.0f && temp_target <= 42.0f &&
+                                temp_target < APP_SAFETY_OVER_TEMP_LIMIT_C))) {
         BenchAck(id, op, 1);
         return;
     }
@@ -145,18 +168,28 @@ static void BenchCommand(RkBench *b, TreatmentAppController *controller,
     } else if (leak) {
         TreatmentPressureControl_GetProfileGains(1, TREATMENT_PRESS_PID_STAGE_HOLD, gains);
     }
-    if (!available) {
+    if (!available || (heat && (((route & 1U) && !gSensorData.heaterPresentL) ||
+                               ((route & 2U) && !gSensorData.heaterPresentR)))) {
         BenchAck(id, op, 3);
         return;
     }
     *b = (RkBench){.id = id, .duration_s = seconds, .start = now,
         .lease = now + pdMS_TO_TICKS(3000U), .report = now,
-        .active = 1, .leak = leak, .route = route, .target = target};
+        .active = 1, .leak = leak, .route = route, .target = target,
+        .heating = heat, .temp_target = temp_target};
     TreatmentAppController_SetSystemIdleOutputs();
     TreatmentPressureControl_ResetPid(controller);
     controller->wave_anchor_tick = now;
     controller->bench_hold_override = leak;
     if (leak) memcpy(controller->bench_hold_gains, gains, sizeof(gains));
+    if (heat) {
+        const control_config_t heat_cfg = {
+            .press_enable_L = (route & 1U) != 0,
+            .press_enable_R = (route & 2U) != 0
+        };
+        TreatmentHeatingControl_ResetPid(controller);
+        send_sensor_mode(resolve_temperature_mode(&heat_cfg), 0U);
+    }
     BenchAck(id, op, 0);
 }
 
@@ -165,7 +198,33 @@ static void BenchRun(RkBench *b, TreatmentAppController *controller, TickType_t 
 {
     const uint32_t ms = (uint32_t)(now - b->start) * portTICK_PERIOD_MS;
     b->elapsed_s = ms / 1000U;
-    b->cycles = b->leak ? 0U : ms / TREATMENT_CYCLE_MS;
+    if (b->heating) {
+        const float left_c = gSensorData.tempL, right_c = gSensorData.tempR;
+        if (((b->route & 1U) && (!gSensorData.heaterPresentL || left_c >= APP_SAFETY_OVER_TEMP_LIMIT_C)) ||
+            ((b->route & 2U) && (!gSensorData.heaterPresentR || right_c >= APP_SAFETY_OVER_TEMP_LIMIT_C))) {
+            memset(runtime, 0, sizeof(*runtime));
+            BenchFinish(b, controller, now, 2);
+            return;
+        }
+        const bool valid =
+            (!(b->route & 1U) || (left_c >= 0.0f && left_c < APP_SAFETY_OVER_TEMP_LIMIT_C)) &&
+            (!(b->route & 2U) || (right_c >= 0.0f && right_c < APP_SAFETY_OVER_TEMP_LIMIT_C));
+        if (!valid) {
+            memset(runtime, 0, sizeof(*runtime));
+            if (b->heat_ready || ms >= 5000U) BenchFinish(b, controller, now, 3);
+            else if ((int32_t)(now - b->report) >= 0) {
+                b->report = now + pdMS_TO_TICKS(500U);
+                BenchStatus(b, 0.0f);
+            }
+            return;
+        }
+        if (!b->heat_ready) {
+            b->heat_ready = true;
+            controller->wave_anchor_tick = now;
+        }
+    }
+    b->cycles = b->leak ? 0U :
+        ((uint32_t)(now - controller->wave_anchor_tick) * portTICK_PERIOD_MS) / TREATMENT_CYCLE_MS;
     TreatmentPressurePlan plan = {.phase = TREATMENT_PHASE_HOLD,
         .pid_stage = TREATMENT_PRESS_PID_STAGE_HOLD, .inflating = 1,
         .target_pressure_kpa = b->target};
@@ -176,6 +235,11 @@ static void BenchRun(RkBench *b, TreatmentAppController *controller, TickType_t 
     if (!b->leak) TreatmentPressureControl_BuildPlan(controller, now, &plan);
     memset(runtime, 0, sizeof(*runtime));
     TreatmentPressureControl_ApplyPlan(controller, &gSensorData, dt, &plan, runtime);
+    if (b->heating) {
+        controller->cfg.temp_target = b->temp_target;
+        TreatmentHeatingControl_UpdateSetpoint(controller);
+        TreatmentHeatingControl_ApplyOutputs(controller, &gSensorData, dt, runtime);
+    }
     controller->cfg = saved;
     runtime->session_active = 0;
     b->phase = plan.phase == TREATMENT_PHASE_CYCLE_VENT ? 5U : (uint8_t)plan.phase;
